@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["s*-l*"]
+  pull_request:
+
+jobs:
+  dotnet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: dotnet build CrowdFunding.slnx
+      - run: dotnet test CrowdFunding.slnx --no-build
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: fmt and validate every layer that has Terraform files
+        run: |
+          terraform fmt -check -recursive infra
+          for dir in infra/bootstrap infra/env; do
+            if ls "$dir"/*.tf >/dev/null 2>&1; then
+              terraform -chdir="$dir" init -backend=false -input=false
+              terraform -chdir="$dir" validate
+            fi
+          done
