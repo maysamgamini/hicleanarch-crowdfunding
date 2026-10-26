@@ -16,6 +16,8 @@ jobs:
           global-json-file: global.json
       - run: dotnet build CrowdFunding.slnx
       - run: dotnet test CrowdFunding.slnx --no-build
+      - name: The image builds
+        run: docker build -q -t crowdfunding-api:ci .
 
   terraform:
     runs-on: ubuntu-latest

@@ -1,0 +1,124 @@
+resource "aws_ecs_cluster" "main" {
+  name = "${var.project}-sandbox"
+}
+
+resource "aws_cloudwatch_log_group" "api" {
+  name              = "/${var.project}/sandbox/api"
+  retention_in_days = 1
+}
+
+locals {
+  # The running program gets only the modules' connection strings; the owner's goes to the
+  # migration task alone.
+  module_secrets = [
+    { name = "ConnectionStrings__Campaigns", valueFrom = aws_secretsmanager_secret.connection["campaigns"].arn },
+  ]
+  owner_secret = { name = "ConnectionStrings__Owner", valueFrom = aws_secretsmanager_secret.connection["owner"].arn }
+
+  api_container = {
+    name      = "api"
+    image     = var.image
+    essential = true
+    portMappings = [{
+      containerPort = 8080
+      protocol      = "tcp"
+    }]
+    environment = [
+      { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://localhost:4317" },
+      { name = "OTEL_SERVICE_NAME", value = "crowdfunding-api" },
+    ]
+    secrets = local.module_secrets
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.api.name
+        awslogs-region        = var.region
+        awslogs-stream-prefix = "api"
+      }
+    }
+  }
+
+  # The AWS Distro for OpenTelemetry collector, with its built-in ECS configuration: it receives
+  # OTLP on localhost:4317 and exports traces to X-Ray and metrics to CloudWatch.
+  collector_container = {
+    name      = "otel-collector"
+    image     = var.collector_image
+    essential = false
+    command   = ["--config=/etc/ecs/ecs-default-config.yaml"]
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = {
+        awslogs-group         = aws_cloudwatch_log_group.api.name
+        awslogs-region        = var.region
+        awslogs-stream-prefix = "collector"
+      }
+    }
+  }
+}
+
+resource "aws_ecs_task_definition" "api" {
+  family                   = "${var.project}-api"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 512
+  memory                   = 1024
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.task.arn
+  container_definitions    = jsonencode([local.api_container, local.collector_container])
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+}
+
+# The same image, run once per deploy with the argument `migrate`, before the service updates.
+resource "aws_ecs_task_definition" "migrate" {
+  family                   = "${var.project}-migrate"
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = 256
+  memory                   = 512
+  execution_role_arn       = aws_iam_role.execution.arn
+  task_role_arn            = aws_iam_role.task.arn
+  container_definitions = jsonencode([merge(local.api_container, {
+    name         = "migrate"
+    command      = ["migrate"]
+    portMappings = []
+    environment  = []
+    secrets      = concat(local.module_secrets, [local.owner_secret])
+  })])
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+}
+
+resource "aws_ecs_service" "api" {
+  name            = "api"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.api.arn
+  desired_count   = var.desired_count
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = aws_subnet.public[*].id
+    security_groups  = [aws_security_group.tasks.id]
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.api.arn
+    container_name   = "api"
+    container_port   = 8080
+  }
+
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
+  }
+
+  # The migration task runs first (see the sandbox workflow); the service waits for the listener.
+  depends_on = [aws_lb_listener.http]
+}

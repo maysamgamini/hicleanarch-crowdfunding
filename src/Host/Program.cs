@@ -5,6 +5,8 @@ using BuildingBlocks.Infrastructure.Persistence;
 
 using Campaigns.Infrastructure;
 
+using CrowdFunding.Host;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // The API speaks snake_case JSON: goal_minor, campaign_id.
@@ -12,6 +14,7 @@ builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamin
 builder.Services.AddProblemDetails();
 builder.Services.AddDispatcher();
 builder.Services.AddSingleton<DatabaseMigrator>();
+builder.Services.AddTelemetry(builder.Configuration);
 
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);

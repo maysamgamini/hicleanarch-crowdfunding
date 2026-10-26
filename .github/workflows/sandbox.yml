@@ -1,0 +1,105 @@
+name: sandbox
+
+# Apply the sandbox environment, deploy the current main, smoke-test it, destroy it.
+# Needs the repository variables AWS_DEPLOY_ROLE_ARN and TF_STATE_BUCKET (outputs of infra/bootstrap).
+on:
+  workflow_dispatch:
+    inputs:
+      keep_minutes:
+        description: "Minutes to keep the environment up after the smoke test (0 = destroy at once)"
+        default: "0"
+  schedule:
+    - cron: "17 3 * * *" # nightly: destroy anything left up
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: sandbox
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  run:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push the image
+        id: image
+        run: |
+          image="${{ steps.ecr.outputs.registry }}/hicleanarch/crowdfunding-api:${GITHUB_SHA}"
+          docker build -t "$image" .
+          docker push "$image"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - name: Apply the environment
+        id: apply
+        run: |
+          start=$(date +%s)
+          terraform -chdir=infra/env init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=${{ steps.image.outputs.image }}"
+          echo "Apply took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Migrate
+        run: |
+          out() { terraform -chdir=infra/env output -raw "$1"; }
+          task=$(aws ecs run-task --cluster "$(out cluster)" --launch-type FARGATE \
+            --task-definition "$(out migrate_task_definition)" \
+            --network-configuration "awsvpcConfiguration={subnets=[$(out task_subnets)],securityGroups=[$(out task_security_group)],assignPublicIp=ENABLED}" \
+            --query 'tasks[0].taskArn' --output text)
+          aws ecs wait tasks-stopped --cluster "$(out cluster)" --tasks "$task"
+          code=$(aws ecs describe-tasks --cluster "$(out cluster)" --tasks "$task" --query 'tasks[0].containers[0].exitCode' --output text)
+          test "$code" = "0"
+
+      - name: Wait for the service
+        run: |
+          aws ecs update-service --cluster "$(terraform -chdir=infra/env output -raw cluster)" \
+            --service "$(terraform -chdir=infra/env output -raw service)" --force-new-deployment >/dev/null
+          aws ecs wait services-stable --cluster "$(terraform -chdir=infra/env output -raw cluster)" \
+            --services "$(terraform -chdir=infra/env output -raw service)"
+
+      - name: Smoke test
+        run: ./scripts/smoke.sh "$(terraform -chdir=infra/env output -raw api_url)"
+
+      - name: Keep it up for a while
+        if: inputs.keep_minutes != '0'
+        run: sleep $(( ${{ inputs.keep_minutes }} * 60 ))
+
+      - name: Destroy
+        if: always()
+        run: |
+          start=$(date +%s)
+          terraform -chdir=infra/env init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          terraform -chdir=infra/env destroy -input=false -auto-approve
+          echo "Destroy took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+
+  sweep:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - uses: hashicorp/setup-terraform@v3
+      - name: Destroy anything left up
+        run: |
+          terraform -chdir=infra/env init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          terraform -chdir=infra/env destroy -input=false -auto-approve

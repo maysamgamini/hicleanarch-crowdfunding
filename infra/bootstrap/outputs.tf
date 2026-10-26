@@ -10,3 +10,8 @@ output "ecr_repository_url" {
 output "codeartifact_repository" {
   value = "${aws_codeartifact_domain.course.domain}/${aws_codeartifact_repository.packages.repository}"
 }
+
+output "deploy_role_arn" {
+  description = "Set it as the AWS_DEPLOY_ROLE_ARN variable of the GitHub repository."
+  value       = aws_iam_role.deploy.arn
+}

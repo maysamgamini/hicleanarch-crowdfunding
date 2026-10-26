@@ -1,0 +1,5 @@
+**/bin/
+**/obj/
+.git/
+infra/
+tests/
