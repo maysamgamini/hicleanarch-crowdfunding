@@ -1,0 +1,15 @@
+# Local development: PostgreSQL 17, as on Aurora. Start with `docker compose up -d`.
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: crowdfunding
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres:/var/lib/postgresql/data
+
+volumes:
+  postgres:

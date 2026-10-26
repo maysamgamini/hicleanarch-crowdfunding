@@ -4,9 +4,15 @@ using BuildingBlocks.Infrastructure;
 using Campaigns.Application;
 using Campaigns.Domain;
 
+using BuildingBlocks.Infrastructure.Persistence;
+
+using Campaigns.Infrastructure.Persistence;
+
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Campaigns.Infrastructure;
@@ -17,10 +23,18 @@ namespace Campaigns.Infrastructure;
 /// </summary>
 public static class CampaignsModule
 {
-    public static IServiceCollection AddCampaignsModule(this IServiceCollection services) =>
-        services
+    /// <summary>The module connects as its own database role, which can reach only the campaigns schema.</summary>
+    public static IServiceCollection AddCampaignsModule(this IServiceCollection services, IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("Campaigns")
+            ?? throw new InvalidOperationException("ConnectionStrings:Campaigns is not set.");
+        services.AddDbContext<CampaignsDbContext>(db => CampaignsDbOptions.Configure((DbContextOptionsBuilder<CampaignsDbContext>)db, connectionString));
+        services.AddSingleton<IModuleMigrator, CampaignsMigrator>();
+        services.AddSingleton(new ModuleDatabase("Campaigns", CampaignsDbContext.Schema, connectionString));
+        return services
             .AddCampaignsApplication()
-            .AddSingleton<ICampaignRepository, InMemoryCampaignRepository>();
+            .AddScoped<ICampaignRepository, EfCampaignRepository>();
+    }
 
     public static IEndpointRouteBuilder MapCampaignsEndpoints(this IEndpointRouteBuilder app)
     {

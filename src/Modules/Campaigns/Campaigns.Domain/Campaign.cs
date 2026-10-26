@@ -8,36 +8,62 @@ public enum CampaignStatus
 }
 
 /// <summary>A reward tier. <see cref="Limit"/> is null for a tier with no limit.</summary>
-public sealed record Tier(TierId Id, string Title, long MinPledgeMinor, int? Limit);
+public sealed class Tier
+{
+    internal Tier(TierId id, string title, long minPledgeMinor, int? limit)
+    {
+        Id = id;
+        Title = title;
+        MinPledgeMinor = minPledgeMinor;
+        Limit = limit;
+    }
+
+    public TierId Id { get; private set; }
+
+    public string Title { get; private set; }
+
+    public long MinPledgeMinor { get; private set; }
+
+    public int? Limit { get; private set; }
+}
 
 /// <summary>What a creator asks for when adding a tier, before the rules have checked it.</summary>
 public sealed record TierDraft(string Title, long MinPledgeMinor, int? Limit);
 
-/// <summary>A creator's campaign. In this lesson it can only be created as a draft.</summary>
+/// <summary>A creator's campaign. In these lessons it can only be created as a draft.</summary>
 public sealed class Campaign
 {
-    private Campaign(CampaignId id, string title, Money goal, DateTimeOffset deadline, IReadOnlyList<Tier> tiers)
+    private readonly List<Tier> _tiers = [];
+
+    // For the persistence layer, which sets the properties itself.
+#pragma warning disable CS8618
+    private Campaign()
+    {
+    }
+#pragma warning restore CS8618
+
+    private Campaign(CampaignId id, string title, Money goal, DateTimeOffset deadline, IEnumerable<Tier> tiers)
     {
         Id = id;
         Title = title;
         Goal = goal;
         Deadline = deadline;
-        Tiers = tiers;
+        _tiers.AddRange(tiers);
         Status = CampaignStatus.Draft;
     }
 
-    public CampaignId Id { get; }
+    public CampaignId Id { get; private set; }
 
-    public string Title { get; }
+    public string Title { get; private set; }
 
-    public Money Goal { get; }
+    public Money Goal { get; private set; }
 
     /// <summary>An absolute instant, kept in UTC. The creator's time zone is only for display.</summary>
-    public DateTimeOffset Deadline { get; }
+    public DateTimeOffset Deadline { get; private set; }
 
-    public IReadOnlyList<Tier> Tiers { get; }
+    public IReadOnlyList<Tier> Tiers => _tiers;
 
-    public CampaignStatus Status { get; }
+    public CampaignStatus Status { get; private set; }
 
     /// <summary>Creates a draft, or returns every rule the request breaks.</summary>
     public static Result<Campaign> CreateDraft(string title, Money goal, DateTimeOffset deadline, IReadOnlyList<TierDraft> tiers)
@@ -68,7 +94,7 @@ public sealed class Campaign
             return Result.Failure<Campaign>(errors);
         }
 
-        var created = tiers.Select(t => new Tier(TierId.New(), t.Title.Trim(), t.MinPledgeMinor, t.Limit)).ToList();
+        var created = tiers.Select(t => new Tier(TierId.New(), t.Title.Trim(), t.MinPledgeMinor, t.Limit));
         return Result.Success(new Campaign(CampaignId.New(), title.Trim(), goal, deadline.ToUniversalTime(), created));
     }
 }

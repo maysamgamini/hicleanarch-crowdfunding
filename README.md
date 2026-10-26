@@ -18,11 +18,15 @@ git diff s2-l07              # compare with the reference end state
 ## Run it
 
 ```bash
-dotnet test                                   # every test
+docker compose up -d                          # PostgreSQL 17 on localhost:5432
+dotnet run --project src/Host -- migrate      # roles, schemas and migrations, then exit (a deploy step)
 dotnet run --project src/Host                 # the API on http://localhost:5080
 curl -X POST localhost:5080/v1/campaigns -H 'Content-Type: application/json' \
   -d '{"title":"Harbor Lights","goal_minor":5000000,"currency":"USD","deadline":"2027-03-31T23:59:00-04:00","tiers":[]}'
+dotnet test                                   # every test; the integration tests start their own PostgreSQL in Docker
 ```
+
+Each module connects as its own database role (`campaigns_app`), which can use only its own schema. `migrate` connects as the owner, creates the roles and schemas, applies each module's EF Core migrations and grants the module's role its tables.
 
 ## Layout
 

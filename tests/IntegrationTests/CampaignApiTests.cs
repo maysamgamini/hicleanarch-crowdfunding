@@ -2,14 +2,16 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
-using Microsoft.AspNetCore.Mvc.Testing;
-
 namespace IntegrationTests;
 
-/// <summary>The API, run in memory through the real host: requests in, JSON out.</summary>
-public class CampaignApiTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
+/// <summary>The API, run in memory through the real host against a real database: requests in, JSON out.</summary>
+public sealed class CampaignApiTests(Database database) : IDisposable
 {
-    private readonly HttpClient _client = factory.CreateClient();
+    private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host = database.StartHost();
+
+    private HttpClient Client => _host.CreateClient();
+
+    public void Dispose() => _host.Dispose();
 
     private static object Draft(string title = "Harbor Lights", long goalMinor = 5_000_000) => new
     {
@@ -27,7 +29,7 @@ public class CampaignApiTests(WebApplicationFactory<Program> factory) : IClassFi
     [Fact]
     public async Task A_created_draft_can_be_read_back()
     {
-        var created = await _client.PostAsJsonAsync("/v1/campaigns", Draft(), TestContext.Current.CancellationToken);
+        var created = await Client.PostAsJsonAsync("/v1/campaigns", Draft(), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var body = await created.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
         var id = body.GetProperty("campaign_id").GetString();
@@ -35,7 +37,7 @@ public class CampaignApiTests(WebApplicationFactory<Program> factory) : IClassFi
         Assert.Equal("DRAFT", body.GetProperty("status").GetString());
         Assert.Equal($"/v1/campaigns/{id}", created.Headers.Location?.ToString());
 
-        var read = await _client.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
+        var read = await Client.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
         Assert.Equal(id, read.GetProperty("campaign_id").GetString());
         Assert.Equal("DRAFT", read.GetProperty("status").GetString());
         Assert.Equal(5_000_000, read.GetProperty("goal_minor").GetInt64());
@@ -46,8 +48,8 @@ public class CampaignApiTests(WebApplicationFactory<Program> factory) : IClassFi
     [Fact]
     public async Task A_campaign_that_does_not_exist_is_404()
     {
-        var unknown = await _client.GetAsync($"/v1/campaigns/cmp_{Guid.NewGuid():N}", TestContext.Current.CancellationToken);
-        var malformed = await _client.GetAsync("/v1/campaigns/not-an-id", TestContext.Current.CancellationToken);
+        var unknown = await Client.GetAsync($"/v1/campaigns/cmp_{Guid.NewGuid():N}", TestContext.Current.CancellationToken);
+        var malformed = await Client.GetAsync("/v1/campaigns/not-an-id", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, malformed.StatusCode);
@@ -58,7 +60,7 @@ public class CampaignApiTests(WebApplicationFactory<Program> factory) : IClassFi
     [InlineData("Harbor Lights", 0, "goal_not_positive")]
     public async Task A_bad_draft_is_422_with_a_reason(string title, long goalMinor, string reason)
     {
-        var response = await _client.PostAsJsonAsync("/v1/campaigns", Draft(title, goalMinor), TestContext.Current.CancellationToken);
+        var response = await Client.PostAsJsonAsync("/v1/campaigns", Draft(title, goalMinor), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, response.StatusCode);
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken);
