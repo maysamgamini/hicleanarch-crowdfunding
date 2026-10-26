@@ -15,9 +15,20 @@ dotnet test                  # the lesson names the tests that must pass
 git diff s2-l07              # compare with the reference end state
 ```
 
+## Run it
+
+```bash
+dotnet test                                   # every test
+dotnet run --project src/Host                 # the API on http://localhost:5080
+curl -X POST localhost:5080/v1/campaigns -H 'Content-Type: application/json' \
+  -d '{"title":"Harbor Lights","goal_minor":5000000,"currency":"USD","deadline":"2027-03-31T23:59:00-04:00","tiers":[]}'
+```
+
 ## Layout
 
-- `src/`: the API host, the modules (Campaigns, Pledges, Payments, Notifications) and the BuildingBlocks.
+- `src/Host`: the composition root. It only composes modules: each module brings its own services and endpoints (`AddCampaignsModule`, `MapCampaignsEndpoints`), so a module split off later gets a host of its own that calls the same two.
+- `src/Modules`: Campaigns, Pledges, Payments, Notifications, each with its own layers.
+- `src/BuildingBlocks`: what every module shares: the result type, the dispatcher, the HTTP error mapping.
 - `tests/`: architecture rules, unit tests per module, integration tests against a real database.
 - `infra/bootstrap/`: long-lived AWS resources (Terraform state bucket, ECR, CodeArtifact). Applied once and kept. Its own state is local; keep the `terraform.tfstate` file safe.
 - `infra/env/`: the sandbox environment. Applied for a lesson or a test run, destroyed afterwards.

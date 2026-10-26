@@ -1,0 +1,15 @@
+using BuildingBlocks.Domain;
+
+namespace Campaigns.Domain;
+
+/// <summary>Every rule a campaign can break, with the code clients see.</summary>
+public static class CampaignErrors
+{
+    public static readonly Error NegativeAmount = Error.Validation("negative_amount", "An amount cannot be negative.");
+    public static readonly Error BadCurrency = Error.Validation("bad_currency", "The currency must be three upper-case letters, such as USD.");
+    public static readonly Error GoalNotPositive = Error.Validation("goal_not_positive", "The goal must be more than zero.");
+    public static readonly Error TierMinimumNotPositive = Error.Validation("tier_minimum_not_positive", "A tier's minimum pledge must be more than zero.");
+    public static readonly Error TierLimitNotPositive = Error.Validation("tier_limit_not_positive", "A tier's limit must be more than zero, or empty for no limit.");
+    public static readonly Error DuplicateTierTitle = Error.Validation("duplicate_tier_title", "Two tiers cannot have the same title.");
+    public static readonly Error NotFound = Error.NotFound("campaign_not_found", "No campaign has this id.");
+}

@@ -1,2 +1,20 @@
 <Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Host/Host.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Application/BuildingBlocks.Application.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Domain/BuildingBlocks.Domain.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Infrastructure/BuildingBlocks.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Campaigns/">
+    <Project Path="src/Modules/Campaigns/Campaigns.Application/Campaigns.Application.csproj" />
+    <Project Path="src/Modules/Campaigns/Campaigns.Domain/Campaigns.Domain.csproj" />
+    <Project Path="src/Modules/Campaigns/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ArchitectureTests/ArchitectureTests.csproj" />
+    <Project Path="tests/Campaigns.UnitTests/Campaigns.UnitTests.csproj" />
+    <Project Path="tests/IntegrationTests/IntegrationTests.csproj" />
+  </Folder>
 </Solution>
