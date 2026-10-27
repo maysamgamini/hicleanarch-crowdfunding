@@ -53,6 +53,7 @@ builder.Services.AddProxyHeaders(builder.Configuration);
 builder.Services.AddGracefulStop();
 builder.Services.AddQueryCache(builder.Configuration);
 builder.Services.AddHealth(builder.Configuration);
+builder.Services.AddOpenApi();
 
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
@@ -84,6 +85,12 @@ app.MapCampaignsEndpoints();
 app.MapPledgesEndpoints();
 app.MapPaymentsEndpoints();
 app.MapNotificationsEndpoints();
+
+// The API's description, generated from the endpoints, for a developer's tools and the tests; not published in production.
+if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
+{
+    app.MapOpenApi().AllowAnonymous();
+}
 
 await app.RunAsync();
 
