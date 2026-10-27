@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using System.Text.Json;
 
 using BuildingBlocks.Application;
@@ -26,8 +27,9 @@ namespace Payments.Client;
 public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<RemoteStartCardSetup> logger)
     : ICommandHandler<StartCardSetup, CardSetupStarted>
 {
-    /// <summary>The services' JSON on the wire: snake_case, as every endpoint of the API.</summary>
-    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+    /// <summary>The command's method and path, from its contract (s4-l06).</summary>
+    private static readonly RemoteEndpointAttribute Endpoint = typeof(StartCardSetup).GetCustomAttribute<RemoteEndpointAttribute>()
+        ?? throw new InvalidOperationException("StartCardSetup names no [RemoteEndpoint].");
 
     /// <summary>When to ask again after Payments did not answer: the circuit breaker's own break.</summary>
     public static readonly TimeSpan UnavailableFor = TimeSpan.FromSeconds(5);
@@ -37,9 +39,10 @@ public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<Remote
 
     public async Task<Result<CardSetupStarted>> Handle(StartCardSetup command, CancellationToken cancellationToken)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, PaymentsInternalEndpoints.StartCardSetup)
+        // The request and the reply are the contract's JSON, read strictly (ContractJson, s4-l06).
+        using var request = new HttpRequestMessage(new HttpMethod(Endpoint.Method), Endpoint.Path)
         {
-            Content = JsonContent.Create(command, options: Json),
+            Content = JsonContent.Create(command, options: ContractJson.Options),
         };
         // A card setup is idempotent per pledge, so the pledge is the key: a retried attempt gets the first one's setup.
         request.Headers.Add(RemoteCalls.IdempotencyKeyHeader, command.PledgeId.ToString());
@@ -47,7 +50,7 @@ public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<Remote
         {
             using var response = await http.SendAsync(request, cancellationToken);
             return response.IsSuccessStatusCode
-                ? Result.Success((await response.Content.ReadFromJsonAsync<CardSetupStarted>(Json, cancellationToken))!)
+                ? Result.Success((await response.Content.ReadFromJsonAsync<CardSetupStarted>(ContractJson.Options, cancellationToken))!)
                 : Result.Failure<CardSetupStarted>(await ErrorOf(response, cancellationToken));
         }
         catch (Exception e) when (e is HttpRequestException or TimeoutRejectedException or BrokenCircuitException)

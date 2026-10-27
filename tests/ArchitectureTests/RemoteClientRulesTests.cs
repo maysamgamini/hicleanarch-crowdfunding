@@ -12,13 +12,13 @@ public class RemoteClientRulesTests
     [Fact]
     public void The_payments_client_references_only_the_payments_contracts_and_the_remote_call_pipeline()
     {
-        var references = XDocument.Load(Path.Combine(Root(), "src", "Modules", "Payments", "Payments.Client", "Payments.Client.csproj"))
-            .Descendants("ProjectReference")
-            .Select(r => Path.GetFileNameWithoutExtension(((string)r.Attribute("Include")!).Replace('\\', '/')))
-            .Order(StringComparer.Ordinal)
-            .ToArray();
+        var project = XDocument.Load(Path.Combine(Root(), "src", "Modules", "Payments", "Payments.Client", "Payments.Client.csproj"));
+        string[] Of(string item, Func<string, string> name) =>
+            [.. project.Descendants(item).Select(r => name((string)r.Attribute("Include")!)).Order(StringComparer.Ordinal)];
 
-        Assert.Equal(["Payments.Contracts", "RemoteCalls"], references);
+        // Payments' Contracts as their published package (s4-l06), the shared blocks, and the remote-call pipeline.
+        Assert.Equal(["RemoteCalls"], Of("ProjectReference", path => Path.GetFileNameWithoutExtension(path.Replace('\\', '/'))));
+        Assert.Equal(["CrowdFunding.BuildingBlocks.Infrastructure", "CrowdFunding.Payments.Contracts"], Of("PackageReference", id => id));
     }
 
     private static string Root()

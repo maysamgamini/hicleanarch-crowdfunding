@@ -1,0 +1,59 @@
+name: contracts
+
+# Publishes one module's Contracts package to AWS CodeArtifact when a tag contracts-<module>-v<version>
+# is pushed, for example contracts-payments-v1.1.0. The tag must match the version in that Contracts
+# project's Directory.Build.props, and the contract tests must pass on the tagged commit.
+on:
+  push:
+    tags: ["contracts-*-v*"]
+
+permissions:
+  id-token: write   # sign in to AWS with OpenID Connect, no stored keys
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: The tag names a Contracts project and matches its version
+        id: package
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          module=$(echo "$TAG" | sed -n 's/^contracts-\([a-z]*\)-v.*$/\1/p')
+          dir=$(find src/Modules -maxdepth 2 -type d -iname "${module}.Contracts" | head -n 1)
+          test -n "$module" && test -n "$dir" || { echo "No Contracts project for tag $TAG"; exit 1; }
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$dir/Directory.Build.props")
+          test "contracts-${module}-v$version" = "$TAG" || { echo "Tag $TAG does not match version $version of $dir"; exit 1; }
+          echo "project=$dir/$(basename "$dir").csproj" >> "$GITHUB_OUTPUT"
+
+      - name: Pack the BuildingBlocks the Contracts are built on
+        run: dotnet pack BuildingBlocks.slnx -c Release -o artifacts/packages -p:ContinuousIntegrationBuild=true
+
+      - name: Contract tests
+        run: dotnet test tests/Contracts.ProducerTests
+
+      - name: Pack
+        run: dotnet pack "${{ steps.package.outputs.project }}" -c Release -o artifacts/contracts -p:ContinuousIntegrationBuild=true
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_CONTRACTS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: The BuildingBlocks version it depends on is published
+        # A consumer restores both from CodeArtifact; a contract must never point at a version it cannot find.
+        run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/BuildingBlocks/Directory.Build.props)
+          aws codeartifact describe-package-version --domain hicleanarch --repository packages --format nuget \
+            --package CrowdFunding.BuildingBlocks.Application --package-version "$version" > /dev/null
+
+      - name: Publish to CodeArtifact
+        run: |
+          aws codeartifact login --tool dotnet --domain hicleanarch --repository packages
+          dotnet nuget push "artifacts/contracts/*.nupkg" --source hicleanarch/packages

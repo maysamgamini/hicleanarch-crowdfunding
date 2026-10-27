@@ -185,9 +185,9 @@ public sealed class ServiceTokenTests(Database database)
 
         async Task<HttpStatusCode> Call(string? token)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, Payments.Contracts.PaymentsInternalEndpoints.StartCardSetup)
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/payments/card-setups")
             {
-                Content = JsonContent.Create(new { pledge_id = Guid.NewGuid(), backer_id = Guid.NewGuid() }),
+                Content = JsonContent.Create(new { pledgeId = Guid.NewGuid(), backerId = Guid.NewGuid() }),
             };
             if (token is not null)
             {

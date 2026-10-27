@@ -21,6 +21,18 @@ jobs:
       - name: Pack the BuildingBlocks into the local feed the modules restore from
         # A clean runner: the release version itself, with no stale package cache to worry about.
         run: dotnet pack BuildingBlocks.slnx -o artifacts/packages
+      - name: Contract tests first, on the Contracts' source
+        run: dotnet test tests/Contracts.ProducerTests
+      - name: A contract change since the base carries the version it needs
+        # A pull request against its base branch; a push against the commit it follows. A new branch has no base.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE" ] && [ "$BASE" != "0000000000000000000000000000000000000000" ]; then
+            scripts/check-contracts.sh "$BASE"
+          fi
+      - name: Pack the Contracts, which every module builds against
+        run: dotnet pack Contracts.slnx -o artifacts/packages
       - run: dotnet build CrowdFunding.slnx
       - run: dotnet test CrowdFunding.slnx --no-build
       - name: Every model change has its migration

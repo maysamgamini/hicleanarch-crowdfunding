@@ -93,7 +93,7 @@ public sealed class EventRoutingTests(Database database)
         using var dispatcher = new OutboxDispatcher(new EventBus(), [module], [], [new PublishedEvent(typeof(Spoken), "Local")], routes,
             Options.Create(new OutboxOptions()), NullLogger<OutboxDispatcher>.Instance);
 
-        await dispatcher.Deliver(new OutboxRecord("Local", Guid.NewGuid(), nameof(Spoken), "{}"), TestContext.Current.CancellationToken);
+        await dispatcher.Deliver(new OutboxRecord("Local", Guid.NewGuid(), nameof(Spoken), SpokenJson), TestContext.Current.CancellationToken);
 
         Assert.Equal(0, module.MarkedDelivered);
     }
@@ -107,7 +107,7 @@ public sealed class EventRoutingTests(Database database)
         using var dispatcher = new OutboxDispatcher(new EventBus(), [module], [], [new PublishedEvent(typeof(Spoken), "Local")], routes,
             Options.Create(new OutboxOptions()), NullLogger<OutboxDispatcher>.Instance);
 
-        await dispatcher.Deliver(new OutboxRecord("Local", Guid.NewGuid(), nameof(Spoken), "{}", Sinks: ["Local", "Remote"]),
+        await dispatcher.Deliver(new OutboxRecord("Local", Guid.NewGuid(), nameof(Spoken), SpokenJson, Sinks: ["Local", "Remote"]),
             TestContext.Current.CancellationToken);
 
         Assert.Equal(0, module.MarkedDelivered);
@@ -124,7 +124,7 @@ public sealed class EventRoutingTests(Database database)
         using var dispatcher = new OutboxDispatcher(new EventBus(), [module], [handler], [new PublishedEvent(typeof(Spoken), "Local")], routes,
             Options.Create(new OutboxOptions()), NullLogger<OutboxDispatcher>.Instance);
 
-        await dispatcher.Deliver(new OutboxRecord("Local", Guid.NewGuid(), nameof(Spoken), "{}", Sinks: ["Local"]), TestContext.Current.CancellationToken);
+        await dispatcher.Deliver(new OutboxRecord("Local", Guid.NewGuid(), nameof(Spoken), SpokenJson, Sinks: ["Local"]), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, module.Handled);
         Assert.Equal(1, module.MarkedDelivered);
@@ -151,6 +151,10 @@ public sealed class EventRoutingTests(Database database)
         new(typeof(TEvent), $"{module}.Handler", module, (_, _, _) => Task.CompletedTask);
 
     private sealed record Spoken(Guid EventId, DateTimeOffset OccurredAt) : IntegrationEvent(EventId, OccurredAt);
+
+    /// <summary>A Spoken as the outbox stores it: the dispatcher reads payloads strictly (ContractJson, s4-l06).</summary>
+    private static readonly string SpokenJson = System.Text.Json.JsonSerializer.Serialize(
+        new Spoken(Guid.NewGuid(), DateTimeOffset.UtcNow), BuildingBlocks.Application.ContractJson.Options);
 
     private sealed record Unlisted(Guid EventId, DateTimeOffset OccurredAt) : IntegrationEvent(EventId, OccurredAt);
 

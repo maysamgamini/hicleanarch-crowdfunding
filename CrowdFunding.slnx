@@ -11,7 +11,6 @@
   <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Campaigns/">
     <Project Path="src/Modules/Campaigns/Campaigns.Application/Campaigns.Application.csproj" />
-    <Project Path="src/Modules/Campaigns/Campaigns.Contracts/Campaigns.Contracts.csproj" />
     <Project Path="src/Modules/Campaigns/Campaigns.Domain/Campaigns.Domain.csproj" />
     <Project Path="src/Modules/Campaigns/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj" />
   </Folder>
@@ -21,19 +20,19 @@
   <Folder Name="/src/Modules/Payments/">
     <Project Path="src/Modules/Payments/Payments.Application/Payments.Application.csproj" />
     <Project Path="src/Modules/Payments/Payments.Client/Payments.Client.csproj" />
-    <Project Path="src/Modules/Payments/Payments.Contracts/Payments.Contracts.csproj" />
     <Project Path="src/Modules/Payments/Payments.Domain/Payments.Domain.csproj" />
     <Project Path="src/Modules/Payments/Payments.Infrastructure/Payments.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Modules/Pledges/">
     <Project Path="src/Modules/Pledges/Pledges.Application/Pledges.Application.csproj" />
-    <Project Path="src/Modules/Pledges/Pledges.Contracts/Pledges.Contracts.csproj" />
     <Project Path="src/Modules/Pledges/Pledges.Domain/Pledges.Domain.csproj" />
     <Project Path="src/Modules/Pledges/Pledges.Infrastructure/Pledges.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ArchitectureTests/ArchitectureTests.csproj" />
     <Project Path="tests/Campaigns.UnitTests/Campaigns.UnitTests.csproj" />
+    <Project Path="tests/Contracts.ConsumerTests/Contracts.ConsumerTests.csproj" />
+    <Project Path="tests/Contracts.ProducerTests/Contracts.ProducerTests.csproj" />
     <Project Path="tests/Gateway.Tests/Gateway.Tests.csproj" />
     <Project Path="tests/IntegrationTests/IntegrationTests.csproj" />
     <Project Path="tests/Messaging.Tests/Messaging.Tests.csproj" />

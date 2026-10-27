@@ -5,21 +5,20 @@ namespace Payments.Contracts;
 /// <summary>
 /// Asks Payments to start saving a backer's card for a pledge that is waiting for one. Payments
 /// talks to the PSP and answers with the secret the PSP's card form needs; the card itself goes
-/// from the backer's browser to the PSP, never through us.
+/// from the backer's browser to the PSP, never through us. Once Payments runs as a service of its own,
+/// the command travels over HTTP to its internal endpoint.
 /// </summary>
+[RemoteEndpoint("POST", "/internal/payments/card-setups")]
 public sealed record StartCardSetup(Guid PledgeId, Guid BackerId) : ICommand<CardSetupStarted>;
 
 public sealed record CardSetupStarted(Guid CardSetupId, string ClientSecret);
 
 /// <summary>
 /// Payments' endpoints for other services (from s4-l03), on its internal port, which no load balancer
-/// forwards. Each takes a command of this contract as its body and answers with its result.
+/// forwards. Each command's own <see cref="RemoteEndpointAttribute"/> names its method and path (s4-l06).
 /// </summary>
 public static class PaymentsInternalEndpoints
 {
-    /// <summary><see cref="StartCardSetup"/>, answered with <see cref="CardSetupStarted"/>.</summary>
-    public const string StartCardSetup = "/internal/payments/card-setups";
-
     /// <summary>The scope a caller's service token needs for Payments' commands (s4-l04).</summary>
     public const string CommandsScope = "payments/commands";
 }

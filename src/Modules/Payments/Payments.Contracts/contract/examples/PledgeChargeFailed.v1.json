@@ -1,0 +1,12 @@
+{
+  "eventId": "3a5c7e9a-1b3d-4f5a-8c7e-000000000012",
+  "occurredAt": "2026-11-02T14:05:31.512+00:00",
+  "pledgeId": "9c3f7a10-2d4e-4b6f-a1c8-3e5d7f9b0c03",
+  "campaignId": "0b7e5c2a-3f41-4c8e-9a6d-2f1e8b3c4d01",
+  "attemptNo": 1,
+  "declineCode": "insufficient_funds",
+  "final": false,
+  "backerId": "e2a4c6d8-1f3b-4d5e-8a7c-9b0d2f4e6a04",
+  "retriedOnItsOwn": true,
+  "version": 1
+}

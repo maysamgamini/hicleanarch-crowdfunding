@@ -1,0 +1,131 @@
+{
+  "package": "CrowdFunding.Campaigns.Contracts",
+  "version": "1.0.0",
+  "events": {
+    "CampaignCancelled": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "creatorId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "campaignId",
+          "creatorId",
+          "eventId",
+          "occurredAt"
+        ]
+      }
+    },
+    "CampaignPublished": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "creatorId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "deadline": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "goalMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "tiers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "limitQty": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "string",
+                    "integer",
+                    "null"
+                  ]
+                },
+                "minPledgeMinor": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "string",
+                    "integer"
+                  ]
+                },
+                "tierId": {
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "limitQty",
+                "minPledgeMinor",
+                "tierId"
+              ]
+            }
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "campaignId",
+          "creatorId",
+          "currency",
+          "deadline",
+          "eventId",
+          "goalMinor",
+          "occurredAt",
+          "tiers"
+        ]
+      }
+    }
+  },
+  "endpoints": {}
+}
