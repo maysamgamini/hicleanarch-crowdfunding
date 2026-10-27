@@ -176,6 +176,59 @@ public sealed class QueryCacheTests(Valkey valkey) : IClassFixture<Valkey>, IDis
     }
 
     [Fact]
+    public async Task A_stale_entry_is_served_at_once_while_one_caller_in_the_fleet_reloads_it_however_slow_the_load()
+    {
+        ValkeyQueryCache[] tasks = [Task(), Task(), Task()];
+        var key = NewKey();
+        var ttl = TimeSpan.FromSeconds(1);
+        await tasks[0].GetOrLoad(key, ttl, new CountingLoad("v1", TimeSpan.Zero).Run, Ct);
+        await System.Threading.Tasks.Task.Delay(ttl + TimeSpan.FromMilliseconds(200), Ct); // stale, still kept
+
+        // The database is slow now: the reload takes longer than any task waits for another's refill.
+        var reload = new CountingLoad("v2", ValkeyQueryCache.WaitForRefill + TimeSpan.FromMilliseconds(500));
+        using var start = new ManualResetEventSlim();
+        var reads = Enumerable.Range(0, 99).Select(i => System.Threading.Tasks.Task.Run(async () =>
+        {
+            start.Wait(Ct);
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var read = await tasks[i % 3].GetOrLoad(key, ttl, reload.Run, Ct);
+            return (read.Value, watch.Elapsed);
+        }, Ct)).ToList();
+        start.Set();
+        var results = await System.Threading.Tasks.Task.WhenAll(reads);
+
+        Assert.Equal(1, reload.Calls);
+        Assert.Equal(98, results.Count(r => r.Value == "v1" && r.Elapsed < ValkeyQueryCache.WaitForRefill)); // served the old value at once
+        Assert.Equal("v2", (await tasks[2].GetOrLoad(key, ttl, reload.Run, Ct)).Value);
+    }
+
+    [Fact]
+    public async Task Concurrent_misses_in_one_task_load_once_even_while_another_task_holds_the_refill_lock()
+    {
+        var cache = Task();
+        var key = NewKey();
+        // "Another task" took the refill lock and never answers: every waiter here loads by itself after
+        // WaitForRefill, unless the task's single-flight makes them share one load.
+        using (var other = ConnectionMultiplexer.Connect(valkey.Configuration))
+        {
+            await other.GetDatabase().StringSetAsync(key + ":refill", "another-task", TimeSpan.FromSeconds(30));
+        }
+
+        var load = new CountingLoad("v1", TimeSpan.FromMilliseconds(300));
+        using var start = new ManualResetEventSlim();
+        var reads = Enumerable.Range(0, 50).Select(_ => System.Threading.Tasks.Task.Run(() =>
+        {
+            start.Wait(Ct);
+            return cache.GetOrLoad(key, TimeSpan.FromMinutes(1), load.Run, Ct);
+        }, Ct)).ToList();
+        start.Set();
+        var results = await System.Threading.Tasks.Task.WhenAll(reads);
+
+        Assert.All(results, r => Assert.Equal("v1", r.Value));
+        Assert.Equal(1, load.Calls);
+    }
+
+    [Fact]
     public async Task Without_valkey_every_read_loads_and_nothing_fails()
     {
         var connection = ConnectionMultiplexer.Connect(new ConfigurationOptions
