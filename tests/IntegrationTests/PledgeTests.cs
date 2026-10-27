@@ -89,6 +89,22 @@ public sealed class PledgeTests(Database database) : IDisposable
     }
 
     [Fact]
+    public async Task A_pledge_to_a_cancelled_campaign_before_its_deadline_is_409_campaign_closed()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+        (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+        Assert.Equal("CANCELLED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.True(await given.Scalar<bool>("SELECT deadline > now() FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+
+        var refused = await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Equal("campaign_closed", await Reason(refused));
+        Assert.Equal(0L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
+    }
+
+    [Fact]
     public async Task A_pledge_after_the_deadline_is_409_campaign_closed()
     {
         var given = new Scenario(database, _host);

@@ -1,8 +1,11 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
 using Npgsql;
+
+using Pledges.Infrastructure.Persistence;
 
 namespace IntegrationTests;
 
@@ -74,6 +77,27 @@ public sealed class LastDayCancelTests(Database database) : IDisposable
         Assert.Equal(HttpStatusCode.OK, (await short_[0].Backer.DeleteAsync(short_[0].Pledge, Ct)).StatusCode);
     }
 
+    [Theory]
+    [InlineData("23 hours 59 minutes", HttpStatusCode.Conflict)]
+    [InlineData("24 hours 1 minute", HttpStatusCode.OK)]
+    public async Task The_last_day_is_the_24_hours_before_the_deadline(string deadlineFromNow, HttpStatusCode answer)
+    {
+        var (_, _, pledges) = await Campaign(deadlineFromNow, 6_000, 4_100);
+
+        Assert.Equal(answer, (await pledges[0].Backer.DeleteAsync(pledges[0].Pledge, Ct)).StatusCode);
+    }
+
+    [Fact]
+    public async Task On_the_last_day_a_cancel_that_leaves_the_campaign_exactly_at_its_goal_is_allowed()
+    {
+        var (given, campaign, pledges) = await Campaign("1 hour", 100, 10_000);
+
+        var cancel = await pledges[0].Backer.DeleteAsync(pledges[0].Pledge, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, cancel.StatusCode);
+        Assert.Equal(10_000L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
+    }
+
     [Fact]
     public async Task Two_cancels_at_once_cannot_both_pass()
     {
@@ -101,8 +125,11 @@ public sealed class LastDayCancelTests(Database database) : IDisposable
         turn.Parameters.AddWithValue("id", campaign.CampaignId);
         await turn.ExecuteNonQueryAsync(Ct);
 
+        var watch = Stopwatch.StartNew();
         var busy = await pledges[2].Backer.DeleteAsync(pledges[2].Pledge, Ct);
 
+        // The 300 ms wait for the turn answered, not the two-second limit, which would end the session.
+        Assert.True(watch.Elapsed < TimeFence.Default.TransactionLimit, $"The busy answer took {watch.Elapsed}.");
         Assert.Equal(HttpStatusCode.Conflict, busy.StatusCode);
         Assert.Equal("try_again", await Reason(busy));
         Assert.Equal(TimeSpan.FromSeconds(1), busy.Headers.RetryAfter?.Delta);
