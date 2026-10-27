@@ -34,9 +34,25 @@ public interface IPaymentProvider
 
     /// <summary>Pays a creator from the platform's PSP balance. The same key returns the same transfer.</summary>
     Task<string> Transfer(Guid creatorId, long amountMinor, string currency, string idempotencyKey, CancellationToken ct);
+
+    /// <summary>
+    /// The PSP's own record of money moved in a period: each charge and refund, with its fee and the
+    /// pledge in its metadata (at Stripe, the balance transactions report).
+    /// </summary>
+    Task<BalanceReport> BalanceTransactions(DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
 }
 
 public sealed record OnSessionPayment(string PspPaymentId, string ClientSecret);
+
+/// <summary>
+/// The PSP's balance-transactions report for a period. A PSP builds it a while after the money
+/// moves; <see cref="CoveredUntil"/> is how far it is complete, and nothing after it can be trusted
+/// to be in it yet.
+/// </summary>
+public sealed record BalanceReport(IReadOnlyList<BalanceTransaction> Transactions, DateTimeOffset CoveredUntil);
+
+/// <summary>One line of the PSP's report. A refund's amount is negative; <see cref="SourceId"/> is the payment or refund.</summary>
+public sealed record BalanceTransaction(string Id, string SourceId, string PledgeId, long AmountMinor, long FeeMinor, string Currency, DateTimeOffset CreatedAt);
 
 public sealed record CardSetupIntent(string PspSetupId, string ClientSecret);
 

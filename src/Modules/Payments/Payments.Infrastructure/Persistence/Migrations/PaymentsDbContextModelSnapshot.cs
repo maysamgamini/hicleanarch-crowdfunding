@@ -365,6 +365,10 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("psp_transfer_id");
 
+                    b.Property<DateTimeOffset?>("ReconciledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reconciled_at");
+
                     b.Property<long?>("ReserveMinor")
                         .HasColumnType("bigint")
                         .HasColumnName("reserve_minor");
@@ -383,6 +387,10 @@ namespace Payments.Infrastructure.Persistence.Migrations
 
                     b.HasKey("CampaignId")
                         .HasName("pk_payouts");
+
+                    b.HasIndex("SettledAt")
+                        .HasDatabaseName("payouts_open")
+                        .HasFilter("status <> 'PAID_OUT'");
 
                     b.ToTable("payouts", "payments");
                 });
@@ -557,6 +565,42 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("one_journal_per_source");
 
                     b.ToTable("money_journals", "payments");
+                });
+
+            modelBuilder.Entity("Payments.Infrastructure.Persistence.ReconciliationDifferenceRow", b =>
+                {
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<string>("SourceRef")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_ref");
+
+                    b.Property<string>("Kind")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset>("FoundAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("found_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<long?>("OursMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ours_minor");
+
+                    b.Property<long?>("TheirsMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("theirs_minor");
+
+                    b.HasKey("CampaignId", "SourceRef", "Kind")
+                        .HasName("pk_reconciliation_differences");
+
+                    b.ToTable("reconciliation_differences", "payments");
                 });
 
             modelBuilder.Entity("Payments.Infrastructure.Persistence.WebhookMessage", b =>

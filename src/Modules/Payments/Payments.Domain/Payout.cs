@@ -28,5 +28,7 @@ public sealed class Payout
 
     public DateTimeOffset SettledAt { get; private set; }
 
+    public DateTimeOffset? ReconciledAt { get; private set; }
+
     public DateTimeOffset? PaidOutAt { get; private set; }
 }

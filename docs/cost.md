@@ -66,7 +66,7 @@ about 2 LCUs per load balancer):
 | **Total** | | **≈ $0.80** |
 
 Everything else stays inside the free tiers at the sandbox's scale: CloudFront (a run at scale 0.02
-sends about 1,800 totals requests), CloudWatch (6 alarms, 1 dashboard, logs kept for a day), and
+sends about 1,800 totals requests), CloudWatch (7 alarms, 1 dashboard, logs kept for a day), and
 Cognito (one creator and a few thousand backers per run; each run's user pool is new, so several
 runs in a month add up toward the 10,000 free monthly active users). Aurora storage is a few GB at
 $0.10 per GB-month, under a cent an hour.

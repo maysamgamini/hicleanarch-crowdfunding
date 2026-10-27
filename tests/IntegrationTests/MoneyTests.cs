@@ -82,6 +82,13 @@ public sealed class MoneyTests(Database database) : IDisposable
         return (given, campaign);
     }
 
+    /// <summary>Reconciles and pays the campaign out, then reads the payout.</summary>
+    private async Task<PayoutDone> PaidOut(Guid campaignId)
+    {
+        Assert.Equal(1, (await Send<RunMoneyPass, MoneyPass>(new RunMoneyPass(campaignId))).Value.PaidOut);
+        return (await Send<PayOut, PayoutDone>(new PayOut(campaignId))).Value;
+    }
+
     private static Task<Guid> PledgeOf(Scenario given, Scenario.Published campaign) =>
         given.Scalar<Guid>("SELECT pledge_id FROM payments.charges WHERE campaign_id = @id ORDER BY pledge_id LIMIT 1", campaign.CampaignId);
 
@@ -92,7 +99,7 @@ public sealed class MoneyTests(Database database) : IDisposable
         Assert.Equal(2L, await given.Scalar<long>("SELECT count(*) FROM payments.money_journals WHERE campaign_id = @id AND kind = 'CHARGE'", campaign.CampaignId));
         var transfers = Psp.TransfersMade;
 
-        var paid = (await Send<PayOut, PayoutDone>(new PayOut(campaign.CampaignId))).Value;
+        var paid = await PaidOut(campaign.CampaignId);
         var again = (await Send<PayOut, PayoutDone>(new PayOut(campaign.CampaignId))).Value;
 
         // $120 collected, $4.08 PSP fees, a 5% platform fee of $6.00, $109.92 for the creator,
@@ -114,7 +121,8 @@ public sealed class MoneyTests(Database database) : IDisposable
     {
         var given = new Scenario(database, _host);
         var campaignId = Guid.NewGuid();
-        await given.Execute("INSERT INTO payments.payouts (campaign_id, currency, status) VALUES (@id, 'USD', 'SETTLED')", campaignId);
+        // Only the ledger is under test: the payout starts reconciled.
+        await given.Execute("INSERT INTO payments.payouts (campaign_id, currency, status) VALUES (@id, 'USD', 'RECONCILED')", campaignId);
         await given.Execute("INSERT INTO payments.campaign_payees (campaign_id, creator_id) VALUES (@id, gen_random_uuid())", campaignId);
         await Post([.. Enumerable.Range(0, 1_000).Select(i => MoneyJournal.ForCharge(campaignId, $"pi_hl_{campaignId:N}_{i}", 6_000, 204, "USD"))]);
         await Post(MoneyJournal.ForRefund(campaignId, $"re_hl_{campaignId:N}", 6_000, "USD", afterPayout: false, reserveLeftMinor: 0));
@@ -205,7 +213,7 @@ public sealed class MoneyTests(Database database) : IDisposable
     public async Task A_refund_after_payout_comes_from_the_reserve_and_then_the_creator()
     {
         var (given, campaign) = await Settled(2);
-        await Send<PayOut, PayoutDone>(new PayOut(campaign.CampaignId));
+        await PaidOut(campaign.CampaignId);
 
         await Send<RefundPledge, RefundDone>(new RefundPledge(await PledgeOf(given, campaign)));
 
@@ -217,7 +225,7 @@ public sealed class MoneyTests(Database database) : IDisposable
     }
 
     [Fact]
-    public async Task A_charge_made_before_the_money_ledger_is_booked_before_the_payout()
+    public async Task A_charge_made_before_the_money_ledger_is_booked_before_reconciliation()
     {
         var (given, campaign) = await Settled(2);
         // As if the first charge had been made before this lesson's migration: no CHARGE journal.
@@ -231,9 +239,11 @@ public sealed class MoneyTests(Database database) : IDisposable
             """, campaign.CampaignId);
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM payments.money_journals WHERE campaign_id = @id AND kind = 'CHARGE'", campaign.CampaignId));
 
-        var paid = (await Send<PayOut, PayoutDone>(new PayOut(campaign.CampaignId))).Value;
+        var paid = await PaidOut(campaign.CampaignId);
 
-        // The PSP's fee for the old charge is asked for and booked, so the payout is the same as ever.
+        // The PSP's fee for the old charge is asked for and booked, so the books match the PSP's
+        // report, nothing is recorded as missing, and the payout is the same as ever.
+        Assert.Equal(0L, await given.Scalar<long>("SELECT count(*) FROM payments.reconciliation_differences WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(2L, await given.Scalar<long>("SELECT count(*) FROM payments.money_journals WHERE campaign_id = @id AND kind = 'CHARGE'", campaign.CampaignId));
         Assert.Equal(9_893, paid.AmountMinor);
         Assert.Equal(1_099, paid.ReserveMinor);
@@ -244,6 +254,7 @@ public sealed class MoneyTests(Database database) : IDisposable
     {
         var (given, campaign) = await Settled(2);
         var pledge = await PledgeOf(given, campaign);
+        await given.Execute("UPDATE payments.payouts SET status = 'RECONCILED' WHERE campaign_id = @id", campaign.CampaignId);
         await using var owner = new NpgsqlConnection(database.Owner);
         await owner.OpenAsync(Ct);
         await using var holding = await owner.BeginTransactionAsync(Ct);

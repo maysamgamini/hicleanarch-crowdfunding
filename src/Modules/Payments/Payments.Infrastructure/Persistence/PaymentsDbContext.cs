@@ -30,6 +30,8 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
 
     public DbSet<CampaignPayee> CampaignPayees => Set<CampaignPayee>();
 
+    public DbSet<ReconciliationDifferenceRow> ReconciliationDifferences => Set<ReconciliationDifferenceRow>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
@@ -140,6 +142,16 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             payout.Property(p => p.Status).HasConversion(s => Names.Of(s), s => Names.Parse<PayoutStatus>(s)).HasMaxLength(20);
             payout.Property(p => p.PspTransferId).HasMaxLength(100);
             payout.Property(p => p.SettledAt).HasDefaultValueSql("now()");
+            payout.HasIndex(p => p.SettledAt).HasFilter("status <> 'PAID_OUT'").HasDatabaseName("payouts_open");
+        });
+
+        modelBuilder.Entity<ReconciliationDifferenceRow>(difference =>
+        {
+            difference.ToTable("reconciliation_differences");
+            difference.HasKey(d => new { d.CampaignId, d.SourceRef, d.Kind });
+            difference.Property(d => d.SourceRef).HasMaxLength(200);
+            difference.Property(d => d.Kind).HasMaxLength(30);
+            difference.Property(d => d.FoundAt).HasDefaultValueSql("now()");
         });
 
         modelBuilder.Entity<CampaignPayee>(payee =>

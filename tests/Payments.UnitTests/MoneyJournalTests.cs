@@ -85,3 +85,23 @@ public class MoneyJournalTests
     public void Shares_round_to_the_nearest_minor_unit(long amount, int basisPoints, long expected) =>
         Assert.Equal(expected, MoneyPolicy.Share(amount, basisPoints));
 }
+
+/// <summary>Reconciliation's comparison, on lists alone.</summary>
+public class MoneyDifferenceTests
+{
+    [Fact]
+    public void Matching_lists_have_no_difference() =>
+        Assert.Empty(MoneyDifference.Between([new("pi_1", 6_000, 204), new("re_1", -6_000, 0)], [new("re_1", -6_000, 0), new("pi_1", 6_000, 204)]));
+
+    [Fact]
+    public void Every_kind_of_difference_is_named()
+    {
+        var differences = MoneyDifference.Between(
+            ours: [new("pi_missing", 6_000, 204), new("pi_amount", 6_000, 204), new("pi_fee", 6_000, 204)],
+            theirs: [new("pi_amount", 5_000, 204), new("pi_fee", 6_000, 999), new("pi_extra", 6_000, 204)]);
+
+        Assert.Equal(
+            [("pi_missing", MoneyDifference.MissingAtPsp), ("pi_amount", MoneyDifference.AmountDiffers), ("pi_fee", MoneyDifference.FeeDiffers), ("pi_extra", MoneyDifference.MissingInBooks)],
+            differences.Select(d => (d.SourceRef, d.Kind)));
+    }
+}

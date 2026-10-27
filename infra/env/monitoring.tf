@@ -36,6 +36,12 @@ locals {
       threshold   = 0
       description = "A campaign's display total differs from its ledger's sum at the last nightly check, for longer than the aggregator takes to refresh it: see the error log for the campaign."
     }
+    reconciliation_differences = {
+      metric      = "payments.reconciliation.differences"
+      meter       = "CrowdFunding.Payments"
+      threshold   = 0
+      description = "Our money ledger and the PSP's report disagree for a settled campaign: its payout waits. See payments.reconciliation_differences for each movement and kind (lesson s3-l15)."
+    }
     undelivered_events = {
       metric      = "outbox.oldest_undelivered_age"
       meter       = "CrowdFunding.Outbox"

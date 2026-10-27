@@ -57,6 +57,8 @@ public static class PaymentsModule
         services.AddSingleton((configuration.GetSection("Payments:Dunning").Get<DunningOptions>() ?? new DunningOptions()).Policy);
         services.AddEventHandler<CampaignPublished, RecordPayee>(PaymentsModuleName.Value);
         services.AddOptions<MoneyOptions>().Bind(configuration.GetSection("Payments:Money"));
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<MoneyOptions>>().Value);
+        services.AddHostedService<MoneyWorker>();
         services.AddSingleton(sp =>
         {
             var money = sp.GetRequiredService<IOptions<MoneyOptions>>().Value;
@@ -100,6 +102,8 @@ public static class PaymentsModule
             .AddScoped<ICampaignPayees>(sp => sp.GetRequiredService<EfMoney>())
             .AddScoped<IChargeRefunds>(sp => sp.GetRequiredService<EfMoney>())
             .AddScoped<IChargeJournals>(sp => sp.GetRequiredService<EfMoney>())
+            .AddScoped<IReconciliation>(sp => sp.GetRequiredService<EfMoney>())
+            .AddScoped<IPayoutSteps>(sp => sp.GetRequiredService<EfMoney>())
             .AddScoped<ModuleTransaction<PaymentsDbContext>>()
             .AddKeyedScoped<ITransactionScope>(PaymentsModuleName.Value, (sp, _) => sp.GetRequiredService<ModuleTransaction<PaymentsDbContext>>());
     }

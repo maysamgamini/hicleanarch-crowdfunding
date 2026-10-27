@@ -158,20 +158,65 @@ public sealed record MoneyPolicy(int PlatformFeeBasisPoints, int ReserveBasisPoi
 /// <summary>Where a campaign's money stands. Each move is conditional on the one before.</summary>
 public enum PayoutStatus
 {
+    /// <summary>Every charge is final, dunning windows included: CampaignSettled comes only then.</summary>
     Settled,
+
+    /// <summary>Our books match the PSP's report, movement by movement.</summary>
+    Reconciled,
+
     PaidOut,
 }
 
 public static class PayoutRules
 {
-    /// <summary>The status a payout may start from.</summary>
-    public const PayoutStatus PayableFrom = PayoutStatus.Settled;
+    /// <summary>Money leaves only after the books match the PSP's.</summary>
+    public const PayoutStatus PayableFrom = PayoutStatus.Reconciled;
 
     /// <summary>A status as the database and the API spell it: <c>PaidOut</c> is <c>PAID_OUT</c>.</summary>
     public static string Name(this PayoutStatus status) => status switch
     {
         PayoutStatus.Settled => "SETTLED",
+        PayoutStatus.Reconciled => "RECONCILED",
         PayoutStatus.PaidOut => "PAID_OUT",
         _ => throw new ArgumentOutOfRangeException(nameof(status)),
     };
+}
+
+/// <summary>What reconciliation compares: one movement of money, as our books or the PSP's report show it.</summary>
+public sealed record MoneyMovement(string SourceRef, long AmountMinor, long FeeMinor);
+
+/// <summary>A difference between our books and the PSP's report. Each is a known case; any one stops the payout.</summary>
+public sealed record MoneyDifference(string SourceRef, string Kind, long? OursMinor, long? TheirsMinor)
+{
+    public const string MissingAtPsp = "MISSING_AT_PSP";
+    public const string MissingInBooks = "MISSING_IN_BOOKS";
+    public const string AmountDiffers = "AMOUNT_DIFFERS";
+    public const string FeeDiffers = "FEE_DIFFERS";
+
+    /// <summary>Every difference between the two lists, matched by the PSP's id for the movement.</summary>
+    public static IReadOnlyList<MoneyDifference> Between(IReadOnlyList<MoneyMovement> ours, IReadOnlyList<MoneyMovement> theirs)
+    {
+        var reported = theirs.ToDictionary(t => t.SourceRef);
+        var differences = new List<MoneyDifference>();
+        foreach (var booked in ours)
+        {
+            if (!reported.TryGetValue(booked.SourceRef, out var report))
+            {
+                differences.Add(new(booked.SourceRef, MissingAtPsp, booked.AmountMinor, null));
+            }
+            else if (report.AmountMinor != booked.AmountMinor)
+            {
+                differences.Add(new(booked.SourceRef, AmountDiffers, booked.AmountMinor, report.AmountMinor));
+            }
+            else if (report.FeeMinor != booked.FeeMinor)
+            {
+                differences.Add(new(booked.SourceRef, FeeDiffers, booked.FeeMinor, report.FeeMinor));
+            }
+        }
+
+        var known = ours.Select(o => o.SourceRef).ToHashSet();
+        differences.AddRange(theirs.Where(t => !known.Contains(t.SourceRef))
+            .Select(t => new MoneyDifference(t.SourceRef, MissingInBooks, null, t.AmountMinor)));
+        return differences;
+    }
 }

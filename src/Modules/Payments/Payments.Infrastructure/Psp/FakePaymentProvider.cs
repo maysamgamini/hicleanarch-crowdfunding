@@ -30,6 +30,8 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     private int _attempts;
     private readonly ConcurrentDictionary<string, string> _refundsByKey = new();
     private readonly ConcurrentDictionary<string, string> _transfersByKey = new();
+    private readonly ConcurrentDictionary<string, BalanceTransaction> _report = new();
+    private long _reportLagTicks;
     private int _loseNextReplies;
     private int _unreachable;
     private int _rateLimitNext;
@@ -84,6 +86,12 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
                 CardNeedsAuthentication => new ChargeOutcome.Declined("authentication_required", paymentId),
                 _ => new ChargeOutcome.Succeeded(paymentId, FeeFor(request.AmountMinor)),
             };
+            if (result is ChargeOutcome.Succeeded)
+            {
+                _report[paymentId] = new BalanceTransaction($"txn_{Guid.NewGuid():N}", paymentId, request.PledgeId,
+                    request.AmountMinor, FeeFor(request.AmountMinor), request.Currency, clock.GetUtcNow());
+            }
+
             _payments[paymentId] = (request, result);
             return result;
         });
@@ -153,6 +161,12 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
         var (request, _) = _payments[pspPaymentId];
         ChargeOutcome result = confirmed ? new ChargeOutcome.Succeeded(pspPaymentId, FeeFor(request.AmountMinor)) : new ChargeOutcome.Declined("authentication_required", pspPaymentId);
         _payments[pspPaymentId] = (request, result);
+        if (confirmed)
+        {
+            _report.TryAdd(pspPaymentId, new BalanceTransaction($"txn_{Guid.NewGuid():N}", pspPaymentId, request.PledgeId,
+                request.AmountMinor, FeeFor(request.AmountMinor), request.Currency, clock.GetUtcNow()));
+        }
+
         return Webhook(confirmed ? "payment_succeeded" : "payment_failed", new { payment_id = pspPaymentId, fee_minor = confirmed ? FeeFor(request.AmountMinor) : (long?)null, decline_code = confirmed ? null : "authentication_required" });
     }
 
@@ -167,8 +181,34 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     public Task<string> Refund(string pspPaymentId, long amountMinor, string idempotencyKey, CancellationToken ct)
     {
         Reach("charge");
-        return Task.FromResult(_refundsByKey.GetOrAdd(idempotencyKey, _ => $"re_{Guid.NewGuid():N}"));
+        return Task.FromResult(_refundsByKey.GetOrAdd(idempotencyKey, _ =>
+        {
+            var refundId = $"re_{Guid.NewGuid():N}";
+            var (request, _) = _payments[pspPaymentId];
+            _report[refundId] = new BalanceTransaction($"txn_{Guid.NewGuid():N}", refundId, request.PledgeId, -amountMinor, 0, request.Currency, clock.GetUtcNow());
+            return refundId;
+        }));
     }
+
+    public Task<BalanceReport> BalanceTransactions(DateTimeOffset from, DateTimeOffset to, CancellationToken ct)
+    {
+        Reach("report");
+        // Without a lag the fake's report is complete the moment money moves, through any end asked for.
+        var lag = Interlocked.Read(ref _reportLagTicks);
+        var covered = clock.GetUtcNow() - TimeSpan.FromTicks(lag);
+        var until = lag == 0 || to < covered ? to : covered;
+        return Task.FromResult(new BalanceReport([.. _report.Values.Where(t => t.CreatedAt >= from && t.CreatedAt <= until)], until));
+    }
+
+    /// <summary>The report is complete only up to <paramref name="lag"/> ago, as a real PSP's is a while behind.</summary>
+    public void ReportLagsBy(TimeSpan lag) => Interlocked.Exchange(ref _reportLagTicks, lag.Ticks);
+
+    /// <summary>The report shows a different fee for a payment than the charge returned, as a PSP's error or a fee change would.</summary>
+    public void ReportFeeAs(string sourceId, long feeMinor) => _report[sourceId] = _report[sourceId] with { FeeMinor = feeMinor };
+
+    /// <summary>The report has a movement our books never recorded.</summary>
+    public void AddToReport(string sourceId, string pledgeId, long amountMinor, long feeMinor) =>
+        _report[sourceId] = new BalanceTransaction($"txn_{Guid.NewGuid():N}", sourceId, pledgeId, amountMinor, feeMinor, "USD", clock.GetUtcNow());
 
     public Task<string> Transfer(Guid creatorId, long amountMinor, string currency, string idempotencyKey, CancellationToken ct)
     {

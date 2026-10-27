@@ -20,5 +20,6 @@ public static class PaymentsApplication
             .AddScoped<ChargeBookkeeping>()
             .AddScoped<ICommandHandler<PayOut, PayoutDone>, PayOutHandler>()
             .AddScoped<ICommandHandler<RefundPledge, RefundDone>, RefundPledgeHandler>()
+            .AddScoped<ICommandHandler<RunMoneyPass, MoneyPass>, RunMoneyPassHandler>()
             .AddScoped<IQueryHandler<GetCampaignMoney, CampaignMoney>, GetCampaignMoneyHandler>();
 }

@@ -37,6 +37,10 @@ internal sealed class BudgetedPaymentProvider(IPaymentProvider psp, ITokenBucket
     public Task<string> Transfer(Guid creatorId, long amountMinor, string currency, string idempotencyKey, CancellationToken ct) =>
         Call(PspCall.Charge, c => psp.Transfer(creatorId, amountMinor, currency, idempotencyKey, c), ct);
 
+    // The report is a read, so it shares the look-ups' bucket.
+    public Task<BalanceReport> BalanceTransactions(DateTimeOffset from, DateTimeOffset to, CancellationToken ct) =>
+        Call(PspCall.LookUp, c => psp.BalanceTransactions(from, to, c), ct);
+
     private async Task<T> Call<T>(PspCall call, Func<CancellationToken, Task<T>> send, CancellationToken ct)
     {
         while (true)

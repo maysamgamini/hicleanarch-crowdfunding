@@ -128,6 +128,9 @@ public sealed class MoneyOptions
     public int PlatformFeeBasisPoints { get; set; } = 500;
 
     public int ReserveBasisPoints { get; set; } = 1_000;
+
+    /// <summary>How often each task runs the money pass.</summary>
+    public TimeSpan PollEvery { get; set; } = TimeSpan.FromMinutes(1);
 }
 
 /// <summary>Payments pays the campaign's creator; it learns who that is when the campaign is published.</summary>
