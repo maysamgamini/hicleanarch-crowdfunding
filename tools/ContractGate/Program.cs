@@ -2,6 +2,7 @@ using ContractGate;
 
 // scripts/contract-gate.sh runs this. Exit 0: allowed; 1: refused, with the reasons; 2: wrong arguments.
 //   can-i-deploy --record <dir> --service <name> --version <sha> [--ecs <service>=<sha>]... [--first-adoption]
+//                (--ecs <service>= with no version: ECS runs no version of that service, CQA-2121)
 //   record       --record <dir> --service <name> --version <sha>
 //   can-retire   --record <dir> --type <Producer>.<Name> [--command] [--database <connection string>]
 // --repo <path> (default .) is the repository whose files are read at each version; can-retire reads
@@ -25,7 +26,7 @@ switch (args[0])
 {
     case "can-i-deploy" when options.One("service") is { } service && options.One("version") is { } version:
         var ecs = options.Many("ecs").Select(e => e.Split('=', 2)).ToDictionary(e => e[0], e => e[1], StringComparer.Ordinal);
-        return Report(CanIDeploy.Check(repository, DeploymentRecord.Read(record), service, version, ecs.Count > 0 ? ecs : null, options.Has("first-adoption")),
+        return Report(CanIDeploy.Check(repository, DeploymentRecord.Read(record), service, version, options.Many("ecs").Any() ? ecs : null, options.Has("first-adoption")),
             $"{service} {version} may deploy");
 
     case "record" when options.One("service") is { } service && options.One("version") is { } version:

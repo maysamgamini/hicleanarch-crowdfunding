@@ -105,6 +105,30 @@ public class CanIDeployTests
     }
 
     [Fact]
+    public void A_service_ECS_runs_no_version_of_and_the_record_does_not_name_is_no_deployed_version()
+    {
+        // CQA-2121: the first deploy of Campaigns into a sandbox where it has never run.
+        var repository = new Versions().Add("v1").Add("v2");
+        var record = Deployed.Running(("notifications", "v1", null), ("payments", "v1", null), ("pledges", "v1", null));
+        var ecs = new Dictionary<string, string> { ["campaigns"] = "", ["notifications"] = "v1", ["payments"] = "v1", ["pledges"] = "v1" };
+
+        var result = CanIDeploy.Check(repository, record, "campaigns", "v2", ecs);
+
+        Assert.True(result.Passed, string.Join("\n", result.Problems));
+    }
+
+    [Fact]
+    public void A_service_the_record_names_and_ECS_runs_no_version_of_is_refused()
+    {
+        var repository = new Versions().Add("v1").Add("v2");
+        var ecs = new Dictionary<string, string> { ["campaigns"] = "", ["notifications"] = "v1", ["payments"] = "v1", ["pledges"] = "v1" };
+
+        var result = CanIDeploy.Check(repository, Deployed.AllAt("v1"), "pledges", "v2", ecs);
+
+        Assert.Contains("The record says campaigns runs v1, ECS runs no version of it: fix the record before deploying", result.Problems);
+    }
+
+    [Fact]
     public void A_module_used_in_process_from_another_service_is_refused()
     {
         // Campaigns as it is checked in still sends Pledges' CancelFunding in process.

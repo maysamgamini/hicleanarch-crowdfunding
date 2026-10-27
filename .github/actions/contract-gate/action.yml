@@ -55,10 +55,18 @@ runs:
         FIRST_ADOPTION: ${{ inputs.first-adoption }}
       run: |
         # What ECS runs, from each service's task definition image tag (the commit it was built from).
+        # A service ECS has no ACTIVE service for (never deployed, or destroyed: describe-services then
+        # reports it under failures, or as INACTIVE) has no deployed version, passed as <name>= (CQA-2121).
         ecs=()
         for pair in $ECS_SERVICES; do
           name=${pair%%=*}; service=${pair#*=}
-          task=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --query 'services[0].taskDefinition' --output text)
+          task=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" \
+            --query "services[?status=='ACTIVE'] | [0].taskDefinition" --output text)
+          if [ -z "$task" ] || [ "$task" = "None" ]; then
+            echo "$name: no deployed version in $CLUSTER"
+            ecs+=(--ecs "$name=")
+            continue
+          fi
           image=$(aws ecs describe-task-definition --task-definition "$task" --query 'taskDefinition.containerDefinitions[0].image' --output text)
           ecs+=(--ecs "$name=${image##*:}")
         done

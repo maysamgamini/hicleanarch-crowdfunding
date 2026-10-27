@@ -13,7 +13,10 @@ namespace ContractGate;
 /// </summary>
 internal static class CanIDeploy
 {
-    /// <param name="ecs">What ECS runs, per service, when the pipeline could ask; the record must agree.</param>
+    /// <param name="ecs">
+    /// What ECS runs, per service, when the pipeline could ask; the record must agree. An empty version is a
+    /// service ECS runs no version of (CQA-2121): not created yet, or destroyed.
+    /// </param>
     /// <param name="firstAdoption">Skip, with a note, recorded versions from before the gate or without expectations files.</param>
     public static GateResult Check(
         IVersions repository,
@@ -28,12 +31,17 @@ internal static class CanIDeploy
 
         if (ecs is not null)
         {
-            foreach (var deployed in record.Values.Where(d => !ecs.ContainsKey(d.Service)))
+            foreach (var deployed in record.Values.Where(d => ecs.GetValueOrDefault(d.Service) is null))
             {
                 problems.Add($"The record names {deployed.Service}, which ECS does not report: fix the record before deploying");
             }
 
-            foreach (var (name, running) in ecs)
+            foreach (var deployed in record.Values.Where(d => ecs.GetValueOrDefault(d.Service) is ""))
+            {
+                problems.Add($"The record says {deployed.Service} runs {Short(deployed.Running)}, ECS runs no version of it: fix the record before deploying");
+            }
+
+            foreach (var (name, running) in ecs.Where(e => e.Value.Length > 0))
             {
                 if (record.GetValueOrDefault(name)?.Running is { } recorded && recorded != running)
                 {
