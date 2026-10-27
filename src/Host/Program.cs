@@ -36,6 +36,8 @@ if (args.FirstOrDefault() == "token")
     return;
 }
 
+builder.Logging.AddTraceCorrelatedConsole();
+
 // The API speaks snake_case JSON: goal_minor, campaign_id.
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 builder.Services.AddProblemDetails();

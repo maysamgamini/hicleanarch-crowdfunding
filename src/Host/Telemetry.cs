@@ -12,6 +12,7 @@ namespace CrowdFunding.Host;
 /// <summary>
 /// Traces and metrics in the vendor-neutral OpenTelemetry format. On AWS a collector beside the
 /// program receives them over OTLP and sends them to X-Ray and CloudWatch; locally nothing is exported.
+/// Logs go to standard output, where the container's log driver ships them to CloudWatch Logs.
 /// </summary>
 internal static class Telemetry
 {
@@ -41,5 +42,18 @@ internal static class Telemetry
         }
 
         return services;
+    }
+
+    /// <summary>
+    /// One JSON object per line, so CloudWatch Logs keeps each record as one event and Logs Insights
+    /// discovers its fields. The first scope of every record written inside a request or an event
+    /// delivery carries that trace's <c>TraceId</c> and <c>SpanId</c>, the ids an X-Ray trace and a
+    /// problem reply's <c>traceId</c> show, so an operator finds the lines with
+    /// <c>filter Scopes.0.TraceId = "…"</c>.
+    /// </summary>
+    public static ILoggingBuilder AddTraceCorrelatedConsole(this ILoggingBuilder logging)
+    {
+        logging.Configure(options => options.ActivityTrackingOptions = ActivityTrackingOptions.TraceId | ActivityTrackingOptions.SpanId);
+        return logging.AddJsonConsole(options => options.IncludeScopes = true);
     }
 }
