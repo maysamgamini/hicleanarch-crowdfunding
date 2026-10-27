@@ -90,7 +90,7 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             attempt.ToTable("charge_attempts", t =>
             {
                 // The deadline's charge, three retries and a final one (lesson s3-a04).
-                t.HasCheckConstraint("charge_attempts_no", "attempt_no BETWEEN 1 AND 5");
+                t.HasCheckConstraint("charge_attempts_no", $"attempt_no BETWEEN 1 AND {ChargeAttempt.MostAttempts}");
                 t.HasCheckConstraint("charge_attempts_status", "status IN ('IN_FLIGHT', 'SUCCEEDED', 'FAILED')");
             });
             attempt.HasKey(a => new { a.PledgeId, a.AttemptNo });

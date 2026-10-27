@@ -270,6 +270,20 @@ public sealed class SettlementTests(Database database) : IDisposable
         Assert.Equal(before + 1, Psp.ChargesMade);
         Assert.Equal(1L, await Count(given, campaign, "CHARGED"));
     }
+
+    [Fact]
+    public async Task The_database_allows_exactly_as_many_attempts_as_the_setting_may_ask_for()
+    {
+        var (given, campaign) = await Funded(FakePaymentProvider.CardSucceeds);
+        var pledge = (await PledgesOf(given, campaign))[0];
+        static string Insert(int n) => $"INSERT INTO payments.charge_attempts (pledge_id, attempt_no, idempotency_key, status) VALUES (@id, {n}, 'x:{Guid.NewGuid():N}', 'FAILED')";
+
+        await given.Execute(Insert(Payments.Domain.ChargeAttempt.MostAttempts), pledge);
+        var refused = await Assert.ThrowsAsync<Npgsql.PostgresException>(() => given.Execute(Insert(Payments.Domain.ChargeAttempt.MostAttempts + 1), pledge));
+
+        Assert.Equal("charge_attempts_no", refused.ConstraintName);
+    }
+
     private Task<HttpResponseMessage> Deliver(SignedWebhook webhook)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(webhook.Body, System.Text.Encoding.UTF8, "application/json") };

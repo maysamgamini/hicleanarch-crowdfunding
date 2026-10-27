@@ -95,6 +95,12 @@ public sealed class Charge
 /// <summary>One numbered try to charge a pledge, recorded before the PSP is called.</summary>
 public sealed class ChargeAttempt
 {
+    /// <summary>
+    /// The most attempts a charge can ever have: the database's check on <c>attempt_no</c> and the
+    /// check on the <c>Payments:Dunning:MaxAttempts</c> setting both read it, so they cannot disagree.
+    /// </summary>
+    public const int MostAttempts = 5;
+
 #pragma warning disable CS8618
     private ChargeAttempt()
     {
