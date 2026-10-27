@@ -46,14 +46,17 @@ resource "aws_elasticache_replication_group" "valkey" {
 # connection without a password can do nothing. The gateway may touch only its own keys.
 locals {
   valkey_users = {
-    api     = "on ~* &* +@all"
-    gateway = "on ~gateway:* &* +@all"
+    api = "on ~* &* +@all"
+    # The services' users get nothing @dangerous (FLUSHALL, FLUSHDB, KEYS, CONFIG, DEBUG), nor SCAN or RANDOMKEY,
+    # which key patterns do not limit (KEYS and SCAN list every service's keys). ValkeyUsersTests runs these
+    # strings against a Valkey container (CQA-1516).
+    gateway = "on ~gateway:* &* +@all -@dangerous -scan -randomkey"
     # Payments' own host shares the PSP budget's buckets (buckets:<Payments:Budget:Prefix>:*) with the
     # monolith, and has its own flags (payments:*). Only the categories it uses: the connection's own
     # commands (PING, ECHO, CLIENT SETNAME, sent while StackExchange.Redis connects), reads, writes and
     # scripts, no channels; the buckets' script reads Valkey's clock, and TIME is in no category but
     # @fast, so it is named alone.
-    payments = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time"
+    payments = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time -@dangerous -scan -randomkey"
   }
 
   # A user limited to its own keys may not read the client's tiebreaker key or subscribe to its
