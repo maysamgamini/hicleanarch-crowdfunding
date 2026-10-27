@@ -62,7 +62,7 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
         await db.Database.ExecuteSqlRawAsync(lowering, Ct);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => scope.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, 6_000, 1, Ct));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scope.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, Ct));
     }
 
     [Fact]
@@ -74,7 +74,7 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
         var db = scope.ServiceProvider.GetRequiredService<PledgesDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
 
-        Assert.True(await scope.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, 6_000, 1, Ct));
+        Assert.True(await scope.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, Ct));
     }
 
     [Fact]
@@ -250,7 +250,7 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
         var scope = _host.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PledgesDbContext>();
         var transaction = await db.Database.BeginTransactionAsync(Ct);
-        Assert.True(await scope.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, 6_000, 1, Ct));
+        Assert.True(await scope.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, Ct));
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             INSERT INTO pledges.pledge_ledger (campaign_id, pledge_id, cause_id, delta_minor, kind)
             VALUES ({campaign.CampaignId}, {Guid.NewGuid()}, {"test:" + Guid.NewGuid().ToString("N")}, 6000, 'ACTIVATE')

@@ -52,7 +52,7 @@ public sealed class ChangePledgeHandler(
         }
 
         var delta = pledge.AmountMinor - oldAmount;
-        if (!await windows.TryAccept(pledge.CampaignId, delta, backerDelta: 0, cancellationToken))
+        if (!await windows.TryAccept(pledge.CampaignId, cancellationToken))
         {
             return Result.Failure<PledgeView>(PledgeErrors.CampaignClosed);
         }
@@ -107,7 +107,7 @@ public sealed class CancelPledgeHandler(
             return Result.Failure<PledgeView>(cancelled.Errors);
         }
 
-        if (!await windows.TryAccept(pledge.CampaignId, -pledge.AmountMinor, backerDelta: -1, cancellationToken))
+        if (!await windows.TryAccept(pledge.CampaignId, cancellationToken))
         {
             return Result.Failure<PledgeView>(PledgeErrors.CampaignClosed);
         }

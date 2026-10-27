@@ -13,8 +13,6 @@ public sealed record TimeFence(TimeSpan TransactionLimit, TimeSpan WaitAfterEnd,
 
 internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, ILogger<EfClosing> logger) : IClosing
 {
-    public TimeSpan WaitAfterEnd => fence.WaitAfterEnd;
-
     // The partial index funding_windows_due holds exactly these rows.
     public async Task<IReadOnlyList<Guid>> Due(int batchSize, Guid? campaignId, CancellationToken cancellationToken)
     {

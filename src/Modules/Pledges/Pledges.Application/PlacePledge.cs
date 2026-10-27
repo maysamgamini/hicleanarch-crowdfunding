@@ -68,7 +68,7 @@ public sealed class PlacePledgeHandler(
         }
 
         // Lesson 7's fence, pledge side: closed by status or by the database's clock.
-        if (!await windows.TryAccept(command.CampaignId, command.AmountMinor, backerDelta: 1, cancellationToken))
+        if (!await windows.TryAccept(command.CampaignId, cancellationToken))
         {
             return Result.Failure<PledgePlaced>(PledgeErrors.CampaignClosed);
         }

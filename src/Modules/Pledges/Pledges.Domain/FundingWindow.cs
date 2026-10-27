@@ -12,7 +12,7 @@ public enum FundingStatus
 
 /// <summary>
 /// Everything pledging needs to know about one campaign, in one row: whether it is open, until
-/// when, and the total so far. Its facts are copied from the campaign when it is published.
+/// when, and how it was decided. Its facts are copied from the campaign when it is published.
 /// </summary>
 public sealed class FundingWindow
 {
@@ -34,9 +34,14 @@ public sealed class FundingWindow
 
     public string Currency { get; private set; }
 
-    /// <summary>The snapshot of the ledger's sum, updated in the same transaction as every entry.</summary>
+    /// <summary>
+    /// Round 1's snapshot of the ledger's sum. Since Round 2 (lesson s3-l05) a window opens with 0 here
+    /// and nothing writes or reads it again: the ledger is the total. The column stays until a later
+    /// migration drops it, after a release in which no running version still inserts it.
+    /// </summary>
     public long PledgedMinor { get; private set; }
 
+    /// <summary>Round 1's backer count beside <see cref="PledgedMinor"/>, kept and frozen the same way.</summary>
     public int Backers { get; private set; }
 
     /// <summary>The exact sum after the close, which decides the campaign.</summary>

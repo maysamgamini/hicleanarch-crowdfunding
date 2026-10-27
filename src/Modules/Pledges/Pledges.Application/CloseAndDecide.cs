@@ -29,13 +29,6 @@ public interface IClosing
     Task<TimeSpan> StillToWait(IReadOnlyList<Guid> campaignIds, CancellationToken cancellationToken);
 
     /// <summary>
-    /// How long to wait after an ENDED commit is acknowledged before the exact sum. Zero when the
-    /// close itself waited for every pledge in flight (a row lock); the transactions' time limit plus
-    /// a margin when pledges take no lock. <see cref="TryDecide"/> refuses to decide sooner.
-    /// </summary>
-    TimeSpan WaitAfterEnd { get; }
-
-    /// <summary>
     /// The check behind the fence: for campaigns decided at least a minute ago and not yet checked,
     /// sums the ledger again and keeps it beside the recorded sum. Returns how many differed; each is
     /// logged, and the rows raise the alarm while they are recent.
@@ -46,8 +39,9 @@ public interface IClosing
     Task<(long SumMinor, int Backers, long GoalMinor, string Currency)> ExactSum(Guid campaignId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// ENDED to the outcome, with the final sum, once. An unsuccessful campaign's marking is finished
-    /// with it; a funded one's starts after it. False: someone else decided it first.
+    /// ENDED to the outcome, with the final sum, once, and never sooner than the fence's wait after
+    /// the ENDED commit. An unsuccessful campaign's marking is finished with it; a funded one's
+    /// starts after it. False: too soon, or someone else decided it first.
     /// </summary>
     Task<bool> TryDecide(Guid campaignId, bool funded, long finalMinor, CancellationToken cancellationToken);
 

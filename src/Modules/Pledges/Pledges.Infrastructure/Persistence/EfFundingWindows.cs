@@ -5,7 +5,11 @@ using Pledges.Domain;
 
 namespace Pledges.Infrastructure.Persistence;
 
-internal sealed class EfFundingWindows(PledgesDbContext db) : IFundingWindows
+/// <summary>
+/// The window's statements that Round 2's adapter (<see cref="TimeFencedFundingWindows"/>) still uses
+/// from Round 1: opening, the creator's cancel, and the reads.
+/// </summary>
+internal sealed class EfFundingWindows(PledgesDbContext db)
 {
     public async Task<bool> TryOpen(FundingWindow window, IReadOnlyList<TierCounter> tiers, CancellationToken cancellationToken)
     {
@@ -35,14 +39,6 @@ internal sealed class EfFundingWindows(PledgesDbContext db) : IFundingWindows
             SELECT EXISTS (SELECT 1 FROM pledges.funding_windows WHERE campaign_id = {campaignId} AND status = 'LIVE' AND now() < deadline) AS "Value"
             """).SingleAsync(cancellationToken);
 
-    // Lesson 7: the update carries the rule, and its row lock is the fence the close waits behind.
-    public async Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken) =>
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE pledges.funding_windows
-            SET pledged_minor = pledged_minor + {deltaMinor}, backers = backers + {backerDelta}
-            WHERE campaign_id = {campaignId} AND status = 'LIVE' AND now() < deadline
-            """, cancellationToken) == 1;
-
     public async Task<CancelOutcome> TryCancel(Guid campaignId, CancellationToken cancellationToken)
     {
         // The close's own condition: still LIVE, and before the deadline by the database's clock.
@@ -67,10 +63,4 @@ internal sealed class EfFundingWindows(PledgesDbContext db) : IFundingWindows
             _ => CancelOutcome.Closed,
         };
     }
-
-    public Task TakeOutDropped(Guid campaignId, long amountMinor, CancellationToken cancellationToken) =>
-        db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE pledges.funding_windows SET pledged_minor = pledged_minor - {amountMinor}, backers = backers - 1
-            WHERE campaign_id = {campaignId}
-            """, cancellationToken);
 }
