@@ -121,7 +121,7 @@ public sealed class HostingTests(Database database, Valkey valkey) : IClassFixtu
     [InlineData("Outbox:MaxConcurrentDeliveries", "0", "MaxConcurrentDeliveries")]
     public void A_wrong_setting_stops_the_program_at_start_not_at_first_use(string key, string value, string named)
     {
-        using var host = database.StartHost(broker: false).WithWebHostBuilder(web => web.UseSetting(key, value));
+        using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting(key, value));
 
         var refusal = Refusals.Of(host);
 
