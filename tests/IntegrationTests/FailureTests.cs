@@ -35,7 +35,10 @@ public sealed class FailureTests(Database database, Faults faults) : IClassFixtu
     /// <summary>A Pledges host whose card setups go over TCP through Toxiproxy to the Payments service beside it.</summary>
     private WebApplicationFactory<Program> Host(IReadOnlyDictionary<string, string?>? broker = null, Action<IWebHostBuilder>? configure = null)
     {
-        var host = (broker is null ? database.StartHost() : database.StartHost(broker, recoverAfter: "00:00:01")).WithWebHostBuilder(web =>
+        var host = (broker is null ? database.StartHost() : database.StartHost(broker, recoverAfter: "00:00:01",
+            // Only Pledges recovers quickly: every test shares the database, and a service beside this host that
+            // recovered every second would publish other tests' rows through this test's broker.
+            payments: Patient, campaigns: Patient)).WithWebHostBuilder(web =>
         {
             web.UseSetting("Services:Payments:BaseAddress", faults.Address("payments").ToString());
             web.ConfigureServices(s => s.AddHttpClient<RemoteStartCardSetup>().ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler()));
@@ -45,6 +48,8 @@ public sealed class FailureTests(Database database, Faults faults) : IClassFixtu
             host.Services.GetRequiredService<TwoHosts.PaymentsLink>(), host.Services.GetRequiredService<PaymentsBeside>()), disposeHandler: false);
         return host;
     }
+
+    private static void Patient(IWebHostBuilder web) => web.UseSetting("Outbox:Publishing:RecoverAfter", "00:10:00");
 
     [Fact]
     public async Task With_payments_slow_a_task_holds_no_more_card_setups_than_its_limit_and_the_rest_keep_their_place_at_once()
