@@ -54,6 +54,18 @@ internal sealed partial class TotalsCheck(IServiceScopeFactory scopes, IConfigur
 
     protected override async Task Measure(IServiceProvider services, CancellationToken cancellationToken)
     {
+        var different = await FindDifferences(services, cancellationToken);
+        foreach (var campaignId in different)
+        {
+            LogMismatch(logger, campaignId);
+        }
+
+        Mismatches.Set(different.Count);
+    }
+
+    /// <summary>The campaigns whose display total still differs from their ledger's sum after a second look.</summary>
+    internal static async Task<IReadOnlyList<Guid>> FindDifferences(IServiceProvider services, CancellationToken cancellationToken)
+    {
         var db = services.GetRequiredService<PledgesDbContext>();
         services.GetRequiredService<PledgesJobsConnection>().Use(db);
         var store = services.GetRequiredService<ITotalsStore>();
@@ -76,13 +88,12 @@ internal sealed partial class TotalsCheck(IServiceScopeFactory scopes, IConfigur
             {
                 if (await Differs(db, store, campaignId, cancellationToken))
                 {
-                    LogMismatch(logger, campaignId);
                     different.Add(campaignId);
                 }
             }
         }
 
-        Mismatches.Set(different.Count);
+        return different;
     }
 
     private static async Task<bool> Differs(PledgesDbContext db, ITotalsStore store, Guid campaignId, CancellationToken cancellationToken)

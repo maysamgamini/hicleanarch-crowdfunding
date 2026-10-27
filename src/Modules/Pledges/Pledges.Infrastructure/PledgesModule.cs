@@ -89,6 +89,7 @@ public static class PledgesModule
             .AddScoped<ITierSlots>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IHolds>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IClosing, EfClosing>()
+            .AddScoped<ILastDayRule, EfLastDayRule>()
             .AddScoped<ICampaignTotals, CachedCampaignTotals>()
             .AddScoped<IPublicTotalsReads, EfPublicTotals>()
             .AddScoped<IdempotentRequests<PledgesDbContext>>();

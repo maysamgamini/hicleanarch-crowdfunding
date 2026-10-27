@@ -20,6 +20,7 @@ public sealed record CancelPledge(Guid PledgeId, Guid BackerId, string CauseId) 
 public sealed class ChangePledgeHandler(
     IPledges pledges,
     IFundingWindows windows,
+    ILastDayRule lastDay,
     ITierSlots tiers,
     IPledgeLedger ledger,
     TimeProvider clock,
@@ -56,6 +57,11 @@ public sealed class ChangePledgeHandler(
             return Result.Failure<PledgeView>(PledgeErrors.CampaignClosed);
         }
 
+        if (delta < 0 && !await lastDay.Allows(pledge.CampaignId, -delta, cancellationToken))
+        {
+            return Result.Failure<PledgeView>(PledgeErrors.BelowGoalOnLastDay);
+        }
+
         if (!await tiers.TryMove(oldTier, pledge.TierId, cancellationToken))
         {
             return Result.Failure<PledgeView>(PledgeErrors.TierSoldOut);
@@ -81,6 +87,7 @@ public sealed class ChangePledgeHandler(
 public sealed class CancelPledgeHandler(
     IPledges pledges,
     IFundingWindows windows,
+    ILastDayRule lastDay,
     ITierSlots tiers,
     IPledgeLedger ledger,
     TimeProvider clock,
@@ -103,6 +110,11 @@ public sealed class CancelPledgeHandler(
         if (!await windows.TryAccept(pledge.CampaignId, -pledge.AmountMinor, backerDelta: -1, cancellationToken))
         {
             return Result.Failure<PledgeView>(PledgeErrors.CampaignClosed);
+        }
+
+        if (!await lastDay.Allows(pledge.CampaignId, pledge.AmountMinor, cancellationToken))
+        {
+            return Result.Failure<PledgeView>(PledgeErrors.BelowGoalOnLastDay);
         }
 
         await tiers.TryMove(pledge.TierId, null, cancellationToken);

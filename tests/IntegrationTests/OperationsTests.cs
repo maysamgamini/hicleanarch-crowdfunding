@@ -61,17 +61,14 @@ public sealed class OperationsTests(Database database) : IDisposable
         var given = new Scenario(database, _host);
         var campaign = await given.Publish(); // no pledges: its ledger sums to 0
 
-        // A store whose total for this campaign is wrong, whatever the aggregator writes.
-        using var restarted = database.StartHost(services => services.AddSingleton<ITotalsStore>(new WrongFor(campaign.CampaignId)));
-        _ = restarted.Server;
+        // A store whose total for this campaign is wrong, whatever the aggregator writes. The check
+        // is run directly: its gauge is shared by every test host in the process.
+        using var host = database.StartHost(services => services.AddSingleton<ITotalsStore>(new WrongFor(campaign.CampaignId)));
+        await using var scope = host.Services.CreateAsyncScope();
 
-        // The check looks again after 5 seconds before it counts a difference.
-        for (var i = 0; i < 100 && Pledges.Infrastructure.TotalsCheck.Mismatches.Value < 1; i++)
-        {
-            await Task.Delay(200, TestContext.Current.CancellationToken);
-        }
+        var different = await Pledges.Infrastructure.TotalsCheck.FindDifferences(scope.ServiceProvider, TestContext.Current.CancellationToken);
 
-        Assert.True(Pledges.Infrastructure.TotalsCheck.Mismatches.Value >= 1);
+        Assert.Equal([campaign.CampaignId], different);
     }
 
     private sealed class WrongFor(Guid campaignId) : ITotalsStore
