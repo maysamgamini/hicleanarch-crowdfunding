@@ -82,4 +82,24 @@ public sealed partial class ValkeyUsersTests(Valkey valkey) : IClassFixture<Valk
         await Refused(db, "KEYS", "*");
         await Refused(db, "SCAN", "0");
     }
+
+    // CQA-2114: @scripting holds SCRIPT FLUSH and FUNCTION FLUSH, which empty the script cache and the
+    // functions every service shares. Each user still runs its scripts, and is refused both.
+    [Theory]
+    [InlineData("api", "pledges")]
+    [InlineData("campaigns", "campaigns")]
+    [InlineData("payments", "payments")]
+    [InlineData("gateway", "gateway")]
+    public async Task No_user_can_flush_the_shared_scripts_or_functions(string user, string prefix)
+    {
+        await using var connection = await SignIn(user, ",tiebreaker=,configChannel=");
+        var db = connection.GetDatabase();
+
+        var key = $"{prefix}:{Guid.NewGuid():N}";
+        await db.ScriptEvaluateAsync("return redis.call('SET', KEYS[1], 'x')", [key]);
+        Assert.True(await db.KeyExistsAsync(key));
+
+        await Refused(db, "SCRIPT", "FLUSH");
+        await Refused(db, "FUNCTION", "FLUSH");
+    }
 }

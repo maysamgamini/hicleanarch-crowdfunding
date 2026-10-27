@@ -51,19 +51,21 @@ locals {
     # the catalog cache (campaigns:*) is the Campaigns service's. Since s4-l10 it takes no PSP budget token.
     # Only the categories it uses, and nothing @dangerous (FLUSHALL, KEYS, CONFIG), nor SCAN or RANDOMKEY,
     # which list keys beyond its prefixes.
-    api = "on ~pledges:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey"
+    api = "on ~pledges:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey -script|flush -function|flush"
     # The services' users get nothing @dangerous (FLUSHALL, FLUSHDB, KEYS, CONFIG, DEBUG), nor SCAN or RANDOMKEY,
-    # which key patterns do not limit (KEYS and SCAN list every service's keys). ValkeyUsersTests runs these
-    # strings against a Valkey container (CQA-1516).
-    gateway = "on ~gateway:* &* +@all -@dangerous -scan -randomkey"
+    # which key patterns do not limit (KEYS and SCAN list every service's keys). Nor SCRIPT FLUSH or FUNCTION
+    # FLUSH, which @scripting allows and which empty every service's script cache and functions (CQA-2114;
+    # ElastiCache takes command|subcommand rules from engine 7.0). ValkeyUsersTests runs these strings
+    # against a Valkey container (CQA-1516).
+    gateway = "on ~gateway:* &* +@all -@dangerous -scan -randomkey -script|flush -function|flush"
     # Payments' own host shares the PSP budget's buckets (buckets:<Payments:Budget:Prefix>:*) with the
     # monolith, and has its own flags (payments:*). Only the categories it uses: the connection's own
     # commands (PING, ECHO, CLIENT SETNAME, sent while StackExchange.Redis connects), reads, writes and
     # scripts, no channels; the buckets' script reads Valkey's clock, and TIME is in no category but
     # @fast, so it is named alone.
     # The Campaigns service (s5-l08): the catalog cache and its refill locks, nothing else.
-    campaigns = "on ~campaigns:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey"
-    payments  = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time -@dangerous -scan -randomkey"
+    campaigns = "on ~campaigns:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey -script|flush -function|flush"
+    payments  = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time -@dangerous -scan -randomkey -script|flush -function|flush"
   }
 
   # A user limited to its own keys may not read the client's tiebreaker key or subscribe to its

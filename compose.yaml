@@ -56,12 +56,12 @@ services:
       "valkey-server",
       "--user", "default", "off",
       "--user", "api", "on", ">api_dev", "~pledges:*", "resetchannels", "-@all",
-      "+@connection", "+@read", "+@write", "+@scripting", "-@dangerous", "-scan", "-randomkey",
-      "--user", "gateway", "on", ">gateway_dev", "~gateway:*", "&*", "+@all", "-@dangerous", "-scan", "-randomkey",
+      "+@connection", "+@read", "+@write", "+@scripting", "-@dangerous", "-scan", "-randomkey", "-script|flush", "-function|flush",
+      "--user", "gateway", "on", ">gateway_dev", "~gateway:*", "&*", "+@all", "-@dangerous", "-scan", "-randomkey", "-script|flush", "-function|flush",
       "--user", "payments", "on", ">payments_dev", "~buckets:psp:*", "~payments:*", "resetchannels", "-@all",
-      "+@connection", "+@read", "+@write", "+@scripting", "+time", "-@dangerous", "-scan", "-randomkey",
+      "+@connection", "+@read", "+@write", "+@scripting", "+time", "-@dangerous", "-scan", "-randomkey", "-script|flush", "-function|flush",
       "--user", "campaigns", "on", ">campaigns_dev", "~campaigns:*", "resetchannels", "-@all",
-      "+@connection", "+@read", "+@write", "+@scripting", "-@dangerous", "-scan", "-randomkey",
+      "+@connection", "+@read", "+@write", "+@scripting", "-@dangerous", "-scan", "-randomkey", "-script|flush", "-function|flush",
     ]
     ports:
       - "${LOCAL_VALKEY_PORT:-6379}:6379"

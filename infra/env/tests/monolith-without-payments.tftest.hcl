@@ -393,7 +393,7 @@ run "campaigns_runs_only_in_its_own_service" {
   }
 
   assert {
-    condition     = aws_elasticache_user.valkey["campaigns"].access_string == "on ~campaigns:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey"
+    condition     = aws_elasticache_user.valkey["campaigns"].access_string == "on ~campaigns:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey -script|flush -function|flush"
     error_message = "The Campaigns service's Valkey user reaches only campaigns:* keys."
   }
 
