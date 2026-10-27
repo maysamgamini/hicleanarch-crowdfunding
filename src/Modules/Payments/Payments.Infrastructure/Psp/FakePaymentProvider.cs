@@ -42,6 +42,7 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     private int _loseNextReplies;
     private int _unreachable;
     private int _rateLimitNext;
+    private int _concurrencyLimitNext;
     private string? _rateLimitCall;
     private Hold? _cardSetupHold;
 
@@ -77,6 +78,9 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
         Volatile.Write(ref _cardSetupHold, hold);
         return hold;
     }
+
+    /// <summary>The next <paramref name="count"/> calls of any kind are refused for too many requests in progress, as Stripe's 429 <c>global-concurrency</c>.</summary>
+    public void LimitConcurrencyNext(int count) => Interlocked.Exchange(ref _concurrencyLimitNext, count);
 
     /// <summary>Each call that reached the PSP, by kind and time: a refused call counts, one that never left us does not.</summary>
     public IReadOnlyList<(string Call, DateTimeOffset At)> Calls => [.. _calls];
@@ -293,6 +297,11 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
         if (Volatile.Read(ref _rateLimitCall) == call && Interlocked.Decrement(ref _rateLimitNext) >= 0)
         {
             throw new PspRateLimitedException(global: false);
+        }
+
+        if (Volatile.Read(ref _concurrencyLimitNext) > 0 && Interlocked.Decrement(ref _concurrencyLimitNext) >= 0)
+        {
+            throw PspRateLimitedException.TooManyInFlight();
         }
     }
 }

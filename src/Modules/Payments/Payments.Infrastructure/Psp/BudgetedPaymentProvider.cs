@@ -5,18 +5,20 @@ using Payments.Application;
 namespace Payments.Infrastructure.Psp;
 
 /// <summary>
-/// Every PSP call takes its tokens first, and waits for them: the PSP's limit, not the number of
-/// tasks, sets the pace (lesson s3-a04). A 429 that arrives anyway empties the bucket it names, so
-/// every task slows down, and the call is sent again when a token is free. A card setup has already
-/// taken its turn in the card-setup lane, which answers a full lane with a wait instead of waiting.
+/// Every PSP call takes its tokens first, then a slot of the account's calls in flight, and waits
+/// for both: the PSP's limits, not the number of tasks, set the pace (lesson s3-a04). The slot is
+/// given back when the call ends, whatever its end. A 429 that arrives anyway empties the bucket it
+/// names, or, for too many calls in progress, shrinks the slots, so every task slows down, and the
+/// call is sent again when it may. A card setup has already taken its turn in the card-setup lane,
+/// which answers a full lane with a wait instead of waiting; it still takes a slot.
 /// </summary>
-internal sealed class BudgetedPaymentProvider(IPaymentProvider psp, ITokenBuckets buckets, PspBudget budget, TimeProvider clock) : IPaymentProvider
+internal sealed class BudgetedPaymentProvider(IPaymentProvider psp, ITokenBuckets buckets, IInFlightSlots slots, PspBudget budget, TimeProvider clock) : IPaymentProvider
 {
     public Task<string> CreateCustomer(Guid backerId, string idempotencyKey, CancellationToken ct) =>
         Call(PspCall.Customer, c => psp.CreateCustomer(backerId, idempotencyKey, c), ct);
 
     public Task<CardSetupIntent> StartCardSetup(string pspCustomerId, string idempotencyKey, CancellationToken ct) =>
-        psp.StartCardSetup(pspCustomerId, idempotencyKey, ct);
+        InFlight(c => psp.StartCardSetup(pspCustomerId, idempotencyKey, c), ct);
 
     public Task<ChargeOutcome> Charge(ChargeRequest request, string idempotencyKey, CancellationToken ct) =>
         Call(PspCall.Charge, c => psp.Charge(request, idempotencyKey, c), ct);
@@ -48,12 +50,49 @@ internal sealed class BudgetedPaymentProvider(IPaymentProvider psp, ITokenBucket
             await TakeTurn(call, ct);
             try
             {
-                return await send(ct);
+                return await InFlight(send, ct);
             }
-            catch (PspRateLimitedException limited)
+            catch (PspRateLimitedException limited) when (!limited.Concurrency)
             {
                 await buckets.Drain(limited.Global ? budget.Account : budget.Endpoint(call), ct);
             }
+            catch (PspRateLimitedException)
+            {
+                // The slots were shrunk when the call ended; it is sent again when one is free.
+            }
+        }
+    }
+
+    private async Task<T> InFlight<T>(Func<CancellationToken, Task<T>> send, CancellationToken ct)
+    {
+        var slot = await TakeSlot(ct);
+        try
+        {
+            return await send(ct);
+        }
+        catch (PspRateLimitedException limited) when (limited.Concurrency)
+        {
+            await slots.Shrink(budget.Calls, CancellationToken.None);
+            throw;
+        }
+        finally
+        {
+            // Given back even when the caller has given up, so a cancelled call never keeps its slot until the lease ends.
+            await slots.Release(budget.Calls, slot, CancellationToken.None);
+        }
+    }
+
+    private async Task<string> TakeSlot(CancellationToken ct)
+    {
+        while (true)
+        {
+            var slot = await slots.TryTake(budget.Calls, ct);
+            if (slot.SlotId is { } id)
+            {
+                return id;
+            }
+
+            await Task.Delay(slot.RetryAfter, clock, ct);
         }
     }
 
