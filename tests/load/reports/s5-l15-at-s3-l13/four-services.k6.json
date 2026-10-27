@@ -1,0 +1,133 @@
+{
+  "profile": "four-services",
+  "where": "local",
+  "topology": "one host composing every module of s3-l13 (in-process events)",
+  "setup": "Darwin arm64, 18 CPUs, load average 3.42 at the start; PostgreSQL 17, Valkey 8 and an nginx cache in Docker; the host of s3-l13, Release build",
+  "numbers": "local measurements: one machine, one database, an nginx cache standing in for CloudFront; they show whether the design's shape holds, not what AWS would do",
+  "scale": 0.01,
+  "measuredAt": "2026-10-27T19:54:23.533Z",
+  "services": {
+    "pledges": {
+      "requests": 2709,
+      "availability": 1,
+      "objective": {
+        "availability": 0.9999,
+        "endpoint": "POST /v1/campaigns/{id}/pledges",
+        "p99Ms": 200
+      },
+      "latencyMs": {
+        "p50": 6.271189,
+        "p95": 8.12037995,
+        "p99": 10.03257575
+      },
+      "met": true
+    },
+    "campaigns": {
+      "requests": 643,
+      "availability": 1,
+      "objective": {
+        "availability": 0.999,
+        "endpoint": "GET /v1/campaigns/{id}",
+        "p99Ms": 300
+      },
+      "latencyMs": {
+        "p50": 1.429236,
+        "p95": 1.8954902,
+        "p99": 3.469449
+      },
+      "met": true
+    },
+    "payments": {
+      "requests": 1,
+      "availability": 1,
+      "objective": {
+        "availability": 0.999,
+        "endpoint": "GET /v1/campaigns/{id}/settlement",
+        "p99Ms": 500
+      },
+      "latencyMs": {
+        "p50": 13.653741,
+        "p95": 13.653741,
+        "p99": 13.653741
+      },
+      "met": true
+    },
+    "notifications": {
+      "requests": 60,
+      "availability": 1,
+      "objective": {
+        "availability": 0.999,
+        "endpoint": "PUT /v1/me/notifications/{kind}",
+        "p99Ms": 300
+      },
+      "latencyMs": {
+        "p50": 1.6001720000000001,
+        "p95": 2.21427415,
+        "p99": 2.9264622399999998
+      },
+      "met": true
+    }
+  },
+  "launch": {
+    "seconds": 60,
+    "pledgesPerSecond": 30,
+    "pageLoadsPerSecond": 10,
+    "pledgesAccepted": 1801
+  },
+  "totals": {
+    "reads": 601,
+    "originRequests": 21,
+    "originPerSecond": 0.35,
+    "ageP99Ms": 4560,
+    "cdn": true,
+    "countedAt": "the nginx cache"
+  },
+  "displayedTotalsSettledAfterS": 2.034,
+  "closePass": {
+    "pledges": 100,
+    "decidedAfterS": 8.024,
+    "settledAfterS": 12.036,
+    "targetS": 64
+  },
+  "shape": [
+    {
+      "what": "Hot tier: places sold, with far more backers than places",
+      "expected": 10,
+      "observed": 10,
+      "ok": true
+    },
+    {
+      "what": "Hot tier: backers in the displayed total",
+      "expected": 10,
+      "observed": 10,
+      "ok": true
+    },
+    {
+      "what": "Hot tier: places left in the displayed total",
+      "expected": 0,
+      "observed": 0,
+      "ok": true
+    },
+    {
+      "what": "Launch: backers in the displayed total = pledges accepted",
+      "expected": 1801,
+      "observed": 1801,
+      "ok": true
+    },
+    {
+      "what": "Launch: amount in the displayed total = accepted × 6,000",
+      "expected": 10806000,
+      "observed": 10806000,
+      "ok": true
+    },
+    {
+      "what": "CDN path: origin requests for one campaign's totals, about one every 2 s",
+      "expected": "≤ 32",
+      "observed": 21,
+      "ok": true
+    }
+  ],
+  "shapeHolds": true,
+  "runSeconds": 91.28050135599999,
+  "thresholdsPassed": true
+}

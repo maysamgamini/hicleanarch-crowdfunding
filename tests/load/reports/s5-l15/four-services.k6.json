@@ -1,0 +1,133 @@
+{
+  "profile": "four-services",
+  "where": "local",
+  "topology": "four services behind the gateway, events through SNS and SQS (Moto), as compose.yaml runs them",
+  "setup": "Darwin arm64, 18 CPUs, load average 4.08 at the start; compose.yaml's stack in Docker (PostgreSQL 17, Valkey 8, Moto for SNS and SQS, the gateway and the four services of commit cf10145 (s5-l15's code), Release builds) and an nginx cache",
+  "numbers": "local measurements: one machine, one database, an nginx cache standing in for CloudFront; they show whether the design's shape holds, not what AWS would do",
+  "scale": 0.01,
+  "measuredAt": "2026-10-27T19:52:31.050Z",
+  "services": {
+    "pledges": {
+      "requests": 2708,
+      "availability": 1,
+      "objective": {
+        "availability": 0.9999,
+        "endpoint": "POST /v1/campaigns/{id}/pledges",
+        "p99Ms": 200
+      },
+      "latencyMs": {
+        "p50": 4.193418,
+        "p95": 6.41598,
+        "p99": 16.05472
+      },
+      "met": true
+    },
+    "campaigns": {
+      "requests": 652,
+      "availability": 1,
+      "objective": {
+        "availability": 0.999,
+        "endpoint": "GET /v1/campaigns/{id}",
+        "p99Ms": 300
+      },
+      "latencyMs": {
+        "p50": 1.2094464999999999,
+        "p95": 1.9638662499999997,
+        "p99": 6.022306099999996
+      },
+      "met": true
+    },
+    "payments": {
+      "requests": 1,
+      "availability": 1,
+      "objective": {
+        "availability": 0.999,
+        "endpoint": "GET /v1/campaigns/{id}/settlement",
+        "p99Ms": 500
+      },
+      "latencyMs": {
+        "p50": 46.65234,
+        "p95": 46.65234,
+        "p99": 46.65234
+      },
+      "met": true
+    },
+    "notifications": {
+      "requests": 61,
+      "availability": 1,
+      "objective": {
+        "availability": 0.999,
+        "endpoint": "PUT /v1/me/notifications/{kind}",
+        "p99Ms": 300
+      },
+      "latencyMs": {
+        "p50": 1.945647,
+        "p95": 3.477799,
+        "p99": 19.76181779999999
+      },
+      "met": true
+    }
+  },
+  "launch": {
+    "seconds": 60,
+    "pledgesPerSecond": 30,
+    "pageLoadsPerSecond": 10,
+    "pledgesAccepted": 1801
+  },
+  "totals": {
+    "reads": 601,
+    "originRequests": 21,
+    "originPerSecond": 0.35,
+    "ageP99Ms": 4541,
+    "cdn": true,
+    "countedAt": "the nginx cache"
+  },
+  "displayedTotalsSettledAfterS": 2.018,
+  "closePass": {
+    "pledges": 100,
+    "decidedAfterS": 25.88,
+    "settledAfterS": 29.889,
+    "targetS": 64
+  },
+  "shape": [
+    {
+      "what": "Hot tier: places sold, with far more backers than places",
+      "expected": 10,
+      "observed": 10,
+      "ok": true
+    },
+    {
+      "what": "Hot tier: backers in the displayed total",
+      "expected": 10,
+      "observed": 10,
+      "ok": true
+    },
+    {
+      "what": "Hot tier: places left in the displayed total",
+      "expected": 0,
+      "observed": 0,
+      "ok": true
+    },
+    {
+      "what": "Launch: backers in the displayed total = pledges accepted",
+      "expected": 1801,
+      "observed": 1801,
+      "ok": true
+    },
+    {
+      "what": "Launch: amount in the displayed total = accepted × 6,000",
+      "expected": 10806000,
+      "observed": 10806000,
+      "ok": true
+    },
+    {
+      "what": "CDN path: origin requests for one campaign's totals, about one every 2 s",
+      "expected": "≤ 32",
+      "observed": 21,
+      "ok": true
+    }
+  ],
+  "shapeHolds": true,
+  "runSeconds": 91.10750095899999,
+  "thresholdsPassed": true
+}

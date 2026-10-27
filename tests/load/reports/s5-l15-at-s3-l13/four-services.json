@@ -1,0 +1,219 @@
+{
+  "profile": "four-services",
+  "where": "local",
+  "topology": "one host composing every module of s3-l13 (in-process events)",
+  "setup": "Darwin arm64, 18 CPUs, load average 3.42 at the start; PostgreSQL 17, Valkey 8 and an nginx cache in Docker; the host of s3-l13, Release build",
+  "numbers": "local measurements: one machine, one database, an nginx cache standing in for CloudFront; they show whether the design's shape holds, not what AWS would do",
+  "scale": 0.01,
+  "measuredAt": "2026-10-27T19:54:23.533Z",
+  "services": {
+    "pledges": {
+      "requests": 2709,
+      "availability": 1,
+      "objective": {
+        "availability": 0.9999,
+        "endpoint": "POST /v1/campaigns/{id}/pledges",
+        "p99Ms": 200
+      },
+      "latencyMs": {
+        "p50": 6.271189,
+        "p95": 8.12037995,
+        "p99": 10.03257575
+      },
+      "met": true
+    },
+    "campaigns": {
+      "requests": 643,
+      "availability": 1,
+      "objective": {
+        "availability": 0.999,
+        "endpoint": "GET /v1/campaigns/{id}",
+        "p99Ms": 300
+      },
+      "latencyMs": {
+        "p50": 1.429236,
+        "p95": 1.8954902,
+        "p99": 3.469449
+      },
+      "met": true
+    },
+    "payments": {
+      "requests": 1,
+      "availability": 1,
+      "objective": {
+        "availability": 0.999,
+        "endpoint": "GET /v1/campaigns/{id}/settlement",
+        "p99Ms": 500
+      },
+      "latencyMs": {
+        "p50": 13.653741,
+        "p95": 13.653741,
+        "p99": 13.653741
+      },
+      "met": true
+    },
+    "notifications": {
+      "requests": 60,
+      "availability": 1,
+      "objective": {
+        "availability": 0.999,
+        "endpoint": "PUT /v1/me/notifications/{kind}",
+        "p99Ms": 300
+      },
+      "latencyMs": {
+        "p50": 1.6001720000000001,
+        "p95": 2.21427415,
+        "p99": 2.9264622399999998
+      },
+      "met": true
+    }
+  },
+  "launch": {
+    "seconds": 60,
+    "pledgesPerSecond": 30,
+    "pageLoadsPerSecond": 10,
+    "pledgesAccepted": 1801
+  },
+  "totals": {
+    "reads": 601,
+    "originRequests": 21,
+    "originPerSecond": 0.35,
+    "ageP99Ms": 4560,
+    "cdn": true,
+    "countedAt": "the nginx cache"
+  },
+  "displayedTotalsSettledAfterS": 2.034,
+  "closePass": {
+    "pledges": 100,
+    "decidedAfterS": 8.024,
+    "settledAfterS": 12.036,
+    "targetS": 64
+  },
+  "shape": [
+    {
+      "what": "Hot tier: places sold, with far more backers than places",
+      "expected": 10,
+      "observed": 10,
+      "ok": true
+    },
+    {
+      "what": "Hot tier: backers in the displayed total",
+      "expected": 10,
+      "observed": 10,
+      "ok": true
+    },
+    {
+      "what": "Hot tier: places left in the displayed total",
+      "expected": 0,
+      "observed": 0,
+      "ok": true
+    },
+    {
+      "what": "Launch: backers in the displayed total = pledges accepted",
+      "expected": 1801,
+      "observed": 1801,
+      "ok": true
+    },
+    {
+      "what": "Launch: amount in the displayed total = accepted × 6,000",
+      "expected": 10806000,
+      "observed": 10806000,
+      "ok": true
+    },
+    {
+      "what": "CDN path: origin requests for one campaign's totals, about one every 2 s",
+      "expected": "≤ 32",
+      "observed": 21,
+      "ok": true
+    }
+  ],
+  "shapeHolds": true,
+  "runSeconds": 91.28050135599999,
+  "thresholdsPassed": true,
+  "cost": {
+    "kind": "design estimate",
+    "basis": "A design estimate, not a bill: what the tasks of each deployable cost per hour at us-east-1 on-demand list prices, read 2026-10-27 (docs/cost.md lists the sources). The monolith is s3-l16's infra/env (two tasks of 0.5 vCPU and 1 GB). The four services are s5-l15's: each service's root (infra/services/<name>) on the service module, whose default is 0.5 vCPU and 1 GB with room for the Service Connect proxy (CQA-2106); Pledges and Payments at 1 vCPU and 2 GB; the default task counts (Pledges' from infra/env's desired_count, Payments' one task under its PSP budget). Each task has its own public IPv4 address (no NAT gateway). Left out because they do not change with the split or are too small to show: the load balancer, the database, Valkey, CloudFront, and a few secrets and alarms per service.",
+    "monolithPerHour": 0.0593704,
+    "fourServicesPerHour": 0.281852,
+    "perService": {
+      "pledges": 0.10874079999999998,
+      "payments": 0.05437039999999999,
+      "campaigns": 0.0593704,
+      "notifications": 0.0593704
+    },
+    "math": {
+      "monolith": "2 × (0.5 vCPU × $0.0404784 + 1 GB × $0.004446 + one IPv4 address at $0.005)",
+      "pledges": "2 × (1 vCPU × $0.0404784 + 2 GB × $0.004446 + one IPv4 address at $0.005)",
+      "payments": "1 × (1 vCPU × $0.0404784 + 2 GB × $0.004446 + one IPv4 address at $0.005)",
+      "campaigns": "2 × (0.5 vCPU × $0.0404784 + 1 GB × $0.004446 + one IPv4 address at $0.005)",
+      "notifications": "2 × (0.5 vCPU × $0.0404784 + 1 GB × $0.004446 + one IPv4 address at $0.005)"
+    },
+    "extraPerHour": 0.2224816,
+    "extraPer30Days": 160.186752
+  },
+  "mergeBack": {
+    "range": "s3-l16..HEAD",
+    "commits": 67,
+    "pairs": [
+      {
+        "a": "campaigns",
+        "b": "notifications",
+        "either": 19,
+        "both": 8,
+        "share": 0.42105263157894735,
+        "mostChangeBoth": false
+      },
+      {
+        "a": "campaigns",
+        "b": "payments",
+        "either": 36,
+        "both": 6,
+        "share": 0.16666666666666666,
+        "mostChangeBoth": false
+      },
+      {
+        "a": "campaigns",
+        "b": "pledges",
+        "either": 35,
+        "both": 8,
+        "share": 0.22857142857142856,
+        "mostChangeBoth": false
+      },
+      {
+        "a": "notifications",
+        "b": "payments",
+        "either": 37,
+        "both": 6,
+        "share": 0.16216216216216217,
+        "mostChangeBoth": false
+      },
+      {
+        "a": "notifications",
+        "b": "pledges",
+        "either": 35,
+        "both": 9,
+        "share": 0.2571428571428571,
+        "mostChangeBoth": false
+      },
+      {
+        "a": "payments",
+        "b": "pledges",
+        "either": 44,
+        "both": 15,
+        "share": 0.3409090909090909,
+        "mostChangeBoth": false
+      }
+    ],
+    "synchronousCalls": [
+      {
+        "command": "StartCardSetup",
+        "endpoint": "POST /internal/payments/card-setups",
+        "server": "payments",
+        "callers": [
+          "pledges"
+        ]
+      }
+    ]
+  },
+  "serverSide": null
+}

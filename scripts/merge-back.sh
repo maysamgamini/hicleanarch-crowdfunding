@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The evidence for decision merge-back, from the repository alone, as JSON on standard output.
 #
-#   scripts/merge-back.sh [range]      (default: the last 200 commits; after the split, e.g. s5-l10..HEAD)
+#   scripts/merge-back.sh [range]      (default: since the split began, s3-l16..HEAD; without that tag, the last 200 commits)
 #
 # 1. Changes together: for each pair of services, of the commits that changed either, how many changed
 #    both. "Most commits change both" is a share above 0.5. A service is its module and its host; shared
@@ -10,7 +10,13 @@
 #    it, and which other modules send it. These are the synchronous calls; each needs a fallback.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-range="${1:-HEAD~200..HEAD}"
+if [[ -n "${1:-}" ]]; then
+  range=$1
+elif git rev-parse -q --verify "s3-l16^{commit}" >/dev/null; then
+  range="s3-l16..HEAD" # the last monolith tag: every split since is in the range
+else
+  range="HEAD~200..HEAD"
+fi
 git rev-parse -q --verify "${range%%..*}^{commit}" >/dev/null || range="HEAD"
 
 services=(campaigns notifications payments pledges)
