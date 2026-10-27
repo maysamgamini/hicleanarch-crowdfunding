@@ -26,32 +26,20 @@ public sealed class TierTests(Database database) : IDisposable
     public void Dispose() => _host.Dispose();
 
     /// <summary>
-    /// One backer's pledge, sent again with the same key while the tier row is busy (409 tier_busy,
-    /// lesson s3-l05) or the database ended its transaction for running too long (409 try_again),
-    /// as a client does, until it gets a real answer: its status and reason. Fifty pledges queue on
-    /// one row here, so under a loaded machine some outlast the module role's 2 s transaction limit.
+    /// One backer's pledge, sent again with the same key while the API says it is busy (409 with
+    /// Retry-After: tier_busy, or try_again once the database ends a transaction at the module role's
+    /// 2 s limit), as a client does, until it gets a real answer: its status and reason. Fifty pledges
+    /// queue on one row here, so on a loaded machine some are told to try again.
     /// </summary>
     private static async Task<(HttpStatusCode Status, string? Reason)> PledgeUntilAnswered(Scenario given, Scenario.Published campaign)
     {
-        var backer = given.Backer(Guid.NewGuid());
-        var key = Guid.NewGuid().ToString();
-        while (true)
-        {
-            using var request = new HttpRequestMessage(HttpMethod.Post, $"/v1/campaigns/{campaign.Id}/pledges")
+        using var response = await Scenario.SendUntilAnswered(given.Backer(Guid.NewGuid()), () =>
+            new HttpRequestMessage(HttpMethod.Post, $"/v1/campaigns/{campaign.Id}/pledges")
             {
                 Content = JsonContent.Create(Scenario.Pledge(4_900, campaign.TierIds[0])),
-            };
-            request.Headers.Add("Idempotency-Key", key);
-            using var response = await backer.SendAsync(request, Ct);
-            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
-            var reason = body.RootElement.TryGetProperty("reason", out var r) ? r.GetString() : null;
-            if (reason is not ("tier_busy" or "try_again"))
-            {
-                return (response.StatusCode, reason);
-            }
-
-            await Task.Delay(100, Ct);
-        }
+            });
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        return (response.StatusCode, body.RootElement.TryGetProperty("reason", out var r) ? r.GetString() : null);
     }
 
     [Fact]
