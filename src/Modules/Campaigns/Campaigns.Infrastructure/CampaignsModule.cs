@@ -46,6 +46,11 @@ public static class CampaignsModule
         // Queries read the reader endpoint; without one (development, tests) the writer, read-only.
         services.AddReadSide<CampaignsDbContext>(
             configuration.GetConnectionString("CampaignsRead") ?? connectionString, CampaignsDbOptions.Configure);
+        services.AddEventHandler<CampaignPublished, CatalogCacheInvalidation>(CampaignsModuleName.Value);
+        services.AddEventHandler<CampaignCancelled, CatalogCacheInvalidation>(CampaignsModuleName.Value);
+        services.AddEventHandler<FundingCancelled, CatalogCacheInvalidation>(CampaignsModuleName.Value);
+        services.AddEventHandler<CampaignFundingDecided, CatalogCacheInvalidation>(CampaignsModuleName.Value);
+        services.AddEventHandler<Payments.Contracts.CampaignSettled, CatalogCacheInvalidation>(CampaignsModuleName.Value);
         services.AddSingleton<IModuleMigrator, CampaignsMigrator>();
         services.AddSingleton(new ModuleDatabase("Campaigns", CampaignsDbContext.Schema, connectionString));
         return services

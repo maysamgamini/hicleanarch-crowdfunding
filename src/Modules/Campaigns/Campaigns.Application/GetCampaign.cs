@@ -25,21 +25,44 @@ public sealed record CampaignView(
 public sealed record TierView(string TierId, string Title, long MinPledgeMinor, int? Limit);
 
 /// <summary>
-/// The catalog is Campaigns' own; the total comes from Pledges, through its contract. Both are read
-/// from the reader endpoint: a page may be a moment behind.
+/// The catalog part of a campaign: Campaigns' own data, which changes rarely. It is cached for
+/// five minutes and dropped from the cache by every event that changes it.
 /// </summary>
-public sealed class GetCampaignHandler(ICampaignReads campaigns, ICampaignTotals totals) : IQueryHandler<GetCampaign, CampaignView>
+public sealed record GetCampaignCatalog(CampaignId Id) : IQuery<CampaignCatalog>, ICacheableQuery
 {
-    public async Task<Result<CampaignView>> Handle(GetCampaign query, CancellationToken cancellationToken)
+    public string CacheKey => Key(Id);
+
+    public TimeSpan TimeToLive => TimeSpan.FromMinutes(5);
+
+    public static string Key(CampaignId id) => $"campaigns:catalog:{id}";
+}
+
+public sealed record CampaignCatalog(
+    string CampaignId,
+    Guid CreatorId,
+    string Status,
+    string Title,
+    long GoalMinor,
+    string Currency,
+    DateTime Deadline,
+    IReadOnlyList<TierView> Tiers);
+
+/// <summary>
+/// Loads from the writer, not the reader: what it returns is kept in the cache for five minutes, so
+/// a row a replica has not caught up with yet must never be the one cached.
+/// </summary>
+[ReadsTheWriter]
+public sealed class GetCampaignCatalogHandler(ICampaignRepository campaigns) : IQueryHandler<GetCampaignCatalog, CampaignCatalog>
+{
+    public async Task<Result<CampaignCatalog>> Handle(GetCampaignCatalog query, CancellationToken cancellationToken)
     {
         var campaign = await campaigns.Find(query.Id, cancellationToken);
         if (campaign is null)
         {
-            return Result.Failure<CampaignView>(CampaignErrors.NotFound);
+            return Result.Failure<CampaignCatalog>(CampaignErrors.NotFound);
         }
 
-        var raised = await totals.Get(campaign.Id.Value, cancellationToken);
-        return Result.Success(new CampaignView(
+        return Result.Success(new CampaignCatalog(
             campaign.Id.ToString(),
             campaign.CreatorId,
             campaign.Status.ToString().ToUpperInvariant(),
@@ -47,8 +70,32 @@ public sealed class GetCampaignHandler(ICampaignReads campaigns, ICampaignTotals
             campaign.Goal.AmountMinor,
             campaign.Goal.Currency,
             campaign.Deadline.UtcDateTime,
+            [.. campaign.Tiers.Select(t => new TierView(t.Id.ToString(), t.Title, t.MinPledgeMinor, t.Limit))]));
+    }
+}
+
+/// <summary>
+/// The catalog may come from the cache; the total never does. It comes from Pledges, through its
+/// contract, on every read, from the reader endpoint: a page may be a moment behind.
+/// </summary>
+public sealed class GetCampaignHandler(
+    IQueryHandler<GetCampaignCatalog, CampaignCatalog> catalog,
+    ICampaignTotals totals) : IQueryHandler<GetCampaign, CampaignView>
+{
+    public async Task<Result<CampaignView>> Handle(GetCampaign query, CancellationToken cancellationToken)
+    {
+        var found = await catalog.Handle(new GetCampaignCatalog(query.Id), cancellationToken);
+        if (!found.IsSuccess)
+        {
+            return Result.Failure<CampaignView>(found.Errors);
+        }
+
+        var c = found.Value;
+        var raised = await totals.Get(query.Id.Value, cancellationToken);
+        return Result.Success(new CampaignView(
+            c.CampaignId, c.CreatorId, c.Status, c.Title, c.GoalMinor, c.Currency, c.Deadline,
             raised?.PledgedMinor ?? 0,
             raised?.Backers ?? 0,
-            [.. campaign.Tiers.Select(t => new TierView(t.Id.ToString(), t.Title, t.MinPledgeMinor, t.Limit))]));
+            c.Tiers));
     }
 }

@@ -45,6 +45,7 @@ locals {
       { name = "Notifications__FromAddress", value = var.notifications_from },
       { name = "Notifications__UserPoolId", value = aws_cognito_user_pool.users.id },
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
+      { name = "ConnectionStrings__Valkey", value = local.valkey_configuration },
     ]
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30

@@ -42,7 +42,7 @@ public sealed class ReadReplicaTests(Database database) : IAsyncLifetime
     public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 
     [Fact]
-    public async Task A_campaign_page_reads_the_replica_and_my_pledge_reads_the_writer()
+    public async Task A_campaign_total_reads_the_replica_and_my_pledge_reads_the_writer()
     {
         var ct = TestContext.Current.CancellationToken;
         await using var writerOnly = database.StartHost();
@@ -58,8 +58,11 @@ public sealed class ReadReplicaTests(Database database) : IAsyncLifetime
         var page = await Database.Client(host).GetAsync($"/v1/campaigns/{published.Id}", ct);
         var mine = await backer.GetAsync($"/v1/pledges/{pledgeId}", ct);
 
-        Assert.Equal(HttpStatusCode.NotFound, page.StatusCode);   // the "replica" has not caught up
-        Assert.Equal(HttpStatusCode.OK, mine.StatusCode);         // the backer sees their own pledge
+        // The catalog is loaded from the writer, because it may be cached (lesson s3-l03); the total
+        // comes from the "replica", which has not caught up with the pledge.
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        Assert.Equal(0, (await page.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("pledged_minor").GetInt64());
+        Assert.Equal(HttpStatusCode.OK, mine.StatusCode); // the backer sees their own pledge
     }
 
     [Fact]

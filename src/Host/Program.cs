@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using BuildingBlocks.Application;
+using BuildingBlocks.Infrastructure.Caching;
 using BuildingBlocks.Infrastructure.Events;
 using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Identity;
@@ -29,6 +30,7 @@ builder.Services.AddTokenAuthentication(builder.Configuration);
 builder.Services.AddInProcessEvents();
 builder.Services.AddProxyHeaders(builder.Configuration);
 builder.Services.AddGracefulStop();
+builder.Services.AddQueryCache(builder.Configuration);
 
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);

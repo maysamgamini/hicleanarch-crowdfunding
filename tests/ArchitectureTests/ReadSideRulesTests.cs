@@ -6,8 +6,9 @@ namespace ArchitectureTests;
 
 /// <summary>
 /// A query reads the reader endpoint unless it says otherwise (lesson s3-l02). A query handler may
-/// depend only on read ports (interfaces named *Reads) and on other modules' contracts, which are
-/// read-side too; a handler that must see the latest write says so with [ReadsTheWriter].
+/// depend only on read ports (interfaces named *Reads), on other modules' contracts, which are
+/// read-side too, and on other query handlers, which this same rule checks; a handler that must see
+/// the latest write says so with [ReadsTheWriter].
 /// </summary>
 public class ReadSideRulesTests
 {
@@ -35,7 +36,8 @@ public class ReadSideRulesTests
 
         var dependencies = type.GetConstructors().SelectMany(c => c.GetParameters()).Select(p => p.ParameterType);
         Assert.All(dependencies, d => Assert.True(
-            d.Name.EndsWith("Reads", StringComparison.Ordinal) || d.Assembly.GetName().Name!.EndsWith(".Contracts", StringComparison.Ordinal),
+            d.Name.EndsWith("Reads", StringComparison.Ordinal) || d.Assembly.GetName().Name!.EndsWith(".Contracts", StringComparison.Ordinal)
+                || (d.IsGenericType && d.GetGenericTypeDefinition() == typeof(IQueryHandler<,>)),
             $"{type.Name} depends on {d.Name}, a writer-side port; read through a *Reads port or mark it [ReadsTheWriter]."));
     }
 
