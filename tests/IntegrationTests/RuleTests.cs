@@ -119,10 +119,19 @@ public sealed class RuleTests(Database database) : IDisposable
         var given = new Scenario(database, _host);
         var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 5));
 
-        // Saved cards and new cards at once: claims and holds compete for the same five places.
-        await Task.WhenAll(Enumerable.Range(0, 30).Select(i =>
-            given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges",
-                new { amount_minor = 4_900, tier_id = campaign.TierIds[0], payment_method_id = i % 2 == 0 ? FakePaymentProvider.CardSucceeds : null }, Ct)));
+        // Saved cards and new cards at once: claims and holds compete for the same five places. A
+        // pledge told the tier is busy is sent again, as a client does.
+        var answers = await Task.WhenAll(Enumerable.Range(0, 30).Select(async i =>
+        {
+            using var response = await Scenario.SendUntilAnswered(given.Backer(Guid.NewGuid()), () =>
+                new HttpRequestMessage(HttpMethod.Post, $"/v1/campaigns/{campaign.Id}/pledges")
+                {
+                    Content = JsonContent.Create(new { amount_minor = 4_900, tier_id = campaign.TierIds[0], payment_method_id = i % 2 == 0 ? FakePaymentProvider.CardSucceeds : null }),
+                });
+            return response.StatusCode;
+        }));
+
+        Assert.Equal(5, answers.Count(a => a == HttpStatusCode.Created));
 
         Assert.Equal(0L, await given.Scalar<long>("""
             SELECT count(*) FROM (

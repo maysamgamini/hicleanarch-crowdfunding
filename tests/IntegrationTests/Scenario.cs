@@ -92,6 +92,30 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
     public static object Pledge(long amountMinor, string? tierId = null) =>
         new { amount_minor = amountMinor, tier_id = tierId, payment_method_id = "pm_card_visa" };
 
+    /// <summary>
+    /// Sends a request, and sends it again with the same Idempotency-Key for as long as the API answers
+    /// 409 with Retry-After (busy: nothing was kept, try again), after waiting as long as it says, as a
+    /// client does. Returns the first other answer.
+    /// </summary>
+    public static async Task<HttpResponseMessage> SendUntilAnswered(HttpClient client, Func<HttpRequestMessage> request)
+    {
+        var key = Guid.NewGuid().ToString();
+        for (var attempt = 1; ; attempt++)
+        {
+            using var message = request();
+            message.Headers.Add("Idempotency-Key", key);
+            var response = await client.SendAsync(message, Ct);
+            if (response.StatusCode != HttpStatusCode.Conflict || response.Headers.RetryAfter?.Delta is not { } wait)
+            {
+                return response;
+            }
+
+            Assert.True(attempt < 30, $"Still told to try again after {attempt} tries: {await response.Content.ReadAsStringAsync(Ct)}");
+            response.Dispose();
+            await Task.Delay(wait, Ct);
+        }
+    }
+
     public static async Task Eventually(Func<Task<bool>> condition)
     {
         for (var i = 0; i < 100 && !await condition(); i++)

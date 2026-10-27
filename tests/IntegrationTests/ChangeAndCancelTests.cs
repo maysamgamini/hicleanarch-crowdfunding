@@ -24,24 +24,15 @@ public sealed class ChangeAndCancelTests(Database database) : IDisposable
         backer.PatchAsJsonAsync(pledge, new { amount_minor = amount, tier_id = tier }, Ct);
 
     /// <summary>
-    /// A change sent again while the database ends its transaction for running too long (409 try_again,
-    /// rolled back in full), as a client does. Ten changes queue on one row, so on a loaded machine some
-    /// outlast the module role's 2 s transaction limit.
+    /// A change sent again, with the same key, while the API says it is busy, as a client does. Ten
+    /// changes queue on one row, so on a loaded machine some outlast the module role's 2 s
+    /// transaction limit and are told to try again.
     /// </summary>
-    private static async Task<HttpResponseMessage> ChangeUntilAnswered(HttpClient backer, string pledge, long amount)
-    {
-        while (true)
+    private static Task<HttpResponseMessage> ChangeUntilAnswered(HttpClient backer, string pledge, long amount) =>
+        Scenario.SendUntilAnswered(backer, () => new HttpRequestMessage(HttpMethod.Patch, pledge)
         {
-            var response = await Change(backer, pledge, amount);
-            if (response.StatusCode != HttpStatusCode.Conflict || await Reason(response) != "try_again")
-            {
-                return response;
-            }
-
-            response.Dispose();
-            await Task.Delay(100, Ct);
-        }
-    }
+            Content = JsonContent.Create(new { amount_minor = amount, tier_id = (string?)null }),
+        });
 
     private static async Task<string> Reason(HttpResponseMessage response) =>
         (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString()!;
