@@ -1,0 +1,9 @@
+{
+  "solution": {
+    "path": "CrowdFunding.slnx",
+    "projects": [
+      "src\\Gateway\\Gateway.csproj",
+      "tests\\Gateway.Tests\\Gateway.Tests.csproj"
+    ]
+  }
+}

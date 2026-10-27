@@ -11,7 +11,8 @@ permissions:
   contents: read
 
 jobs:
-  # The .NET build, tests and images run in each service's pipeline (monolith.yml, payments.yml), for
+  # The .NET build, tests and images run in each service's pipeline (shared.yml for the gateway, payments.yml,
+  # notifications.yml, campaigns.yml, pledges.yml), for
   # the paths that service is built from. What runs here is cheap and checks every change: the
   # delivery rules themselves, and every OpenTofu root.
   delivery:

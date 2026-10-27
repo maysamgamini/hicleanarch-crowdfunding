@@ -6,10 +6,10 @@
 
 locals {
   services = {
-    monolith = {
-      ecs_service = local.api_service
-      queue       = "monolith"
-      topics      = ["campaigns", "pledges"]
+    pledges = {
+      ecs_service = "pledges"
+      queue       = "pledges"
+      topics      = ["pledges"]
       gauges      = ["live_past_deadline", "ended_undecided", "close_recheck_mismatch", "display_total_mismatch", "undelivered_events"]
     }
     payments = {
@@ -20,14 +20,14 @@ locals {
     }
   }
 
-  # Requests, 5xx and latency: the monolith's at its internal load balancer (seconds), Payments' from
-  # Service Connect's own metrics for its inbound calls (milliseconds).
+  # Requests, 5xx and latency, from Service Connect's own metrics for each service's inbound calls
+  # (milliseconds); the monolith's internal load balancer is gone since s5-l10.
   service_requests = {
-    monolith = {
-      requests = ["AWS/ApplicationELB", "RequestCount", "LoadBalancer", aws_lb.internal.arn_suffix, "TargetGroup", aws_lb_target_group.api.arn_suffix]
-      errors   = ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", aws_lb.internal.arn_suffix, "TargetGroup", aws_lb_target_group.api.arn_suffix]
-      latency  = ["AWS/ApplicationELB", "TargetResponseTime", "LoadBalancer", aws_lb.internal.arn_suffix, "TargetGroup", aws_lb_target_group.api.arn_suffix]
-      p99_max  = 1 # seconds
+    pledges = {
+      requests = ["AWS/ECS", "RequestCount", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "pledges", "DiscoveryName", "pledges-public"]
+      errors   = ["AWS/ECS", "HTTPCode_Target_5XX_Count", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "pledges", "DiscoveryName", "pledges-public"]
+      latency  = ["AWS/ECS", "TargetResponseTime", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "pledges", "DiscoveryName", "pledges-public"]
+      p99_max  = 1000 # milliseconds
     }
     payments = {
       requests = ["AWS/ECS", "RequestCount", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments"]
@@ -122,7 +122,7 @@ resource "aws_cloudwatch_dashboard" "service" {
         {
           type = "text", x = 0, y = 12, width = 24, height = 2
           properties = {
-            markdown = "Traces: X-Ray, service **crowdfunding-${each.key == "monolith" ? "api" : each.key}**. A message's handling is a child of the change that wrote it only for one pledge's story (PaymentMethodSaved, the charge results); other events start a trace linked to it. A PSP webhook's trace links to its card setup's or charge's trace; the linked id is the span attribute `crowdfunding.linked_trace_id`."
+            markdown = "Traces: X-Ray, service **crowdfunding-${each.key}**. A message's handling is a child of the change that wrote it only for one pledge's story (PaymentMethodSaved, the charge results); other events start a trace linked to it. A PSP webhook's trace links to its card setup's or charge's trace; the linked id is the span attribute `crowdfunding.linked_trace_id`."
           }
         },
       ],
@@ -165,7 +165,7 @@ resource "aws_cloudwatch_metric_alarm" "service_latency" {
   ok_actions          = [aws_sns_topic.alarms.arn]
 }
 
-# Payments' 5xx share, from Service Connect: it has no load balancer of its own, so the monolith's
+# Payments' 5xx share, from Service Connect: it has no load balancer of its own, so the gateway's
 # alarm in monitoring.tf does not see it.
 resource "aws_cloudwatch_metric_alarm" "payments_5xx" {
   alarm_name          = "${var.project}-sandbox-payments_5xx_rate"

@@ -17,7 +17,7 @@ git diff s2-l07              # compare with the reference end state
 
 ## Run it
 
-Since s4-l10 the monolith no longer runs Payments, since s5-l04 it no longer runs Notifications, and since s5-l09 it no longer runs Campaigns. Started alone, it refuses to start, because no route reaches the modules that consume its events. So the way to run the system on a laptop is the local stack below: every host, the gateway and the broker, in Docker (CQA-2107). Up to s4-l09, `dotnet run --project src/Host` started the whole system in one process.
+Since s4-l10 the monolith no longer runs Payments, since s5-l04 it no longer runs Notifications, and since s5-l09 it no longer runs Campaigns; since s5-l10 there is no monolith: its host runs Pledges alone, as the Pledges service (`src/Services/Pledges/Pledges.Host`). A service started alone refuses to start, because no route reaches the modules that consume its events. So the way to run the system on a laptop is the local stack below: every host, the gateway and the broker, in Docker (CQA-2107). Up to s4-l09, `dotnet run --project src/Host` started the whole system in one process.
 
 ```bash
 scripts/pack-contracts.sh                     # the BuildingBlocks and each module's Contracts, packed fresh for the modules to restore
@@ -40,7 +40,7 @@ Payments runs on a fake PSP in memory. In the Development environment, Payments'
 
 ## Run it locally
 
-The whole system as it runs in ECS, on a laptop, with Docker only and no AWS account: PostgreSQL 17, Valkey 8 with a user per client and no default user, Moto for SNS and SQS, the migration task, the monolith and the YARP gateway in front of it.
+The whole system as it runs in ECS, on a laptop, with Docker only and no AWS account: PostgreSQL 17, Valkey 8 with a user per client and no default user, Moto for SNS and SQS, each service's one-time hand-over and migrate step, the four services (Pledges, Payments, Notifications, Campaigns) and the YARP gateway in front of them.
 
 ```bash
 scripts/local-up.sh                           # build, provision the topics and queues, migrate, start; checks no endpoint is on AWS
@@ -51,11 +51,11 @@ docker compose --profile stack down -v        # remove it all, data included
 - `local-up.sh` provisions the broker on Moto from `events/broker-subscriptions.json`, the file Terraform reads (`local/broker/provision.py`): a topic per producing module, a queue and dead-letter queues per service, the filtered subscriptions. It writes their addresses to `.local/broker.env` for the hosts, as Terraform writes them into the task definitions.
 - The hosts get the environment the task definitions give them, with two local substitutes: tokens come from the local issuer instead of Cognito (`docker compose run --rm -e ASPNETCORE_ENVIRONMENT=Development api token creator` prints one), and every AWS client is pointed at Moto (`AWS_ENDPOINT_URL`). Emails stay in memory; each one sent is a row in `notifications.sent_notifications`.
 - The smoke test plays the PSP itself: it signs the card form's webhook with the development secret and posts it to the gateway, as the PSP does. It asserts the final states through the API, the four emails, that every event owed to the broker was published, and that no dead-letter queue holds a message. A run takes about a minute and a half, most of it the campaign's real 40-second deadline and the close job's 30-second pass.
-- Ports, all on 127.0.0.1: the gateway on 8080 (`LOCAL_GATEWAY_PORT`), the monolith on 8081 for debugging only, Moto on 5001, PostgreSQL on 5432 and Valkey on 6379. `docker compose up -d` without the profile still starts only PostgreSQL and Valkey, for `dotnet run`.
+- Ports, on 127.0.0.1 (`LOCAL_BIND`): the gateway on 8080 (`LOCAL_GATEWAY_PORT`), the Pledges service on 8081 for debugging only, Moto on 5001, PostgreSQL on 5432 and Valkey on 6379. `docker compose up -d` without the profile still starts only PostgreSQL and Valkey, for `dotnet run`.
 
 ## Layout
 
-- `src/Host`: the composition root. It only composes modules: each module brings its own services and endpoints (`AddCampaignsModule`, `MapCampaignsEndpoints`), so a module split off later gets a host of its own that calls the same two.
+- `src/Services/<Name>/`: each service's outcome in one folder: its host (`<Name>.Host`), its module's projects (Pledges' stay in `src/Modules/Pledges` until s5-l12) and its own tests. A host only composes its one module: the module brings its own services and endpoints (`AddCampaignsModule`, `MapCampaignsEndpoints`).
 - `src/Modules`: Campaigns, Pledges, Payments, Notifications, each with its own layers.
 - `src/BuildingBlocks` (its own solution, `BuildingBlocks.slnx`, versioned and published as NuGet packages; the modules reference a pinned version): what every module shares: the result type, the dispatcher, the HTTP error mapping.
 - `src/Modules/*/*.Contracts` (their own solution, `Contracts.slnx`): each module's events and remote commands, a versioned package per module like the BuildingBlocks, with its checked-in contract snapshot and recorded examples in `contract/`.

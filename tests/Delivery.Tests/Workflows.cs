@@ -8,7 +8,8 @@ namespace Delivery.Tests;
 internal static partial class Workflows
 {
     public const string Payments = ".github/workflows/payments.yml";
-    public const string Monolith = ".github/workflows/monolith.yml";
+    public const string Pledges = ".github/workflows/pledges.yml";
+    public const string Shared = ".github/workflows/shared.yml";
     public const string Notifications = ".github/workflows/notifications.yml";
     public const string Campaigns = ".github/workflows/campaigns.yml";
 

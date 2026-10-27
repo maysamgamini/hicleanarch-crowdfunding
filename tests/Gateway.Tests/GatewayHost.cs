@@ -13,12 +13,12 @@ internal static class GatewayHost
         return request;
     }
 
-    /// <summary>A gateway in memory, routing to <paramref name="monolith"/>, with the given limits.</summary>
+    /// <summary>A gateway in memory, routing to <paramref name="pledges"/>, with the given limits.</summary>
     public static WebApplicationFactory<Program> Start(
         string monolith, string valkey = "", int perSecond = 1, int burst = 3, int tasks = 1, string cloudFront = "") =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(web => web
             .UseEnvironment("Testing")
-            .UseSetting("ReverseProxy:Clusters:monolith:Destinations:monolith:Address", monolith)
+            .UseSetting("ReverseProxy:Clusters:pledges:Destinations:pledges:Address", monolith)
             // Campaigns' routes (s5-l08) reach the monolith until the Campaigns service serves them, as in AWS
             // (campaigns_serves_routes); CampaignsRouteTests points them elsewhere.
             .UseSetting("ReverseProxy:Clusters:campaigns:Destinations:campaigns:Address", monolith)

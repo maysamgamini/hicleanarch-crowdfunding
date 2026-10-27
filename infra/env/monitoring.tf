@@ -199,7 +199,8 @@ resource "aws_cloudwatch_metric_alarm" "ledger_partition" {
 
 # Fewer tasks running than the service's minimum (ECS Container Insights, enabled on the cluster).
 resource "aws_cloudwatch_metric_alarm" "running_tasks" {
-  for_each            = { api = var.desired_count, gateway = var.gateway_count }
+  # Each service's own alarm is its root's (infra/modules/service); this layer runs the gateway alone.
+  for_each            = { gateway = var.gateway_count }
   alarm_name          = "${var.project}-sandbox-${each.key}_running_tasks"
   alarm_description   = "The ${each.key} service runs fewer tasks than its minimum of ${each.value}: tasks are crashing, failing health checks, or cannot start."
   namespace           = "ECS/ContainerInsights"
@@ -216,10 +217,9 @@ resource "aws_cloudwatch_metric_alarm" "running_tasks" {
 }
 
 locals {
-  # The public load balancer sends to the gateway; the internal one sends to the monolith.
+  # The public load balancer sends to the gateway; since s5-l10 no internal load balancer is left.
   balanced = {
     gateway = { load_balancer = aws_lb.api.arn_suffix, target_group = aws_lb_target_group.gateway.arn_suffix }
-    api     = { load_balancer = aws_lb.internal.arn_suffix, target_group = aws_lb_target_group.api.arn_suffix }
   }
 }
 

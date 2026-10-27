@@ -169,7 +169,7 @@ public sealed class Database : IAsyncLifetime
     /// <summary>Topics and queues for one monolith and its services: each reads only its own service's queue.</summary>
     public MotoBroker.Provisioned Provision() =>
         // The monolith reads its own queue; Payments.Host, Notifications.Host and Campaigns.Host beside it read theirs.
-        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], ["monolith"]).GetAwaiter().GetResult();
+        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], ["pledges"]).GetAwaiter().GetResult();
 
     /// <summary>A monolith and its services on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).</summary>
     public WebApplicationFactory<Program> StartHost(IReadOnlyDictionary<string, string?> broker, Action<IServiceCollection>? services = null,
@@ -215,7 +215,7 @@ public sealed class Database : IAsyncLifetime
                     services?.Invoke(s);
                 })
                 .UseEnvironment("Testing")
-                .UseSetting("Modules:Payments:BaseAddress", "http://payments:8081")
+                .UseSetting("Services:Payments:BaseAddress", "http://payments:8081")
                 .UseSetting("ServiceIdentity:ClientId", ServiceClientId)
                 // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.
                 .UseSetting("ConnectionStrings:Owner", Owner)

@@ -38,7 +38,7 @@ mock_provider "aws" {
           "campaigns_topic_arn": "arn:aws:sns:us-east-1:123456789012:hicleanarch-sandbox-campaigns",
           "campaigns_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-sandbox-campaigns",
           "campaigns_queue_url": "https://sqs.us-east-1.amazonaws.com/123456789012/hicleanarch-sandbox-campaigns",
-          "monolith_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-sandbox-monolith",
+          "pledges_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-sandbox-pledges",
           "notifications_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-sandbox-notifications",
           "payments_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-sandbox-payments",
           "migrator_secret_arns": {

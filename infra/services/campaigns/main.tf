@@ -46,7 +46,7 @@ module "service" {
     { name = "Events__Broker__Topics__campaigns", value = local.shared.campaigns_topic_arn },
     { name = "Events__Broker__Queues__campaigns__Arn", value = local.shared.campaigns_queue_arn },
     { name = "Events__Broker__Queues__campaigns__Url", value = local.shared.campaigns_queue_url },
-    { name = "Events__Broker__Queues__monolith__Arn", value = local.shared.monolith_queue_arn },
+    { name = "Events__Broker__Queues__pledges__Arn", value = local.shared.pledges_queue_arn },
     { name = "Events__Broker__Queues__notifications__Arn", value = local.shared.notifications_queue_arn },
     { name = "Events__Broker__Queues__payments__Arn", value = local.shared.payments_queue_arn },
     { name = "Events__Broker__Read__0", value = "campaigns" },

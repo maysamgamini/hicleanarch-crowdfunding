@@ -2,14 +2,15 @@
 # fenced, pruned and switched; since s4-l10 it is simply Payments' cluster, and a new environment creates
 # it empty: Payments' own migrate task (infra/services/payments) creates Payments' schema and login on it,
 # as the cluster's master. What the move left on the shared cluster (Payments' old schema and its fenced
-# login) is dropped a week after the fence by the monolith's drop-moved-payments, which every deploy runs
-# (CQA-2102); the monolith's roles can read none of the secrets below.
+# login) was dropped a week after the fence by the monolith's drop-moved-payments (CQA-2102); since s5-l10
+# the sandbox is rebuilt without the monolith, so nothing is left to drop. No service's role reads the
+# secrets below but Payments'.
 
 # CQA-2101: an environment that still runs Payments on the shared cluster must not get here. At s4-l09
 # Payments' data is on the shared cluster until s4-l07's move has switched it; this layer would create
 # an empty cluster beside it and point Payments at it. The document this layer last handed the services
 # (shared-outputs.tf) says where Payments connected: no document is a new environment, and a connection
-# secret under db/payments-own/ is Payments' own cluster. scripts/deploy-monolith.sh also refuses an
+# secret under db/payments-own/ is Payments' own cluster. scripts/deploy-shared.sh also refuses an
 # environment whose state has the shared cluster and no Payments cluster (one never deployed at s4-l09).
 data "aws_s3_objects" "previous_shared_outputs" {
   bucket = local.state_bucket

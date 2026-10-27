@@ -53,7 +53,7 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         using var sqs = database.Broker.Sqs();
         await sqs.SendMessageAsync(new Amazon.SQS.Model.SendMessageRequest
         {
-            QueueUrl = provisioned.Settings["Events:Broker:Queues:monolith:Url"]!,
+            QueueUrl = provisioned.Settings["Events:Broker:Queues:pledges:Url"]!,
             MessageBody = payload,
             MessageAttributes = new()
             {

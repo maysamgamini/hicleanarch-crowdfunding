@@ -10,24 +10,6 @@ variable "project" {
   default     = "hicleanarch"
 }
 
-variable "image" {
-  description = "The release: the API image the migration task runs, as repository URL and tag, for example <account>.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-api:<git sha>."
-  type        = string
-  default     = "public.ecr.aws/docker/library/nginx:stable" # only so that destroy needs no argument
-}
-
-variable "service_image" {
-  description = "The API image the service runs: the current one until the release is migrated, then the release. Empty: no service yet (a new environment, before its first migration)."
-  type        = string
-  default     = ""
-}
-
-variable "service_task_definition" {
-  description = "The task definition the API service keeps while the release is migrated (deploy-monolith.sh prepare passes the one it runs). Empty: this layer's own api task definition."
-  type        = string
-  default     = ""
-}
-
 variable "zone_count" {
   description = "Availability Zones the subnets, load balancers and tasks span. Two keep the sandbox cheap; production runs three, so losing one leaves two thirds of the capacity, not half."
   type        = number
@@ -40,7 +22,7 @@ variable "zone_count" {
 }
 
 variable "desired_count" {
-  description = "How many copies of the program run; each runs every module and every job. ECS spreads them over the zones, so a multiple of zone_count keeps the zones even."
+  description = "How many tasks of the Pledges service run (infra/services/pledges reads it from the shared outputs); it runs Pledges' jobs too. ECS spreads them over the zones, so a multiple of zone_count keeps the zones even."
   type        = number
   default     = 2
 
@@ -51,7 +33,7 @@ variable "desired_count" {
 }
 
 variable "max_count" {
-  description = "The most copies autoscaling may run, for a launch."
+  description = "The most Pledges tasks autoscaling may run, for a launch; the writer's connection budget checks it (database.tf)."
   type        = number
   default     = 6
 }

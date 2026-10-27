@@ -1,4 +1,5 @@
-# Who is calling (Stage 4): the monolith calls Payments' internal endpoint with a machine token. Cognito
+# Who is calling (Stage 4): the Pledges service (the monolith until s5-l10) calls Payments' internal
+# endpoint with a machine token. Cognito
 # issues it to a confidential app client allowed only the client_credentials grant, for the one scope
 # below. Cognito bills every successful token request (an AWS charge, no free tier), so the caller keeps
 # a token until five minutes before it expires: one request per task every 55 minutes.
@@ -26,11 +27,11 @@ resource "aws_cognito_resource_server" "payments" {
   }
 }
 
-# The monolith as a service: a secret, the client-credentials grant and only the commands scope. Its
+# The Pledges service's identity: a secret, the client-credentials grant and only the commands scope. Its
 # tokens live an hour. An empty explicit_auth_flows would give Cognito's defaults (SRP and custom
 # sign-in), so it names refresh alone, which signs nobody in: no user can sign in through this client.
-resource "aws_cognito_user_pool_client" "monolith_service" {
-  name                                 = "${var.project}-monolith-service"
+resource "aws_cognito_user_pool_client" "pledges_service" {
+  name                                 = "${var.project}-pledges-service"
   user_pool_id                         = aws_cognito_user_pool.users.id
   generate_secret                      = true
   allowed_oauth_flows_user_pool_client = true
@@ -48,46 +49,31 @@ resource "aws_cognito_user_pool_client" "monolith_service" {
 
 # The client secret reaches the task through the execution role, never an image or a file. Cognito
 # generates it, so it is in the state already (as the client's client_secret); the state bucket is encrypted.
-resource "aws_secretsmanager_secret" "monolith_service_client" {
-  name                    = "${var.project}/sandbox/service-identity/monolith"
+resource "aws_secretsmanager_secret" "pledges_service_client" {
+  name                    = "${var.project}/sandbox/service-identity/pledges"
   recovery_window_in_days = 0
 }
 
-resource "aws_secretsmanager_secret_version" "monolith_service_client" {
-  secret_id     = aws_secretsmanager_secret.monolith_service_client.id
-  secret_string = aws_cognito_user_pool_client.monolith_service.client_secret
+resource "aws_secretsmanager_secret_version" "pledges_service_client" {
+  secret_id     = aws_secretsmanager_secret.pledges_service_client.id
+  secret_string = aws_cognito_user_pool_client.pledges_service.client_secret
 }
 
-data "aws_iam_policy_document" "read_service_identity" {
-  statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.monolith_service_client.arn]
-  }
-}
-
-resource "aws_iam_role_policy" "execution_service_identity" {
-  role   = aws_iam_role.execution.id
-  policy = data.aws_iam_policy_document.read_service_identity.json
+# The Pledges service's roles read the secret (infra/services/pledges); this layer only publishes its ARN.
+moved {
+  from = aws_cognito_user_pool_client.monolith_service
+  to   = aws_cognito_user_pool_client.pledges_service
 }
 
 locals {
   service_token_endpoint = "https://${aws_cognito_user_pool_domain.auth.domain}.auth.${var.region}.amazoncognito.com/oauth2/token"
 
-  # The api container is the caller only since s4-l10: it serves no endpoint for other services, so it
-  # lists no service client of its own (Payments' task does, infra/services/payments).
-  service_identity_environment = [
-    { name = "ServiceIdentity__ClientId", value = aws_cognito_user_pool_client.monolith_service.id },
-    { name = "ServiceIdentity__TokenEndpoint", value = local.service_token_endpoint },
-  ]
-  service_identity_secrets = [
-    { name = "ServiceIdentity__ClientSecret", valueFrom = aws_secretsmanager_secret.monolith_service_client.arn },
-  ]
 }
 
 output "service_token_endpoint" {
   value = local.service_token_endpoint
 }
 
-output "monolith_service_client_id" {
-  value = aws_cognito_user_pool_client.monolith_service.id
+output "pledges_service_client_id" {
+  value = aws_cognito_user_pool_client.pledges_service.id
 }

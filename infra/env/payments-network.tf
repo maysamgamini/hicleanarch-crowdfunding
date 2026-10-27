@@ -15,7 +15,8 @@ resource "aws_security_group" "payments" {
   vpc_id = aws_vpc.main.id
 }
 
-# 8080 (public endpoints) from the gateway only; 8081 (the internal command) from the monolith only.
+# 8080 (public endpoints) from the gateway only; 8081 (the internal command) from the Pledges service only
+# (the monolith until s5-l10).
 resource "aws_vpc_security_group_ingress_rule" "payments_public_from_gateway" {
   security_group_id            = aws_security_group.payments.id
   referenced_security_group_id = aws_security_group.gateway.id
@@ -24,9 +25,9 @@ resource "aws_vpc_security_group_ingress_rule" "payments_public_from_gateway" {
   to_port                      = 8080
 }
 
-resource "aws_vpc_security_group_ingress_rule" "payments_internal_from_monolith" {
+resource "aws_vpc_security_group_ingress_rule" "payments_internal_from_pledges" {
   security_group_id            = aws_security_group.payments.id
-  referenced_security_group_id = aws_security_group.tasks.id
+  referenced_security_group_id = aws_security_group.pledges.id
   ip_protocol                  = "tcp"
   from_port                    = 8081
   to_port                      = 8081
@@ -40,8 +41,7 @@ resource "aws_vpc_security_group_egress_rule" "payments_out" {
 }
 
 # No rule lets Payments' tasks into the shared cluster (CQA-2105): Payments uses only its own cluster
-# (payments-database.tf), and what s4-l07's move left on the shared one is dropped by the monolith's
-# drop-moved-payments, which runs in the monolith's security group.
+# (payments-database.tf); what s4-l07's move left on the shared one went with the monolith (s5-l10).
 
 resource "aws_vpc_security_group_ingress_rule" "valkey_from_payments" {
   security_group_id            = aws_security_group.valkey.id

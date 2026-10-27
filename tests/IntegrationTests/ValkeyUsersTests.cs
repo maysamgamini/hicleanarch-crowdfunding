@@ -86,7 +86,7 @@ public sealed partial class ValkeyUsersTests(Valkey valkey) : IClassFixture<Valk
     // CQA-2114: @scripting holds SCRIPT FLUSH and FUNCTION FLUSH, which empty the script cache and the
     // functions every service shares. Each user still runs its scripts, and is refused both.
     [Theory]
-    [InlineData("api", "pledges")]
+    [InlineData("pledges", "pledges")]
     [InlineData("campaigns", "campaigns")]
     [InlineData("payments", "payments")]
     [InlineData("gateway", "gateway")]

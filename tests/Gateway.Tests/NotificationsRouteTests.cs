@@ -21,16 +21,16 @@ public sealed class NotificationsRouteTests
     public static TheoryData<string, string, string> Paths() => new()
     {
         { "PUT", "/v1/me/notifications/campaign_updates", "notifications" },
-        { "GET", "/v1/me/notifications/campaign_updates", "monolith" },
-        { "PUT", "/v1/me/notifications", "monolith" },
-        { "GET", "/v1/campaigns/cmp_1", "monolith" },
+        { "GET", "/v1/me/notifications/campaign_updates", "pledges" },
+        { "PUT", "/v1/me/notifications", "pledges" },
+        { "GET", "/v1/campaigns/cmp_1", "pledges" },
     };
 
     [Theory]
     [MemberData(nameof(Paths))]
     public async Task The_preference_reaches_notifications_and_every_other_path_the_monolith(string method, string path, string service)
     {
-        await using var monolith = await EchoService.Start("monolith");
+        await using var monolith = await EchoService.Start("pledges");
         await using var notifications = await EchoService.Start("notifications");
         await using var gateway = Start(monolith, notifications);
         using var request = new HttpRequestMessage(new HttpMethod(method), path) { Content = method == "GET" ? null : new StringContent("{}") };

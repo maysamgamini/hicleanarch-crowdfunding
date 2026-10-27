@@ -11,13 +11,13 @@ variable "campaigns_image" {
 }
 
 variable "campaigns_serves_routes" {
-  description = "Whether the gateway sends Campaigns' paths to the Campaigns service. Set it only after infra/services/campaigns has deployed the service (scripts/deploy-service.sh), so the routes always have a target; until then they go to the monolith, which since s5-l09 answers them 404."
+  description = "Whether the gateway sends Campaigns' paths to the Campaigns service. Set it only after infra/services/campaigns has deployed the service (scripts/deploy-service.sh), so the routes always have a target; until then they go to the catch-all (the Pledges service since s5-l10), which answers them 404."
   type        = bool
   default     = false
 }
 
 locals {
-  campaigns_public_address = var.campaigns_serves_routes ? "http://campaigns:8080/" : "http://${aws_lb.internal.dns_name}/"
+  campaigns_public_address = var.campaigns_serves_routes ? "http://campaigns:8080/" : local.pledges_public_address
 }
 
 resource "aws_security_group" "campaigns" {

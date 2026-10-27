@@ -10,7 +10,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 compose=(docker compose --profile stack)
-gateway="${GATEWAY_URL:-http://127.0.0.1:${LOCAL_GATEWAY_PORT:-8080}}"
+# DOCKER_HOST_IP: where the containers' published ports are reached (a VM's own address, with Colima's
+# network.address and LOCAL_BIND=0.0.0.0); 127.0.0.1 by default.
+gateway="${GATEWAY_URL:-http://${DOCKER_HOST_IP:-127.0.0.1}:${LOCAL_GATEWAY_PORT:-8080}}"
 deadline_in="${DEADLINE_SECONDS:-40}"
 webhook_secret="whsec_development_only_0123456789" # compose.yaml: the payments service's Payments__WebhookSecret
 started=$(date +%s)
@@ -79,7 +81,7 @@ eventually 60 curl -sf "$gateway/health" -o /dev/null || fail "the gateway is no
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$gateway/v1/campaigns")" == 401 ]] || fail "a change without a token was not refused"
 
 step "tokens from the local issuer: a creator and a backer"
-token() { "${compose[@]}" run --rm --no-deps -T -e ASPNETCORE_ENVIRONMENT=Development api token "$1"; }
+token() { "${compose[@]}" run --rm --no-deps -T -e ASPNETCORE_ENVIRONMENT=Development pledges token "$1"; }
 creator=$(token creator)
 backer=$(token backer)
 [[ "$creator" == *.*.* && "$backer" == *.*.* ]] || fail "the token command printed no token"

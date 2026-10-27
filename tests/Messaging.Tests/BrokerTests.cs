@@ -113,7 +113,7 @@ public sealed class BrokerTests(Aws aws)
     {
         var ct = TestContext.Current.CancellationToken;
         var plan = BrokerPlanTests.Plan;
-        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "monolith", "campaigns"]);
+        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "pledges", "campaigns"]);
         using var sns = aws.Broker.Sns();
         var options = Options(provisioned);
 
@@ -138,11 +138,11 @@ public sealed class BrokerTests(Aws aws)
     {
         var ct = TestContext.Current.CancellationToken;
         var plan = BrokerPlanTests.Plan;
-        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "monolith", "campaigns"]);
+        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "pledges", "campaigns"]);
         using var sns = aws.Broker.Sns();
         var options = Options(provisioned);
         var subscription = (await sns.ListSubscriptionsByTopicAsync(provisioned.Topics["Payments"], ct)).Subscriptions
-            .Single(s => s.Endpoint == options.Queues["monolith"].Arn);
+            .Single(s => s.Endpoint == options.Queues["pledges"].Arn);
         await sns.SetSubscriptionAttributesAsync(subscription.SubscriptionArn, "FilterPolicy", """{"event_type":["PledgeChargeSucceeded"]}""", ct);
 
         var problems = await Check(sns, options, plan).Problems(ct);
@@ -201,7 +201,7 @@ public sealed class BrokerTests(Aws aws)
     private static BrokerOptions Options(MotoBroker.Provisioned provisioned)
     {
         var options = new BrokerOptions { Topics = new(provisioned.Topics) };
-        foreach (var service in new[] { "payments", "notifications", "monolith", "campaigns" })
+        foreach (var service in new[] { "payments", "notifications", "pledges", "campaigns" })
         {
             options.Queues[service] = new ServiceQueueAddress
             {

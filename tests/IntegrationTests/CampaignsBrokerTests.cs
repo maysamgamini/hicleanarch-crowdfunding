@@ -82,7 +82,7 @@ public sealed class CampaignsBrokerTests(Database database) : IDisposable
     private static async Task<string> HoldBack(MotoBroker broker, MotoBroker.Provisioned provisioned)
     {
         using var sns = broker.Sns();
-        var queueArn = provisioned.Settings["Events:Broker:Queues:monolith:Arn"];
+        var queueArn = provisioned.Settings["Events:Broker:Queues:pledges:Arn"];
         var subscriptions = await sns.ListSubscriptionsByTopicAsync(provisioned.Topics["Campaigns"], Ct);
         var subscription = subscriptions.Subscriptions.Single(s => s.Endpoint == queueArn).SubscriptionArn;
         await sns.SetSubscriptionAttributesAsync(new SetSubscriptionAttributesRequest(
@@ -96,7 +96,7 @@ public sealed class CampaignsBrokerTests(Database database) : IDisposable
         using (var sns = broker.Sns())
         {
             var filter = BrokerPlan.Load(Path.Combine(AppContext.BaseDirectory, "events", "subscriptions.json"))
-                .Subscriptions.Single(s => s.Topic == "Campaigns" && s.Queue == "monolith").FilterPolicy;
+                .Subscriptions.Single(s => s.Topic == "Campaigns" && s.Queue == "pledges").FilterPolicy;
             await sns.SetSubscriptionAttributesAsync(new SetSubscriptionAttributesRequest(subscription, "FilterPolicy", filter), Ct);
         }
 

@@ -170,69 +170,9 @@ resource "aws_cloudwatch_metric_alarm" "topic_failures" {
   ok_actions          = [aws_sns_topic.alarms.arn]
 }
 
-# Since s4-l10 each service's role names only its own topics and its own queue: the monolith publishes
-# the events of the modules it runs and reads its queues; Payments' topic and queue are Payments'
-# alone (infra/services/payments). Each producer checks its own topic's subscriptions (SubscriptionCheck).
-locals {
-  # The modules the monolith runs: its own service's (Pledges since s5-l09).
-  monolith_modules = local.broker_plan_services.monolith
-  # The plan's topics of those modules.
-  monolith_topics = toset([for m in local.monolith_modules : lower(m) if contains(local.broker_plan.topics, lower(m))])
-  # The queue the monolith reads: its own. Notifications' left with it at s5-l04, Campaigns' at s5-l09.
-  monolith_queues      = ["monolith"]
-  broker_plan_services = jsondecode(file("${path.module}/../../events/subscriptions.json")).services
-}
-
-data "aws_iam_policy_document" "events" {
-  statement {
-    actions   = ["sns:Publish", "sns:ListSubscriptionsByTopic"]
-    resources = [for t in local.monolith_topics : aws_sns_topic.events[t].arn]
-  }
-  statement {
-    # The subscription check reads each subscription's filter; a subscription's ARN is its topic's plus an id.
-    actions   = ["sns:GetSubscriptionAttributes"]
-    resources = [for t in local.monolith_topics : "${aws_sns_topic.events[t].arn}:*"]
-  }
-  statement {
-    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility"]
-    resources = [for q in local.monolith_queues : aws_sqs_queue.events[q].arn]
-  }
-}
-
-resource "aws_iam_role_policy" "task_events" {
-  role   = aws_iam_role.task.id
-  policy = data.aws_iam_policy_document.events.json
-}
-
-locals {
-  # Payments' events, in and out, go through the broker (s4-l02); Payments runs elsewhere (s4-l10). The
-  # monolith publishes to its own topics and reads its own queue. Of the payments queue it holds only the
-  # ARN: the subscription check looks for its topics' subscriptions to that address, and no role of the
-  # monolith grants anything on it. Module names are configuration keys; topics and queues are the
-  # plan's lower-case names.
-  # Every event Notifications consumes goes through the broker, into the notifications queue (s5-l02),
-  # which only the Notifications service reads (s5-l04): the monolith holds nothing of that queue.
-  broker_environment = concat(
-    [
-      { name = "Events__Routes__Payments", value = "Broker" },
-      { name = "Events__Producers__Payments__Pledges", value = "Broker" },
-      { name = "Events__Producers__Payments__Campaigns", value = "Broker" },
-      { name = "Events__Producers__Payments__Notifications", value = "Broker" },
-      { name = "Events__Routes__Notifications", value = "Broker" },
-      { name = "Events__Broker__Region", value = var.region },
-      { name = "Events__Broker__VisibilityTimeoutSeconds", value = tostring(local.visibility_timeout_seconds) },
-      { name = "Events__Broker__Queues__monolith__Arn", value = aws_sqs_queue.events["monolith"].arn },
-      { name = "Events__Broker__Queues__monolith__Url", value = aws_sqs_queue.events["monolith"].id },
-      { name = "Events__Broker__Queues__payments__Arn", value = aws_sqs_queue.events["payments"].arn },
-      { name = "Events__Broker__Read__0", value = "monolith" },
-      # Campaigns runs only in its own service (s5-l09): what Pledges publishes for it goes to the broker. The
-      # subscription check looks for the pledges topic's subscription to its queue, by ARN only.
-      { name = "Events__Routes__Campaigns", value = "Broker" },
-      { name = "Events__Broker__Queues__campaigns__Arn", value = aws_sqs_queue.events["campaigns"].arn },
-    ],
-    [for t in local.monolith_topics : { name = "Events__Broker__Topics__${t}", value = aws_sns_topic.events[t].arn }],
-  )
-}
+# Since s5-l10 every module runs in a service of its own, and each service's role names only its own topic
+# and its own queue (infra/services/*, on the service module). This layer builds the topics, queues and
+# subscriptions from the plan, and hands their addresses to the services (shared-outputs.tf).
 
 output "event_topic_arns" {
   value = { for t, topic in aws_sns_topic.events : t => topic.arn }

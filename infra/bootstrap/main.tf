@@ -61,6 +61,8 @@ resource "aws_s3_bucket_policy" "state" {
 
 # Container images outlive the environments, so a destroyed sandbox can be applied again
 # without rebuilding.
+# The monolith's images, kept for their history: since s5-l10 no workflow pushes here (the Pledges service
+# has its own repository, services.tf). A repository is destroyed only with the bootstrap layer.
 resource "aws_ecr_repository" "api" {
   name                 = "${var.project}/crowdfunding-api"
   image_tag_mutability = "IMMUTABLE"

@@ -40,9 +40,9 @@ public sealed class BrokerPlanTests
         var subscriptions = Plan.Subscriptions.ToDictionary(s => (s.Topic, s.Queue), s => s.EventTypes);
 
         Assert.Equal(["PledgeChargeRequested"], subscriptions[("Pledges", "payments")].Where(t => t == "PledgeChargeRequested"));
-        Assert.Contains("PaymentMethodSaved", subscriptions[("Payments", "monolith")]);
+        Assert.Contains("PaymentMethodSaved", subscriptions[("Payments", "pledges")]);
         Assert.DoesNotContain(("Payments", "payments"), subscriptions.Keys); // a service's own events stay in process
-        Assert.DoesNotContain(("Pledges", "monolith"), subscriptions.Keys);
+        Assert.DoesNotContain(("Pledges", "pledges"), subscriptions.Keys);
         Assert.DoesNotContain("PledgeActivated", subscriptions[("Pledges", "payments")]); // Payments does not consume it
     }
 
@@ -56,7 +56,7 @@ public sealed class BrokerPlanTests
         Assert.Equal(["CampaignSettled", "PledgeChargeFailed", "PledgeChargeSucceeded"], subscriptions["Payments"]);
         // PledgeChargeRequested carries the saved payment method: Payments' alone.
         Assert.DoesNotContain(subscriptions.Values, types => types.Contains("PledgeChargeRequested"));
-        Assert.DoesNotContain("Notifications", Plan.Services["monolith"]);
+        Assert.DoesNotContain("Notifications", Plan.Services["pledges"]);
     }
 
     [Fact]
@@ -68,7 +68,7 @@ public sealed class BrokerPlanTests
         Assert.Equal(["CampaignFundingDecided", "FundingCancelled"], subscriptions[("Pledges", "campaigns")]);
         Assert.Equal(["CampaignSettled"], subscriptions[("Payments", "campaigns")]);
         Assert.DoesNotContain(("Campaigns", "campaigns"), subscriptions.Keys); // the catalog's invalidation stays in process
-        Assert.Contains("CampaignPublished", subscriptions[("Campaigns", "monolith")]); // Pledges, still in the monolith
+        Assert.Contains("CampaignPublished", subscriptions[("Campaigns", "pledges")]); // Pledges
         Assert.Contains("CampaignPublished", subscriptions[("Campaigns", "notifications")]);
     }
 }

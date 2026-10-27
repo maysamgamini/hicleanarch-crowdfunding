@@ -136,7 +136,7 @@ jobs:
         # A test that stops making progress is aborted with a dump of what it was doing.
         run: dotnet test Notifications.slnf --no-build --blame-hang-timeout 5m
       - name: The tests that run both services, built from this commit
-        # The rule tests start the monolith beside the other services: whichever changed is checked
+        # The rule tests start the Pledges service beside the other services: whichever changed is checked
         # against the rest at the same commit.
         run: dotnet test System.slnf --blame-hang-timeout 5m
       - name: Every model change has its migration

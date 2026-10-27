@@ -7,29 +7,12 @@ output "cluster" {
   value = aws_ecs_cluster.main.name
 }
 
-output "service" {
-  value = local.api_service
-}
-
-output "service_image" {
-  description = "What the API service runs; the next deploy keeps it until its migration has run."
-  value       = var.service_image
-}
-
-output "service_task_definition" {
-  description = "The task definition the API service runs; deploy-monolith.sh prepare keeps it (CQA-2103)."
-  value       = one(aws_ecs_service.api[*].task_definition)
-}
-
-output "migrate_task_definition" {
-  value = aws_ecs_task_definition.migrate.arn
-}
-
 output "task_subnets" {
   description = "Comma-separated, as aws ecs run-task wants them."
   value       = join(",", aws_subnet.public[*].id)
 }
 
+# The one-off tasks' network place (the schemas' hand-overs, scripts/hand-over.sh).
 output "task_security_group" {
   value = aws_security_group.tasks.id
 }

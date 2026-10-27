@@ -54,22 +54,22 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
         { "POST", "/v1/pledges/plg_1/confirm-payment", "payments" },
         { "GET", "/v1/campaigns/cmp_1/settlement", "payments" },
         // Pledges' and Campaigns' own paths, including the ones next to Payments' and other methods on Payments' paths.
-        { "GET", "/v1/pledges/plg_1", "monolith" },
-        { "PATCH", "/v1/pledges/plg_1", "monolith" },
-        { "POST", "/v1/pledges/plg_1/card-setup", "monolith" },
-        { "GET", "/v1/pledges/plg_1/payment-method", "monolith" },
-        { "GET", "/v1/campaigns/cmp_1", "monolith" },
-        { "GET", "/v1/campaigns/cmp_1/totals", "monolith" },
-        { "POST", "/v1/campaigns/cmp_1/pledges", "monolith" },
-        { "POST", "/v1/campaigns/cmp_1/settlement", "monolith" },
-        { "GET", "/v1/webhooks/psp", "monolith" },
+        { "GET", "/v1/pledges/plg_1", "pledges" },
+        { "PATCH", "/v1/pledges/plg_1", "pledges" },
+        { "POST", "/v1/pledges/plg_1/card-setup", "pledges" },
+        { "GET", "/v1/pledges/plg_1/payment-method", "pledges" },
+        { "GET", "/v1/campaigns/cmp_1", "pledges" },
+        { "GET", "/v1/campaigns/cmp_1/totals", "pledges" },
+        { "POST", "/v1/campaigns/cmp_1/pledges", "pledges" },
+        { "POST", "/v1/campaigns/cmp_1/settlement", "pledges" },
+        { "GET", "/v1/webhooks/psp", "pledges" },
     };
 
     [Theory]
     [MemberData(nameof(Paths))]
     public async Task Every_payments_route_reaches_payments_and_every_other_path_the_monolith(string method, string path, string service)
     {
-        await using var monolith = await EchoService.Start("monolith");
+        await using var monolith = await EchoService.Start("pledges");
         await using var payments = await EchoService.Start("payments");
         await using var gateway = Start(monolith, payments);
         using var request = new HttpRequestMessage(new HttpMethod(method), path) { Content = method == "GET" ? null : new StringContent("{}") };
@@ -84,7 +84,7 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
     [Fact]
     public async Task The_webhook_reaches_payments_with_its_raw_body_and_signature_intact()
     {
-        await using var monolith = await EchoService.Start("monolith");
+        await using var monolith = await EchoService.Start("pledges");
         await using var payments = await EchoService.Start("payments");
         await using var gateway = Start(monolith, payments);
         // The signature covers these exact bytes: spacing, key order and non-ASCII text must not change.
@@ -104,7 +104,7 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
     [Fact]
     public async Task A_hundred_webhooks_a_second_from_one_address_for_three_seconds_are_all_forwarded()
     {
-        await using var monolith = await EchoService.Start("monolith");
+        await using var monolith = await EchoService.Start("pledges");
         await using var payments = await EchoService.Start("payments");
         // The production limits: 20 a second per address with a burst of 40, shared through Valkey.
         await using var gateway = Start(monolith, payments, OwnBuckets(3));
@@ -143,7 +143,7 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
     [Fact]
     public async Task Above_the_route_wide_limit_webhooks_get_429_whatever_their_address()
     {
-        await using var monolith = await EchoService.Start("monolith");
+        await using var monolith = await EchoService.Start("pledges");
         await using var payments = await EchoService.Start("payments");
         await using var gateway = Start(monolith, payments, OwnBuckets(1), webhookPerSecond: 0.5, webhookBurst: 5);
         var client = gateway.CreateClient();
@@ -175,7 +175,7 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
     [Fact]
     public async Task A_flood_from_one_address_outside_the_psps_list_is_limited_per_address_and_the_psps_webhooks_still_pass()
     {
-        await using var monolith = await EchoService.Start("monolith");
+        await using var monolith = await EchoService.Start("pledges");
         await using var payments = await EchoService.Start("payments");
         // The production limits: 20 a second per address with a burst of 40; the route's bucket for the PSP: 50 at once.
         await using var gateway = Start(monolith, payments, OwnBuckets(2), webhookPerSecond: 0.5, webhookBurst: 50);

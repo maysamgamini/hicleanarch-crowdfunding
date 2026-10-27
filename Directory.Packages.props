@@ -37,7 +37,7 @@
   <Import Project="$(MSBuildThisFileDirectory)artifacts/packages/local-version.props"
           Condition="Exists('$(MSBuildThisFileDirectory)artifacts/packages/local-version.props')" />
   <PropertyGroup>
-    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">6.0.1</BuildingBlocksVersion>
+    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">6.1.0</BuildingBlocksVersion>
   </PropertyGroup>
   <ItemGroup Label="BuildingBlocks">
     <PackageVersion Include="CrowdFunding.BuildingBlocks.Application" Version="$(BuildingBlocksVersion)" />

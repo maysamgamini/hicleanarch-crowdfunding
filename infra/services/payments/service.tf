@@ -44,20 +44,20 @@ module "service" {
 
   # The consumers of Payments' events run elsewhere, so every route of its events is Broker; it reads
   # the payments queue, publishes to its own topic, and checks that topic's subscription to the
-  # monolith's queue, which it knows by ARN only (s4-l10).
+  # Pledges service's queue (the monolith's until s5-l10), which it knows by ARN only (s4-l10).
   environment = [
     { name = "Payments__Budget__Prefix", value = local.shared.psp_budget_prefix },
     # The tasks that share that budget: while Valkey is down each keeps its share of the limits (CQA-1008).
     { name = "Valkey__Tasks", value = tostring(local.shared.psp_budget_tasks) },
-    # Only the monolith's service identity may call the internal endpoint (s4-l04).
-    { name = "Auth__ServiceClients__0", value = local.shared.monolith_service_client_id },
+    # Only the Pledges service's identity (the monolith's until s5-l10) may call the internal endpoint (s4-l04).
+    { name = "Auth__ServiceClients__0", value = local.shared.pledges_service_client_id },
     { name = "Events__Routes__Pledges", value = "Broker" },
     { name = "Events__Routes__Campaigns", value = "Broker" },
     { name = "Events__Routes__Notifications", value = "Broker" },
     { name = "Events__Broker__Region", value = var.region },
     { name = "Events__Broker__Queues__payments__Arn", value = local.shared.payments_queue_arn },
     { name = "Events__Broker__Queues__payments__Url", value = local.shared.payments_queue_url },
-    { name = "Events__Broker__Queues__monolith__Arn", value = local.shared.monolith_queue_arn },
+    { name = "Events__Broker__Queues__pledges__Arn", value = local.shared.pledges_queue_arn },
     { name = "Events__Broker__Read__0", value = "payments" },
     { name = "Events__Broker__Topics__payments", value = local.shared.payments_topic_arn },
   ]

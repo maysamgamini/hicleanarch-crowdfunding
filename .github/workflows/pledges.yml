@@ -1,35 +1,37 @@
-name: monolith
+name: pledges
 
-# The monolith's pipeline, which also owns the shared layer (infra/env: network, cluster, database,
-# gateway, Valkey, Cognito, topics and queues): contract tests, then the monolith and the gateway built
-# and tested from their solution filter, then (on main) their images pushed with the deploy role and,
-# if a sandbox is up, the shared layer and the monolith deployed into it. Since s4-l10 the monolith
-# compiles nothing of Payments but Payments.Client (src/Modules/Payments.Client; and Payments' Contracts,
-# as a package), so a change under src/Services/Payments runs Payments' pipeline only; since s5-l04 it compiles
-# nothing of Notifications, so its module (src/Services/Notifications since s5-l05) runs Notifications' pipeline only;
-# since s5-l09 nothing of Campaigns, whose module runs Campaigns' pipeline only.
+# The Pledges service's pipeline (lesson s5-l10: the old monolith's host, which runs Pledges alone):
+# contract tests, then Pledges built and tested alone from its solution filter, then (on main) its image
+# pushed with its own deploy role and, if a sandbox is up, Pledges deployed into it. Its module stays in
+# src/Modules/Pledges until s5-l12; Payments.Client and the remote-call pipeline are its own callers' code.
+# The release job runs only where a deploy role is set: without AWS credentials nothing tries to reach AWS.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:
   push:
     branches: [main]
     tags: ["s*-l*"]
     paths:
-      - "src/Host/**"
-      - "src/Gateway/**"
+      - "src/Services/Pledges/**"
       - "src/Modules/Pledges/**"
       - "src/Modules/Payments.Client/**"
+      - "src/RemoteCalls/**"
+      - "tests/RemoteCalls.Tests/**"
+      - "tests/Messaging.Tests/**"
+      - "infra/services/pledges/**"
+      - "infra/env/shared-outputs.tf"
+      - "infra/env/pledges-network.tf"
+      - "infra/env/messaging.tf"
       - "src/Modules/*/*.Contracts/**"
       - "src/Services/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
-      - "infra/env/**"
-      - "Dockerfile"
-      - "tests/ArchitectureTests/**"
-      - "tests/IntegrationTests/**"
-      - "tests/Gateway.Tests/**"
       - "tests/Directory.Build.props"
-      - "Monolith.slnf"
+      - "Pledges.slnf"
       - "System.slnf"
+      - "tests/IntegrationTests/**"
+      - "tests/ArchitectureTests/**"
+      - "tests/Contracts.ConsumerTests/**"
+      - "tests/Shared/**"
       - "Contracts.slnf"
       - "CrowdFunding.slnx"
       - "BuildingBlocks.slnx"
@@ -40,39 +42,40 @@ on:
       - "dotnet-tools.json"
       - ".editorconfig"
       - ".dockerignore"
-      - "scripts/deploy-monolith.sh"
+      - "scripts/deploy-service.sh"
       - "scripts/run-migration.sh"
+      - "templates/service/**"
       - "scripts/push-image.sh"
-      - ".github/workflows/monolith.yml"
+      - ".github/workflows/pledges.yml"
       - "src/Messaging/**"
       - "tests/Contracts.ProducerTests/**"
       - "Contracts.slnx"
       - "events/broker-subscriptions.json"
       - "scripts/check-contracts.sh"
       - "scripts/pack-contracts.sh"
-      - "src/RemoteCalls/**"
-      - "tests/Messaging.Tests/**"
-      - "tests/RemoteCalls.Tests/**"
-      - "tests/Contracts.ConsumerTests/**"
-      - "tests/Shared/**"
   pull_request:
     paths:
-      - "src/Host/**"
-      - "src/Gateway/**"
+      - "src/Services/Pledges/**"
       - "src/Modules/Pledges/**"
       - "src/Modules/Payments.Client/**"
+      - "src/RemoteCalls/**"
+      - "tests/RemoteCalls.Tests/**"
+      - "tests/Messaging.Tests/**"
+      - "infra/services/pledges/**"
+      - "infra/env/shared-outputs.tf"
+      - "infra/env/pledges-network.tf"
+      - "infra/env/messaging.tf"
       - "src/Modules/*/*.Contracts/**"
       - "src/Services/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
-      - "infra/env/**"
-      - "Dockerfile"
-      - "tests/ArchitectureTests/**"
-      - "tests/IntegrationTests/**"
-      - "tests/Gateway.Tests/**"
       - "tests/Directory.Build.props"
-      - "Monolith.slnf"
+      - "Pledges.slnf"
       - "System.slnf"
+      - "tests/IntegrationTests/**"
+      - "tests/ArchitectureTests/**"
+      - "tests/Contracts.ConsumerTests/**"
+      - "tests/Shared/**"
       - "Contracts.slnf"
       - "CrowdFunding.slnx"
       - "BuildingBlocks.slnx"
@@ -83,21 +86,17 @@ on:
       - "dotnet-tools.json"
       - ".editorconfig"
       - ".dockerignore"
-      - "scripts/deploy-monolith.sh"
+      - "scripts/deploy-service.sh"
       - "scripts/run-migration.sh"
+      - "templates/service/**"
       - "scripts/push-image.sh"
-      - ".github/workflows/monolith.yml"
+      - ".github/workflows/pledges.yml"
       - "src/Messaging/**"
       - "tests/Contracts.ProducerTests/**"
       - "Contracts.slnx"
       - "events/broker-subscriptions.json"
       - "scripts/check-contracts.sh"
       - "scripts/pack-contracts.sh"
-      - "src/RemoteCalls/**"
-      - "tests/Messaging.Tests/**"
-      - "tests/RemoteCalls.Tests/**"
-      - "tests/Contracts.ConsumerTests/**"
-      - "tests/Shared/**"
 
 # Read the code, nothing else: the default token may be read-write.
 permissions:
@@ -139,62 +138,51 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
-      - name: Pack the BuildingBlocks into the local feed the modules restore from
-        # A clean runner: the release version itself, with no stale package cache to worry about.
-        run: dotnet pack BuildingBlocks.slnx -o artifacts/packages
+      - run: dotnet pack BuildingBlocks.slnx -o artifacts/packages
       - name: Pack the Contracts, which every module builds against as packages (s4-l06)
         run: dotnet pack Contracts.slnx -o artifacts/packages
-      - name: The monolith builds alone, from its solution filter
-        run: dotnet build Monolith.slnf
+      - name: Pledges builds alone, from its solution filter
+        run: dotnet build Pledges.slnf
       - name: Test
         # A test that stops making progress is aborted with a dump of what it was doing.
-        run: dotnet test Monolith.slnf --no-build --blame-hang-timeout 5m
+        run: dotnet test Pledges.slnf --no-build --blame-hang-timeout 5m
       - name: The tests that run both services, built from this commit
-        # The rule tests start the monolith and Payments.Host side by side (s4-l10): whichever service
-        # changed is checked against the other at the same commit.
+        # The rule tests start the Pledges service beside the other services: whichever changed is checked
+        # against the rest at the same commit.
         run: dotnet test System.slnf --blame-hang-timeout 5m
       - name: Every model change has its migration
-        # EF Core 9+ refuses to migrate a model that differs from its last migration; catch it here.
         run: |
           dotnet tool restore
-          for project in src/Modules/Pledges/Pledges.Infrastructure; do
-            dotnet ef migrations has-pending-model-changes --project "$project" --no-build
-          done
+          dotnet ef migrations has-pending-model-changes --project src/Modules/Pledges/Pledges.Infrastructure --no-build
       - name: The image builds
-        run: docker build -q -t crowdfunding-api:ci .
-      - name: The gateway image builds
-        run: docker build -q -f src/Gateway/Dockerfile -t crowdfunding-gateway:ci .
+        run: docker build -q -f src/Services/Pledges/Pledges.Host/Dockerfile -t crowdfunding-pledges:ci .
 
   release:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AWS_PLEDGES_DEPLOY_ROLE_ARN != ''
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
-      actions: read
     concurrency:
-      group: deploy-monolith
+      group: deploy-pledges
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_PLEDGES_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - id: ecr
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
-      - name: Push the images
+      - name: Push the image
         id: image
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
-          api="$REGISTRY/hicleanarch/crowdfunding-api"
-          gateway="$REGISTRY/hicleanarch/crowdfunding-gateway"
-          ./scripts/push-image.sh "$api" "$GITHUB_SHA" Dockerfile
-          ./scripts/push-image.sh "$gateway" "$GITHUB_SHA" src/Gateway/Dockerfile
-          echo "image=$api:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
-          echo "gateway=$gateway:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          repository="$REGISTRY/hicleanarch/crowdfunding-pledges"
+          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Pledges/Pledges.Host/Dockerfile
+          echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
       # The sandbox is up while its outputs document exists (infra/env/shared-outputs.tf).
       - name: Is a sandbox up?
         id: sandbox
@@ -204,39 +192,16 @@ jobs:
           if aws s3api head-object --bucket "$STATE_BUCKET" --key env/shared.json >/dev/null 2>&1; then
             echo "up=true" >> "$GITHUB_OUTPUT"
           else
-            echo "No sandbox is up: the images are pushed, nothing is deployed." >> "$GITHUB_STEP_SUMMARY"
+            echo "No sandbox is up: the image is pushed, nothing is deployed." >> "$GITHUB_STEP_SUMMARY"
           fi
-      # A commit that changes both services deploys Payments first: it serves the monolith's calls, and a
-      # field the monolith needs from Payments' events ships with Payments. Payments' pipeline runs for
-      # this commit only if its paths matched; if it failed, the monolith waits for a fixed commit.
-      - name: Payments first, when this commit changes both
-        if: steps.sandbox.outputs.up == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          for _ in $(seq 1 120); do
-            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow payments.yml --commit "$GITHUB_SHA" \
-              --json status,conclusion --jq '.[0] // empty | "\(.status) \(.conclusion)"')
-            case "$run" in
-              "") echo "Payments' pipeline does not run for this commit."; exit 0 ;;
-              "completed success") exit 0 ;;
-              completed*) echo "Payments' pipeline ended '$run' for this commit; the monolith is not deployed." >&2; exit 1 ;;
-            esac
-            sleep 30
-          done
-          echo "Payments' pipeline did not finish within an hour." >&2
-          exit 1
       - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         if: steps.sandbox.outputs.up == 'true'
         with:
           tofu_version_file: .opentofu-version
           tofu_wrapper: false
-      - name: Deploy the shared layer and the monolith
+      - name: Deploy Pledges, and only Pledges
         if: steps.sandbox.outputs.up == 'true'
         env:
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
           IMAGE: ${{ steps.image.outputs.image }}
-          GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
-        run: |
-          ./scripts/deploy-monolith.sh prepare "$IMAGE" "$GATEWAY_IMAGE"
-          ./scripts/deploy-monolith.sh roll "$IMAGE" "$GATEWAY_IMAGE"
+        run: ./scripts/deploy-service.sh pledges "$IMAGE"

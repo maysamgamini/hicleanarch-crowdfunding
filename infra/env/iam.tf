@@ -8,8 +8,8 @@ data "aws_iam_policy_document" "ecs_tasks_assume" {
   }
 }
 
-# Used by ECS itself: pull the image, write logs, read the connection strings into the container.
-# Both roles carry the bootstrap layer's boundary: the deploy role may create them only with it.
+# Used by ECS itself for the gateway's tasks: pull the image, write logs, read the gateway's Valkey user.
+# It carries the bootstrap layer's boundary: the deploy role may create it only with it.
 resource "aws_iam_role" "execution" {
   name                 = "${var.project}-sandbox-execution"
   assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_assume.json
@@ -21,18 +21,13 @@ resource "aws_iam_role_policy_attachment" "execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
-# Payments' secrets (its connection strings, the PSP's webhook secret, its Valkey user) are read only by
-# Payments' own roles (infra/services/payments) since s4-l10; Notifications' connection string only by its
-# own (infra/services/notifications) since s5-l04; Campaigns' (its connection strings, its Valkey user) only
-# by its own (infra/services/campaigns) since s5-l09.
+# The execution role starts the gateway's tasks (gateway.tf): it reads the gateway's Valkey user and nothing
+# else. Every service reads its own secrets through its own roles (infra/services/*); since s5-l10 no
+# program of this layer reads a module's connection string.
 data "aws_iam_policy_document" "read_connection_strings" {
   statement {
-    actions = ["secretsmanager:GetSecretValue"]
-    resources = concat(
-      [for key, s in aws_secretsmanager_secret.connection : s.arn if !contains(["notifications", "campaigns"], key)],
-      [for key, s in aws_secretsmanager_secret.read_connection : s.arn if key != "campaigns_read"],
-      [for user, s in aws_secretsmanager_secret.valkey : s.arn if !contains(["payments", "campaigns"], user)],
-    )
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = [aws_secretsmanager_secret.valkey["gateway"].arn]
   }
 }
 
@@ -41,36 +36,8 @@ resource "aws_iam_role_policy" "execution_secrets" {
   policy = data.aws_iam_policy_document.read_connection_strings.json
 }
 
-# Used by the running containers: the collector sends traces to X-Ray and metrics to CloudWatch.
-resource "aws_iam_role" "task" {
-  name                 = "${var.project}-sandbox-task"
-  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_assume.json
-  permissions_boundary = local.task_boundary
-}
-
 data "aws_caller_identity" "current" {}
 
 locals {
   task_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.project}-task-boundary"
-}
-
-data "aws_iam_policy_document" "telemetry" {
-  statement {
-    actions = [
-      "xray:PutTraceSegments",
-      "xray:PutTelemetryRecords",
-      "xray:GetSamplingRules",
-      "xray:GetSamplingTargets",
-      "cloudwatch:PutMetricData",
-      "logs:CreateLogStream",
-      "logs:PutLogEvents",
-      "logs:DescribeLogStreams",
-    ]
-    resources = ["*"]
-  }
-}
-
-resource "aws_iam_role_policy" "task_telemetry" {
-  role   = aws_iam_role.task.id
-  policy = data.aws_iam_policy_document.telemetry.json
 }

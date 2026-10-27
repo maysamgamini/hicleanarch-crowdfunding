@@ -2,13 +2,20 @@
 using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Identity;
 
-using CrowdFunding.Host;
+using CrowdFunding.Pledges.Host;
 using CrowdFunding.Messaging;
 
 using Payments.Client;
 
 using Pledges.Infrastructure;
 using Pledges.Infrastructure.FundingCancel;
+
+// The container's health check: ask the running program's readiness, and exit (as every service host does).
+if (args.FirstOrDefault() == HealthProbe.Command)
+{
+    Environment.ExitCode = await HealthProbe.Run(HealthProbe.Ready());
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -29,9 +36,9 @@ if (args.FirstOrDefault() == "token")
     return;
 }
 
-// The platform's plumbing every service shares (lesson s5-l01), under this program's name, with the broker
-// when Events:Broker is set; then the read API's description and the modules this program still runs.
-builder.AddServiceDefaults("crowdfunding-api", BrokerHosting.IfConfigured);
+// The Pledges service (lesson s5-l10): the old monolith's host, which runs Pledges alone. The platform's
+// plumbing every service shares, under its own name, with the broker when Events:Broker is set.
+builder.AddServiceDefaults("crowdfunding-pledges", BrokerHosting.IfConfigured);
 builder.Services.AddOpenApi();
 
 // Notifications runs only in its own service (lesson s5-l04): this program refuses to start while an
@@ -54,7 +61,7 @@ builder.Services.AddOpenSinksCheck("Campaigns");
 // `check-creators` (lesson s5-l05) exits 0 once no open funding window lacks its creator.
 builder.Services.AddServiceCommand(new ServiceCommand("check-creators", (services, _, ct) => services.CheckCreators(ct)));
 
-// Each module brings its own services and endpoints. The host only composes them: Pledges, the last module here.
+// Its one module, Pledges, and of Payments only its client.
 builder.Services.AddPledgesModule(builder.Configuration);
 // Payments runs only in its own service (s4-l10): this program sends it StartCardSetup over HTTP and
 // exchanges events with it through the broker, and knows nothing of it but its Contracts.
@@ -76,5 +83,5 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 // above run likewise and exit; otherwise it serves.
 await app.RunService(args);
 
-/// <summary>Visible to the integration tests, which start the host in memory.</summary>
+/// <summary>Visible to the integration tests, which start the Pledges service in memory.</summary>
 public partial class Program;

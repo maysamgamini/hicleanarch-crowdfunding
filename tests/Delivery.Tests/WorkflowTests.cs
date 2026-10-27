@@ -15,26 +15,34 @@ public partial class WorkflowTests
             Assert.Matches(PinnedToCommit(), action));
 
     [Fact]
-    public void Payments_deploys_with_its_own_role_and_the_monolith_with_the_other()
+    public void Each_service_deploys_with_its_own_role_and_the_shared_layer_with_the_other()
     {
-        var payments = Repository.Read(Workflows.Payments);
-        var monolith = Repository.Read(Workflows.Monolith);
+        // Since s5-l10 every deployable has its own pipeline and deploy role; no monolith is left.
+        var shared = Repository.Read(Workflows.Shared);
+        Assert.Contains("vars.AWS_DEPLOY_ROLE_ARN", shared, StringComparison.Ordinal);
+        foreach (var (workflow, role) in new[] { (Workflows.Payments, "PAYMENTS"), (Workflows.Notifications, "NOTIFICATIONS"), (Workflows.Campaigns, "CAMPAIGNS"), (Workflows.Pledges, "PLEDGES") })
+        {
+            var text = Repository.Read(workflow);
+            Assert.Contains($"vars.AWS_{role}_DEPLOY_ROLE_ARN", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("vars.AWS_DEPLOY_ROLE_ARN", text, StringComparison.Ordinal);
+            Assert.DoesNotContain($"AWS_{role}_DEPLOY_ROLE_ARN", shared, StringComparison.Ordinal);
+        }
 
-        Assert.Contains("vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN", payments, StringComparison.Ordinal);
-        Assert.DoesNotContain("vars.AWS_DEPLOY_ROLE_ARN", payments, StringComparison.Ordinal);
-        Assert.Contains("vars.AWS_DEPLOY_ROLE_ARN", monolith, StringComparison.Ordinal);
-        Assert.DoesNotContain("vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN", monolith, StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(Repository.Root, ".github", "workflows", "monolith.yml")));
+        Assert.False(File.Exists(Path.Combine(Repository.Root, "scripts", "deploy-monolith.sh")));
     }
 
     [Fact]
-    public void The_sandbox_deploys_payments_before_the_monolith_rolls_and_destroys_it_first()
+    public void The_sandbox_deploys_the_shared_layer_then_payments_then_pledges_and_destroys_them_first()
     {
         var sandbox = Repository.Read(".github/workflows/sandbox.yml");
         int At(string text) => sandbox.IndexOf(text, StringComparison.Ordinal) is var i and >= 0 ? i : throw new InvalidOperationException($"'{text}' is not in sandbox.yml.");
 
-        Assert.True(At("deploy-monolith.sh prepare") < At("deploy-payments.sh"));
-        Assert.True(At("deploy-payments.sh") < At("deploy-monolith.sh roll"));
-        Assert.True(At("deploy-monolith.sh roll") < At("smoke.sh"));
+        Assert.True(At("deploy-shared.sh") < At("hand-over.sh pledges"));
+        Assert.True(At("hand-over.sh pledges") < At("deploy-payments.sh"));
+        Assert.True(At("deploy-payments.sh") < At("deploy-service.sh pledges"));
+        Assert.True(At("deploy-service.sh pledges") < At("smoke.sh"));
+        Assert.True(At("destroy-service.sh pledges") < At("tofu -chdir=infra/env destroy"));
         Assert.True(At("destroy-payments.sh") < At("tofu -chdir=infra/env destroy"));
     }
 

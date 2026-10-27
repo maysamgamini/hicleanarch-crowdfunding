@@ -1,6 +1,6 @@
 {
   "profiles": {
-    "Host": {
+    "Pledges.Host": {
       "commandName": "Project",
       "launchBrowser": false,
       "applicationUrl": "http://localhost:5080",

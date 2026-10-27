@@ -4,6 +4,7 @@ using System.Xml.Linq;
 namespace ArchitectureTests;
 
 /// <summary>
+/// The rules of the old monolith's host, which since s5-l10 is the Pledges service (Pledges.Host).
 /// Payments has left the monolith (lesson s4-l10). The monolith knows Payments only through the
 /// Payments.Contracts package, which its client is built on (StartCardSetup over HTTP, s4-l03): no
 /// Payments domain, application or infrastructure, and so no Payments endpoint, job, handler, table or
@@ -20,7 +21,7 @@ public class MonolithRulesTests
     [Fact]
     public void The_monolith_loads_nothing_of_payments_but_its_contracts_and_its_client()
     {
-        var reachable = Closure(Assembly.Load("CrowdFunding.Host"));
+        var reachable = Closure(Assembly.Load("CrowdFunding.Pledges.Host"));
 
         Assert.Contains("Payments.Contracts", reachable); // the check sees Payments at all
         Assert.All(reachable.Where(n => n.StartsWith("Payments.", StringComparison.Ordinal)),
@@ -30,17 +31,17 @@ public class MonolithRulesTests
     [Fact]
     public void The_monolith_s_project_graph_reaches_no_payments_project_but_its_client()
     {
-        var graph = ProjectClosure("src/Host/Host.csproj");
+        var graph = ProjectClosure("src/Services/Pledges/Pledges.Host/Pledges.Host.csproj");
 
         Assert.All(graph.Where(p => p.StartsWith("src/Modules/Payments", StringComparison.Ordinal)),
             project => Assert.Equal("src/Modules/Payments.Client/Payments.Client.csproj", project));
-        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal) && !p.StartsWith("src/Services/Pledges/", StringComparison.Ordinal));
     }
 
     [Fact]
     public void The_monolith_gets_payments_contracts_as_the_published_package()
     {
-        var packages = ProjectClosure("src/Host/Host.csproj")
+        var packages = ProjectClosure("src/Services/Pledges/Pledges.Host/Pledges.Host.csproj")
             .SelectMany(p => XDocument.Load(Path.Combine(Root(), p)).Descendants("PackageReference"))
             .Select(r => (string)r.Attribute("Include")!);
 
@@ -50,8 +51,8 @@ public class MonolithRulesTests
     [Fact]
     public void The_monolith_references_and_loads_nothing_of_notifications()
     {
-        var graph = ProjectClosure("src/Host/Host.csproj");
-        var loaded = Closure(Assembly.Load("CrowdFunding.Host"));
+        var graph = ProjectClosure("src/Services/Pledges/Pledges.Host/Pledges.Host.csproj");
+        var loaded = Closure(Assembly.Load("CrowdFunding.Pledges.Host"));
 
         Assert.Contains("Pledges.Infrastructure", loaded); // the check sees the modules it does compose
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/Notifications/", StringComparison.Ordinal));
@@ -62,8 +63,8 @@ public class MonolithRulesTests
     public void The_monolith_references_and_loads_nothing_of_campaigns_but_its_contracts()
     {
         // Lesson s5-l09: Campaigns runs only in its own service; Pledges reads its events, through its contracts.
-        var graph = ProjectClosure("src/Host/Host.csproj");
-        var loaded = Closure(Assembly.Load("CrowdFunding.Host"));
+        var graph = ProjectClosure("src/Services/Pledges/Pledges.Host/Pledges.Host.csproj");
+        var loaded = Closure(Assembly.Load("CrowdFunding.Pledges.Host"));
 
         Assert.Contains("Campaigns.Contracts", loaded); // the check sees Campaigns at all
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Campaigns", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal));

@@ -14,7 +14,7 @@ public static class PaymentsClientRegistration
 {
     /// <summary>
     /// The commands this program sends to Payments go over HTTP to Payments' service, at
-    /// <c>Modules:Payments:BaseAddress</c> (see <see cref="PaymentsPlacement"/>). Configuration section
+    /// <c>Services:Payments:BaseAddress</c> (see <see cref="PaymentsPlacement"/>). Configuration section
     /// <c>ServiceIdentity</c> names this program's app client (s4-l04).
     /// </summary>
     public static IServiceCollection AddPaymentsClient(this IServiceCollection services, IConfiguration configuration)

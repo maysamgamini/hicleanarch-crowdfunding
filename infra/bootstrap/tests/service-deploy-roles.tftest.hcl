@@ -32,8 +32,8 @@ run "service_deploy_roles" {
   command = apply
 
   assert {
-    condition     = local.delivered_services == toset(["notifications", "campaigns"])
-    error_message = "Notifications (s5-l03) and Campaigns (s5-l08) each have their own repository and deploy role."
+    condition     = local.delivered_services == toset(["notifications", "campaigns", "pledges"])
+    error_message = "Notifications (s5-l03), Campaigns (s5-l08) and Pledges (s5-l10) each have their own repository and deploy role."
   }
 
   assert {

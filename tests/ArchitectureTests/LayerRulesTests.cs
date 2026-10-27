@@ -22,7 +22,7 @@ public class LayerRulesTests
     [Fact]
     public void The_host_and_every_layer_of_every_module_are_checked() =>
         Assert.Superset(
-            new HashSet<string> { "CrowdFunding.Host", "Campaigns.Domain", "Campaigns.Application", "Campaigns.Infrastructure", "Campaigns.Contracts",
+            new HashSet<string> { "CrowdFunding.Pledges.Host", "Campaigns.Domain", "Campaigns.Application", "Campaigns.Infrastructure", "Campaigns.Contracts",
                 "Pledges.Domain", "Pledges.Application", "Pledges.Infrastructure", "Pledges.Contracts",
                 "Payments.Domain", "Payments.Application", "Payments.Infrastructure", "Payments.Contracts",
                 "Notifications",
@@ -149,7 +149,7 @@ public class LayerRulesTests
             .Where(IsOurs);
 
     private static bool IsOurs(string name) =>
-        name == "CrowdFunding.Host" || Modules.Append("BuildingBlocks").Contains(ModuleOf(name));
+        name == "CrowdFunding.Pledges.Host" || Modules.Append("BuildingBlocks").Contains(ModuleOf(name));
 
     private static Assembly[] LoadOurs() =>
         [.. Directory.GetFiles(AppContext.BaseDirectory, "*.dll")

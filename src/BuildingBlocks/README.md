@@ -24,6 +24,8 @@ the `package` workflow packs and publishes to AWS CodeArtifact.
 
 ## Versions
 
+- **6.1.0**: `RetiredSettings`: `AddServiceDefaults` refuses to start a program that still sets any
+  `Modules:*` key (lesson s5-l10: every module runs in its own service).
 - **6.0.1**: `DatabaseBusy.WithLockTimeout` puts the lock wait back to the session's own once its
   statement is done, so it no longer lasts the whole transaction (CQA-1580, 5dd059e). That commit
   changed the code and kept 6.0.0, so the version is bumped here (CQA-2112), and CI now refuses

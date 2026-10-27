@@ -11,14 +11,6 @@ resource "aws_security_group" "valkey" {
   vpc_id      = aws_vpc.main.id
 }
 
-resource "aws_vpc_security_group_ingress_rule" "valkey_from_tasks" {
-  security_group_id            = aws_security_group.valkey.id
-  referenced_security_group_id = aws_security_group.tasks.id
-  from_port                    = 6379
-  to_port                      = 6379
-  ip_protocol                  = "tcp"
-}
-
 # Two nodes in two zones: when the primary or its zone fails, ElastiCache promotes the replica and
 # points the primary endpoint at it, so the clients reconnect to the same name. The replica doubles
 # the cost of this cluster; one node would mean minutes without PSP calls while it is replaced.
@@ -47,11 +39,10 @@ resource "aws_elasticache_replication_group" "valkey" {
 # service only its own prefixes and the command categories it uses (lesson s5-l01).
 locals {
   valkey_users = {
-    # The monolith, which runs Pledges alone since s5-l09: the display totals and sold-out flags (pledges:*);
-    # the catalog cache (campaigns:*) is the Campaigns service's. Since s4-l10 it takes no PSP budget token.
+    # The Pledges service (the monolith until s5-l10): the display totals and sold-out flags (pledges:*).
     # Only the categories it uses, and nothing @dangerous (FLUSHALL, KEYS, CONFIG), nor SCAN or RANDOMKEY,
     # which list keys beyond its prefixes.
-    api = "on ~pledges:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey -script|flush -function|flush"
+    pledges = "on ~pledges:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey -script|flush -function|flush"
     # The services' users get nothing @dangerous (FLUSHALL, FLUSHDB, KEYS, CONFIG, DEBUG), nor SCAN or RANDOMKEY,
     # which key patterns do not limit (KEYS and SCAN list every service's keys). Nor SCRIPT FLUSH or FUNCTION
     # FLUSH, which @scripting allows and which empty every service's script cache and functions (CQA-2114;
@@ -71,7 +62,7 @@ locals {
   # A user limited to its own keys may not read the client's tiebreaker key or subscribe to its
   # configuration channel, so its connection string turns both off. The gateway keeps the client's
   # defaults.
-  valkey_restricted_users   = toset(["api", "payments", "campaigns"])
+  valkey_restricted_users   = toset(["pledges", "payments", "campaigns"])
   valkey_restricted_options = ",tiebreaker=,configChannel="
 }
 

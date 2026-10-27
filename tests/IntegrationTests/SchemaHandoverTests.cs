@@ -51,7 +51,7 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
             .UseSetting("ConnectionStrings:Owner", Owner)
             .UseSetting("ConnectionStrings:Pledges", As("pledges_app", "pledges_test"))
             .UseSetting("ConnectionStrings:PledgesJobs", As("pledges_jobs", "pledges_jobs_test"))
-            .UseSetting("Modules:Payments:BaseAddress", "http://payments:8081")
+            .UseSetting("Services:Payments:BaseAddress", "http://payments:8081")
             .UseSetting("ServiceIdentity:ClientId", Database.ServiceClientId)
             .UseSetting("Pledges:CloseEvery", "01:00:00")
             .UseSetting("Auth:ClientId", Database.ClientId)

@@ -1,12 +1,12 @@
 # Delivering Stage 5's services on their own (from s5-l03, when each gets its host), as s4-l09 does for
 # Payments: per service an image repository and a deploy role that can change that service and nothing
-# else. The shared deploy role (hicleanarch-github-deploy) keeps the shared layer, the monolith and each
+# else. The shared deploy role (hicleanarch-github-deploy) keeps the shared layer, the gateway and each
 # service's one-time hand-over (hicleanarch-handover-<name>, which alone reads the database owner's
-# secret), and loses every right over the services' own resources. Pledges joins this list when the
-# monolith host is retired (s5-l10); Campaigns when it gets its host (s5-l08).
+# secret), and loses every right over the services' own resources. Campaigns joined this list when it got
+# its host (s5-l08), and Pledges when the monolith's host became its own (s5-l10).
 
 locals {
-  delivered_services = toset(["notifications", "campaigns"])
+  delivered_services = toset(["notifications", "campaigns", "pledges"])
 
   service_access = {
     for name in local.delivered_services : name => {

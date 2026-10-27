@@ -1,11 +1,11 @@
 name: sandbox
 
 # Apply the sandbox environment, deploy the current main, smoke-test it, destroy it.
-# Two services, each with its own image and its own deploy role, in this order: the shared layer and the
-# monolith's migration (deploy role), then Payments (Payments' role), then the monolith's rollout, then
-# the smoke test through the gateway. Destroy goes the other way: Payments first, the shared layer last.
-# Needs the repository variables AWS_DEPLOY_ROLE_ARN, AWS_PAYMENTS_DEPLOY_ROLE_ARN and TF_STATE_BUCKET
-# (outputs of infra/bootstrap).
+# Since s5-l10 no monolith is left: the shared layer and the gateway (deploy role) and Pledges' one-time
+# hand-over, then Payments (Payments' role), then Pledges (Pledges' role), then the smoke test through the
+# gateway. Destroy goes the other way: the services first, the shared layer last. Notifications and
+# Campaigns deploy from their own pipelines. Needs the repository variables AWS_DEPLOY_ROLE_ARN,
+# AWS_PAYMENTS_DEPLOY_ROLE_ARN, AWS_PLEDGES_DEPLOY_ROLE_ARN and TF_STATE_BUCKET (outputs of infra/bootstrap).
 on:
   workflow_dispatch:
     inputs:
@@ -50,17 +50,29 @@ jobs:
       - uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
         if: inputs.load_scale != '0'
 
-      - name: Push the monolith's images
+      - name: Push the gateway's image
         id: image
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
-          api="$REGISTRY/hicleanarch/crowdfunding-api"
           gateway="$REGISTRY/hicleanarch/crowdfunding-gateway"
-          ./scripts/push-image.sh "$api" "$GITHUB_SHA" Dockerfile
           ./scripts/push-image.sh "$gateway" "$GITHUB_SHA" src/Gateway/Dockerfile
-          echo "image=$api:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
           echo "gateway=$gateway:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_PLEDGES_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr-pledges
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - name: Push Pledges' image, as Pledges' deploy role
+        id: pledges-image
+        env:
+          REGISTRY: ${{ steps.ecr-pledges.outputs.registry }}
+        run: |
+          repository="$REGISTRY/hicleanarch/crowdfunding-pledges"
+          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Pledges/Pledges.Host/Dockerfile
+          echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
@@ -77,36 +89,27 @@ jobs:
           ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Payments/Payments.Host/Dockerfile
           echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
-      # The database must be migrated before any task runs the new image, without a targeted apply:
-      # the first apply is complete but keeps the API service on the image it runs now (none in a new
-      # environment, whose service the second apply creates); the second moves it to the release.
+      # Since s5-l10 no monolith is left: the shared layer and the gateway first, then each service, Payments
+      # before Pledges, which calls it. Pledges' schema is handed to its migration role once, by the shared
+      # layer's hand-over task (the only one that reads the owner's secret).
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - name: Apply the shared layer and migrate, with the API service on its current image
+      - name: Apply the shared layer, and hand Pledges' schema over
         env:
-          IMAGE: ${{ steps.image.outputs.image }}
           GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
+          PLEDGES_IMAGE: ${{ steps.pledges-image.outputs.image }}
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
           LOAD_SCALE: ${{ inputs.load_scale || '0' }}
         run: |
           start=$(date +%s)
-          # A load run comes from this one runner, which the gateway would limit as a single client:
-          # the run measures the system behind the edge, so it lifts the per-client limit.
           edge_limit=20
           if [ "$LOAD_SCALE" != "0" ]; then edge_limit=100000; fi
-          # The same values for both applies (and the destroy).
-          {
-            echo "TF_VAR_image=$IMAGE"
-            echo "TF_VAR_gateway_image=$GATEWAY_IMAGE"
-            echo "TF_VAR_edge_limit_per_second=$edge_limit"
-          } >> "$GITHUB_ENV"
-          TF_VAR_edge_limit_per_second="$edge_limit" ./scripts/deploy-monolith.sh prepare "$IMAGE" "$GATEWAY_IMAGE"
-          echo "First apply and migration took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+          TF_VAR_edge_limit_per_second="$edge_limit" TF_VAR_pledges_image="$PLEDGES_IMAGE" ./scripts/deploy-shared.sh "$GATEWAY_IMAGE"
+          ./scripts/hand-over.sh pledges
+          echo "The shared layer and Pledges' hand-over took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 
-      # Payments before the monolith's rollout: the monolith calls Payments, so the server is up before
-      # its caller, and Payments' migration runs before any of its tasks takes the release.
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN }}
@@ -122,15 +125,21 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_PLEDGES_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - name: Roll the monolith onto the new image
+      - name: Deploy Pledges, as Pledges' deploy role
         env:
+          IMAGE: ${{ steps.pledges-image.outputs.image }}
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
         run: |
           start=$(date +%s)
-          ./scripts/deploy-monolith.sh roll "$TF_VAR_image" "$TF_VAR_gateway_image"
-          echo "Second apply and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+          ./scripts/deploy-service.sh pledges "$IMAGE"
+          echo "Pledges' applies, migration and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Sign in a test creator
         id: creator
@@ -182,6 +191,17 @@ jobs:
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         if: always()
         with:
+          role-to-assume: ${{ vars.AWS_PLEDGES_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Destroy Pledges
+        if: always()
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: ./scripts/destroy-service.sh pledges
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        if: always()
+        with:
           role-to-assume: ${{ vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Destroy Payments
@@ -218,6 +238,14 @@ jobs:
         with:
           tofu_version_file: .opentofu-version
           tofu_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_PLEDGES_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Destroy Pledges if it is left up
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: ./scripts/destroy-service.sh pledges
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN }}

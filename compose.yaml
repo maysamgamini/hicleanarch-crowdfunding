@@ -1,7 +1,9 @@
 # Local development: PostgreSQL 17, as on Aurora, and Valkey 8, as on ElastiCache. Start with `docker compose up -d`.
 #
 # The profile `stack` adds the rest of what runs in ECS, wired the same way: Moto for SNS and SQS, the
-# migration tasks, the monolith, the Payments service (s4-l10) and the gateway in front of them. Start it with scripts/local-up.sh,
+# one-off hand-overs and migrate steps, the four services (Pledges, Payments, Notifications, Campaigns; no
+# monolith since s5-l10) and the gateway in front of them. Ports bind to LOCAL_BIND (127.0.0.1 by default).
+# Start it with scripts/local-up.sh,
 # which provisions the topics and queues first, and test it with scripts/local-smoke.sh. Nothing in it
 # reaches AWS: every endpoint is a service of this file (local-up.sh checks), and the AWS SDK's
 # endpoint is Moto's. Every image is free software, at a pinned version.
@@ -55,7 +57,7 @@ services:
     command: [
       "valkey-server",
       "--user", "default", "off",
-      "--user", "api", "on", ">api_dev", "~pledges:*", "resetchannels", "-@all",
+      "--user", "pledges", "on", ">pledges_dev", "~pledges:*", "resetchannels", "-@all",
       "+@connection", "+@read", "+@write", "+@scripting", "-@dangerous", "-scan", "-randomkey", "-script|flush", "-function|flush",
       "--user", "gateway", "on", ">gateway_dev", "~gateway:*", "&*", "+@all", "-@dangerous", "-scan", "-randomkey", "-script|flush", "-function|flush",
       "--user", "payments", "on", ">payments_dev", "~buckets:psp:*", "~payments:*", "resetchannels", "-@all",
@@ -66,7 +68,7 @@ services:
     ports:
       - "${LOCAL_VALKEY_PORT:-6379}:6379"
     healthcheck:
-      test: ["CMD", "valkey-cli", "--user", "api", "--pass", "api_dev", "--no-auth-warning", "ping"]
+      test: ["CMD", "valkey-cli", "--user", "pledges", "--pass", "pledges_dev", "--no-auth-warning", "ping"]
       interval: 2s
       retries: 30
 
@@ -75,7 +77,7 @@ services:
     profiles: [stack]
     image: motoserver/moto:5.2.3
     ports:
-      - "127.0.0.1:${LOCAL_MOTO_PORT:-5001}:5000"
+      - "${LOCAL_BIND:-127.0.0.1}:${LOCAL_MOTO_PORT:-5001}:5000"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:5000/moto-api/"]
       interval: 2s
@@ -96,16 +98,34 @@ services:
 
   # The migration task (infra/env/ecs.tf, aws_ecs_task_definition.migrate): the release image with
   # `migrate`, the owner's connection string and the modules', then it exits.
-  migrate:
+  # The Pledges service (infra/services/pledges, lesson s5-l10): the old monolith's host, which runs Pledges
+  # alone. Its schema is handed once to pledges_migrator, first of the one-off steps, as the owner; from then
+  # on its migrate step runs as that role, and nothing migrates as the owner.
+  pledges-handover:
     profiles: [stack]
-    build: .
-    command: ["migrate"]
+    build: &pledges-image
+      context: .
+      dockerfile: src/Services/Pledges/Pledges.Host/Dockerfile
+    command: ["hand-over"]
     environment:
       <<: [*aws-local, *module-connections, *local-auth]
       ConnectionStrings__Owner: Host=postgres;Port=5432;Database=crowdfunding;Username=postgres;Password=postgres;GSS Encryption Mode=Disable
+      ConnectionStrings__Migrator: Host=postgres;Port=5432;Database=crowdfunding;Username=pledges_migrator;Password=pledges_migrator_dev;GSS Encryption Mode=Disable
     depends_on:
       postgres:
         condition: service_healthy
+
+  pledges-migrate:
+    profiles: [stack]
+    build: *pledges-image
+    command: ["migrate"]
+    environment:
+      <<: [*aws-local, *module-connections, *local-auth]
+      ConnectionStrings__Migrator: Host=postgres;Port=5432;Database=crowdfunding;Username=pledges_migrator;Password=pledges_migrator_dev;GSS Encryption Mode=Disable
+    # One migrate step at a time (see notifications-handover): the last of them.
+    depends_on:
+      campaigns-migrate:
+        condition: service_completed_successfully
 
   # Payments' migration task (infra/services/payments, through the service module): Payments.Host with
   # `migrate`, as the owner of Payments' database. Locally that database is the shared one.
@@ -121,11 +141,11 @@ services:
       ConnectionStrings__Payments: Host=postgres;Port=5432;Database=crowdfunding;Username=payments_app;Password=payments_dev;GSS Encryption Mode=Disable
       Payments__WebhookSecret: whsec_development_only_0123456789
     depends_on:
-      migrate:
+      pledges-handover:
         condition: service_completed_successfully
 
   # The Payments service (infra/services/payments): Payments alone, its events through the broker, the
-  # card-setup command from the monolith on 8081.
+  # card-setup command from the Pledges service on 8081.
   payments:
     profiles: [stack]
     build: *payments-image
@@ -139,7 +159,7 @@ services:
       Payments__WebhookSecret: whsec_development_only_0123456789
       Payments__Budget__Prefix: psp
       ForwardedHeaders__KnownNetwork: ${LOCAL_SUBNET:-10.250.0.0/24}
-      Auth__ServiceClients__0: local-monolith
+      Auth__ServiceClients__0: local-pledges
       Events__Routes__Pledges: Broker
       Events__Routes__Campaigns: Broker
       Events__Routes__Notifications: Broker
@@ -179,7 +199,7 @@ services:
     # One migrate step at a time, as one pipeline runs one deploy at a time: here Payments' schema is on the
     # same server, and two steps that grant on the database at once fail with "tuple concurrently updated".
     depends_on:
-      migrate:
+      pledges-handover:
         condition: service_completed_successfully
       payments-migrate:
         condition: service_completed_successfully
@@ -289,44 +309,37 @@ services:
       campaigns-migrate:
         condition: service_completed_successfully
 
-  # The monolith (infra/env/ecs.tf, local.api_container): Pledges alone since s5-l09 (Notifications left at
-  # s5-l04, Campaigns at s5-l09); Payments' events through the broker, and StartCardSetup over HTTP to the
-  # Payments service.
-  api:
+  # The Pledges service (infra/services/pledges): Pledges alone; Payments' events through the broker, and
+  # StartCardSetup over HTTP to the Payments service. The gateway's catch-all.
+  pledges:
     profiles: [stack]
-    build: .
+    build: *pledges-image
     environment:
       <<: [*aws-local, *module-connections, *local-auth]
       ASPNETCORE_ENVIRONMENT: Production
-      OTEL_SERVICE_NAME: crowdfunding-api
-      ConnectionStrings__Valkey: valkey:6379,user=api,password=api_dev,tiebreaker=,configChannel=
+      OTEL_SERVICE_NAME: crowdfunding-pledges
+      ConnectionStrings__Valkey: valkey:6379,user=pledges,password=pledges_dev,tiebreaker=,configChannel=
       ForwardedHeaders__KnownNetwork: ${LOCAL_SUBNET:-10.250.0.0/24}
-      # The routes of s4-l02 (infra/env/messaging.tf, local.broker_environment); the topics and queues
-      # come from .local/broker.env.
+      # Every other module runs elsewhere (infra/services/pledges/main.tf); the topics and queues come from
+      # .local/broker.env.
       Events__Routes__Payments: Broker
-      Events__Producers__Payments__Pledges: Broker
-      Events__Producers__Payments__Campaigns: Broker
-      Events__Producers__Payments__Notifications: Broker
-      Events__Broker__Read__0: monolith
-      # s5-l04: what Notifications consumes goes to its own queue, which only the Notifications service reads.
       Events__Routes__Notifications: Broker
-      # s5-l09: Campaigns runs only in its own service; what Pledges publishes for it goes to the broker.
       Events__Routes__Campaigns: Broker
-      # s4-l03 and s4-l10: StartCardSetup goes over HTTP to the Payments service's internal port.
-      Modules__Payments__BaseAddress: http://payments:8081
-      # s4-l04: the monolith's service identity. Without a token endpoint it signs its service tokens
-      # with Auth:LocalSigningKey, as the local issuer does for users; on AWS they come from Cognito.
-      ServiceIdentity__ClientId: local-monolith
-      Auth__ServiceClients__0: local-monolith
+      Events__Broker__Read__0: pledges
+      # StartCardSetup goes over HTTP to the Payments service's internal port.
+      Services__Payments__BaseAddress: http://payments:8081
+      # The Pledges service's identity. Without a token endpoint it signs its service tokens with
+      # Auth:LocalSigningKey, as the local issuer does for users; on AWS they come from Cognito.
+      ServiceIdentity__ClientId: local-pledges
     env_file:
       - path: .local/broker.env
         required: false
     # Only for the fake PSP's side door and debugging; clients go through the gateway.
     ports:
-      - "127.0.0.1:${LOCAL_API_PORT:-8081}:8080"
+      - "${LOCAL_BIND:-127.0.0.1}:${LOCAL_API_PORT:-8081}:8080"
     stop_grace_period: 30s
     healthcheck:
-      test: ["CMD", "bash", "-c", *http-ok, "/health/ready"]
+      test: ["CMD", "dotnet", "CrowdFunding.Pledges.Host.dll", "health"]
       interval: 2s
       retries: 60
     depends_on:
@@ -336,7 +349,7 @@ services:
         condition: service_healthy
       moto:
         condition: service_healthy
-      migrate:
+      pledges-migrate:
         condition: service_completed_successfully
       payments:
         condition: service_healthy
@@ -349,7 +362,7 @@ services:
       dockerfile: src/Gateway/Dockerfile
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ReverseProxy__Clusters__monolith__Destinations__monolith__Address: http://api:8080/
+      ReverseProxy__Clusters__pledges__Destinations__pledges__Address: http://pledges:8080/
       ReverseProxy__Clusters__payments__Destinations__payments__Address: http://payments:8080/
       ReverseProxy__Clusters__notifications__Destinations__notifications__Address: http://notifications:8080/
       ReverseProxy__Clusters__campaigns__Destinations__campaigns__Address: http://campaigns:8080/
@@ -357,13 +370,13 @@ services:
       EdgeLimits__Valkey: valkey:6379,user=gateway,password=gateway_dev
       ForwardedHeaders__KnownNetwork: ${LOCAL_SUBNET:-10.250.0.0/24}
     ports:
-      - "127.0.0.1:${LOCAL_GATEWAY_PORT:-8080}:8080"
+      - "${LOCAL_BIND:-127.0.0.1}:${LOCAL_GATEWAY_PORT:-8080}:8080"
     healthcheck:
       test: ["CMD", "bash", "-c", *http-ok, "/health"]
       interval: 2s
       retries: 30
     depends_on:
-      api:
+      pledges:
         condition: service_healthy
       valkey:
         condition: service_healthy

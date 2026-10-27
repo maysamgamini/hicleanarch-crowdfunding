@@ -13,7 +13,7 @@ public class PathFilterTests
 {
     public static TheoryData<string, bool, bool, bool, bool> Changes() => new()
     {
-        // changed file, runs payments, runs monolith, runs notifications, runs campaigns
+        // changed file, runs payments, runs pledges (the monolith until s5-l10), runs notifications, runs campaigns
         { "src/Services/Payments/Payments.Host/Program.cs", true, false, false, false },
         { "src/Services/Payments/Payments.Host/Dockerfile", true, false, false, false },
         { "infra/services/payments/service.tf", true, false, false, false },
@@ -33,17 +33,18 @@ public class PathFilterTests
         { "events/subscriptions.json", true, true, true, true },
         { "Directory.Packages.props", true, true, true, true },
         { "infra/env/shared-outputs.tf", true, true, true, true },
-        { "src/Host/Program.cs", false, true, false, false },
-        { "src/Gateway/Program.cs", false, true, false, false },
+        { "src/Services/Pledges/Pledges.Host/Program.cs", false, true, false, false },
+        { "src/Gateway/Program.cs", false, false, false, false },
         { "src/Modules/Pledges/Pledges.Application/PlacePledge.cs", false, true, false, false },
         { "src/Services/Notifications/Notifications/Templates.cs", false, false, true, false },
-        { "infra/env/ecs.tf", false, true, false, false },
-        { "Dockerfile", false, true, false, false },
+        { "infra/env/ecs.tf", false, false, false, false },
+        { "infra/services/pledges/main.tf", false, true, false, false },
+        { "src/Services/Pledges/Pledges.Host/Dockerfile", false, true, false, false },
         { "tests/IntegrationTests/PledgeTests.cs", true, true, true, true },
         { "tests/ArchitectureTests/MonolithRulesTests.cs", true, true, true, true },
         { "src/Services/Notifications/Notifications.Host/Program.cs", false, false, true, false },
         { "infra/services/notifications/main.tf", false, false, true, false },
-        { "infra/env/notifications-network.tf", false, true, true, false },
+        { "infra/env/notifications-network.tf", false, false, true, false },
         { "src/Services/Notifications/tests/Notifications.Host.Tests/NotificationsServiceTests.cs", false, false, true, false },
         { "Notifications.slnf", false, false, true, false },
         { "docs/cost.md", false, false, false, false },
@@ -54,7 +55,7 @@ public class PathFilterTests
         { "src/Services/Campaigns/Campaigns.Application/GetCampaign.cs", false, false, false, true },
     };
 
-    public static TheoryData<string> Pipelines() => [Workflows.Payments, Workflows.Monolith, Workflows.Notifications, Workflows.Campaigns];
+    public static TheoryData<string> Pipelines() => [Workflows.Payments, Workflows.Pledges, Workflows.Notifications, Workflows.Campaigns];
 
     [Theory]
     [MemberData(nameof(Changes))]
@@ -62,7 +63,7 @@ public class PathFilterTests
     {
         Assert.Equal(campaigns, Workflows.Triggers(Workflows.Paths(Workflows.Campaigns, "push"), changedFile));
         Assert.Equal(payments, Workflows.Triggers(Workflows.Paths(Workflows.Payments, "push"), changedFile));
-        Assert.Equal(monolith, Workflows.Triggers(Workflows.Paths(Workflows.Monolith, "push"), changedFile));
+        Assert.Equal(monolith, Workflows.Triggers(Workflows.Paths(Workflows.Pledges, "push"), changedFile));
         Assert.Equal(notifications, Workflows.Triggers(Workflows.Paths(Workflows.Notifications, "push"), changedFile));
     }
 
@@ -76,7 +77,7 @@ public class PathFilterTests
 
     [Theory]
     [InlineData(Workflows.Payments, "Payments.slnf")]
-    [InlineData(Workflows.Monolith, "Monolith.slnf")]
+    [InlineData(Workflows.Pledges, "Pledges.slnf")]
     [InlineData(Workflows.Notifications, "Notifications.slnf")]
     [InlineData(Workflows.Campaigns, "Campaigns.slnf")]
     public void A_change_to_any_project_a_service_builds_runs_its_pipeline(string workflow, string filter)
@@ -89,7 +90,7 @@ public class PathFilterTests
 
     [Theory]
     [InlineData(Workflows.Payments)]
-    [InlineData(Workflows.Monolith)]
+    [InlineData(Workflows.Pledges)]
     [InlineData(Workflows.Notifications)]
     [InlineData(Workflows.Campaigns)]
     public void Both_pipelines_run_the_tests_that_start_both_services(string workflow) =>
@@ -97,7 +98,7 @@ public class PathFilterTests
 
     [Theory]
     [InlineData(Workflows.Payments)]
-    [InlineData(Workflows.Monolith)]
+    [InlineData(Workflows.Pledges)]
     [InlineData(Workflows.Notifications)]
     [InlineData(Workflows.Campaigns)]
     public void A_change_to_a_contract_runs_the_contract_tests_first(string workflow)

@@ -40,7 +40,7 @@ public sealed class ValkeyUserTests(Database database) : IAsyncLifetime
     {
         await _valkey.StartAsync(Ct);
         await using var admin = await ConnectionMultiplexer.ConnectAsync(Address + ",abortConnect=false");
-        await ValkeyUser.Create(admin, "api", ApiPassword);
+        await ValkeyUser.Create(admin, "pledges", ApiPassword);
         await ValkeyUser.Create(admin, "payments", PaymentsPassword);
         await ValkeyUser.Create(admin, "campaigns", CampaignsPassword);
     }
@@ -50,7 +50,7 @@ public sealed class ValkeyUserTests(Database database) : IAsyncLifetime
     [Fact]
     public async Task Each_service_works_through_its_own_user_and_is_refused_the_others_keys()
     {
-        var asApi = ValkeyUser.ConnectionString(Address, "api", ApiPassword);
+        var asApi = ValkeyUser.ConnectionString(Address, "pledges", ApiPassword);
         var asPayments = ValkeyUser.ConnectionString(Address, "payments", PaymentsPassword);
         var asCampaigns = ValkeyUser.ConnectionString(Address, "campaigns", CampaignsPassword);
         await using var host = database.StartHost(

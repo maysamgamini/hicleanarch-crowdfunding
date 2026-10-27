@@ -143,8 +143,8 @@ public sealed class CardSetupIdempotencyTests(Database database) : IDisposable
             .UseSetting("ConnectionStrings:Pledges", new NpgsqlConnectionStringBuilder(database.Pledges) { ApplicationName = Name }.ConnectionString)
             .UseSetting("Payments:CardSetup:PspDeadline", "00:00:10")
             // The client's own 2 s attempt (s4-l03) would answer first: here it waits as long as the PSP may.
-            .UseSetting("Modules:Payments:Client:AttemptTimeout", "00:00:15")
-            .UseSetting("Modules:Payments:Client:TotalTimeout", "00:00:35"));
+            .UseSetting("Services:Payments:Client:AttemptTimeout", "00:00:15")
+            .UseSetting("Services:Payments:Client:TotalTimeout", "00:00:35"));
         var given = new Scenario(database, host);
         var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));

@@ -13,7 +13,7 @@ public partial class PackagingTests
     private static readonly string Root = FindRoot();
 
     public static TheoryData<string> ConsumerProjects() =>
-        [.. Directory.GetFiles(Path.Combine(Root, "src", "Host"), "*.csproj")
+        [.. Directory.GetFiles(Path.Combine(Root, "src", "Services", "Pledges", "Pledges.Host"), "*.csproj")
             .Concat(Directory.GetFiles(Path.Combine(Root, "src", "Modules"), "*.csproj", SearchOption.AllDirectories))
             // A service's modules, moved into its own folder (s5-l05); its host and tests as before are not consumers here.
             .Concat(Directory.GetFiles(Path.Combine(Root, "src", "Services"), "*.csproj", SearchOption.AllDirectories)

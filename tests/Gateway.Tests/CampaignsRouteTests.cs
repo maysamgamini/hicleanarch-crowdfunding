@@ -25,18 +25,18 @@ public sealed class CampaignsRouteTests
         { "GET", "/v1/campaigns/cmp_1", "campaigns" },
         { "POST", "/v1/campaigns/cmp_1/publish", "campaigns" },
         { "POST", "/v1/campaigns/cmp_1/cancel", "campaigns" },
-        { "POST", "/v1/campaigns/cmp_1/pledges", "monolith" },
-        { "GET", "/v1/campaigns/cmp_1/totals", "monolith" },
-        { "POST", "/v1/campaigns/cmp_1/funding/cancel", "monolith" },
-        { "DELETE", "/v1/campaigns/cmp_1", "monolith" },
-        { "GET", "/v1/pledges/plg_1", "monolith" },
+        { "POST", "/v1/campaigns/cmp_1/pledges", "pledges" },
+        { "GET", "/v1/campaigns/cmp_1/totals", "pledges" },
+        { "POST", "/v1/campaigns/cmp_1/funding/cancel", "pledges" },
+        { "DELETE", "/v1/campaigns/cmp_1", "pledges" },
+        { "GET", "/v1/pledges/plg_1", "pledges" },
     };
 
     [Theory]
     [MemberData(nameof(Paths))]
     public async Task Campaigns_paths_reach_campaigns_and_Pledges_paths_the_monolith(string method, string path, string service)
     {
-        await using var monolith = await EchoService.Start("monolith");
+        await using var monolith = await EchoService.Start("pledges");
         await using var campaigns = await EchoService.Start("campaigns");
         await using var gateway = Start(monolith, campaigns);
         using var request = new HttpRequestMessage(new HttpMethod(method), path) { Content = method is "GET" or "DELETE" ? null : new StringContent("{}") };

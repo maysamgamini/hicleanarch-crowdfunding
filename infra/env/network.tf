@@ -84,7 +84,7 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_gateway" {
 
 resource "aws_security_group" "tasks" {
   name        = "${var.project}-tasks"
-  description = "The program: requests only from the load balancer"
+  description = "The shared layer's one-off tasks: the schemas' hand-overs"
   vpc_id      = aws_vpc.main.id
 }
 

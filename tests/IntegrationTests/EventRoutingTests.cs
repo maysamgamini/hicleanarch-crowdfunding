@@ -16,7 +16,7 @@ namespace IntegrationTests;
 public sealed class EventRoutingTests(Database database)
 {
     [Fact]
-    public async Task The_monolith_routes_every_consumer_and_every_handler_is_in_the_subscriptions()
+    public async Task The_pledges_service_routes_every_consumer_and_every_handler_is_in_the_subscriptions()
     {
         await using var host = database.StartHost();
         _ = host.CreateClient(); // starts the host: it would refuse to start if anything were unrouted
@@ -26,6 +26,29 @@ public sealed class EventRoutingTests(Database database)
         Assert.Empty(routes.Problems());
         Assert.All(host.Services.GetServices<EventHandlerRegistration>(),
             h => Assert.Contains(h.Module, host.Services.GetRequiredService<EventSubscriptions>().ConsumersOf(h.EventType.Name)));
+    }
+
+    [Fact]
+    public void A_service_that_routes_an_event_in_process_to_a_module_it_does_not_run_refuses_to_start()
+    {
+        // Lesson s5-l10: InProcess stays for a service's own events only (Pledges' pledge events to its
+        // aggregator); a module that runs elsewhere is reached through the broker, never in process.
+        using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("Events:Routes:Campaigns", "InProcess"));
+
+        var refused = Refusals.Of(host);
+
+        Assert.Contains("Campaigns is routed InProcess for", refused, StringComparison.Ordinal);
+        Assert.Contains("but Campaigns does not run here", refused, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Pledges_own_events_stay_in_process_and_every_other_module_is_reached_through_the_broker()
+    {
+        await using var host = database.StartHost();
+        var routes = host.Services.GetRequiredService<EventRoutes>();
+
+        Assert.Equal(EventRoute.InProcess, routes.RouteOf("Pledges", "Pledges"));
+        Assert.All(["Campaigns", "Payments", "Notifications"], module => Assert.Equal(EventRoute.Broker, routes.RouteOf(module, "Pledges")));
     }
 
     [Fact]

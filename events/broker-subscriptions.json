@@ -7,16 +7,11 @@
   ],
   "queues": [
     "campaigns",
-    "monolith",
     "notifications",
-    "payments"
+    "payments",
+    "pledges"
   ],
   "subscriptions": [
-    {
-      "topic": "campaigns",
-      "queue": "monolith",
-      "filter_policy": "{\"event_type\":[\"CampaignCreatorRecorded\",\"CampaignPublished\"]}"
-    },
     {
       "topic": "campaigns",
       "queue": "notifications",
@@ -28,19 +23,24 @@
       "filter_policy": "{\"event_type\":[\"CampaignPublished\"]}"
     },
     {
+      "topic": "campaigns",
+      "queue": "pledges",
+      "filter_policy": "{\"event_type\":[\"CampaignCreatorRecorded\",\"CampaignPublished\"]}"
+    },
+    {
       "topic": "payments",
       "queue": "campaigns",
       "filter_policy": "{\"event_type\":[\"CampaignSettled\"]}"
     },
     {
       "topic": "payments",
-      "queue": "monolith",
-      "filter_policy": "{\"event_type\":[\"PaymentMethodSaved\",\"PledgeChargeFailed\",\"PledgeChargeSucceeded\"]}"
+      "queue": "notifications",
+      "filter_policy": "{\"event_type\":[\"CampaignSettled\",\"PledgeChargeFailed\",\"PledgeChargeSucceeded\"]}"
     },
     {
       "topic": "payments",
-      "queue": "notifications",
-      "filter_policy": "{\"event_type\":[\"CampaignSettled\",\"PledgeChargeFailed\",\"PledgeChargeSucceeded\"]}"
+      "queue": "pledges",
+      "filter_policy": "{\"event_type\":[\"PaymentMethodSaved\",\"PledgeChargeFailed\",\"PledgeChargeSucceeded\"]}"
     },
     {
       "topic": "pledges",

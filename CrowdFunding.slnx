@@ -1,7 +1,6 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Gateway/Gateway.csproj" />
-    <Project Path="src/Host/Host.csproj" />
     <Project Path="src/Messaging/Messaging.csproj" />
     <Project Path="src/RemoteCalls/RemoteCalls.csproj" />
   </Folder>
@@ -30,6 +29,9 @@
   </Folder>
   <Folder Name="/src/Services/Notifications/tests/">
     <Project Path="src/Services/Notifications/tests/Notifications.Host.Tests/Notifications.Host.Tests.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Pledges/">
+    <Project Path="src/Services/Pledges/Pledges.Host/Pledges.Host.csproj" />
   </Folder>
   <Folder Name="/src/Services/Payments/">
     <Project Path="src/Services/Payments/Payments.Application/Payments.Application.csproj" />

@@ -18,11 +18,11 @@ locals {
     cognito_issuer                = local.cognito_issuer
     user_pool_client_id           = aws_cognito_user_pool_client.api.id
     alarm_topic_arn               = aws_sns_topic.alarms.arn
-    # The monolith's queue, by ARN only: Payments' subscription check looks for its topic's
-    # subscription to it (s4-l10). Payments' roles grant nothing on it.
-    monolith_queue_arn = aws_sqs_queue.events["monolith"].arn
-    # The one service identity Payments' internal endpoint lets in (s4-l04).
-    monolith_service_client_id = aws_cognito_user_pool_client.monolith_service.id
+    # The Pledges service's queue (the monolith's until s5-l10), by ARN for the other services' subscription
+    # checks: they look for their topics' subscriptions to it. Their roles grant nothing on it.
+    pledges_queue_arn = aws_sqs_queue.events["pledges"].arn
+    # The one service identity Payments' internal endpoint lets in (s4-l04): the Pledges service's.
+    pledges_service_client_id = aws_cognito_user_pool_client.pledges_service.id
     # The PSP budget's bucket names in Valkey.
     psp_budget_prefix = local.psp_budget_prefix
     # The fleet that shares it, and Payments' part of that fleet: each task's share while Valkey is down.
@@ -60,6 +60,21 @@ locals {
     campaigns_topic_arn                  = aws_sns_topic.events["campaigns"].arn
     campaigns_queue_arn                  = aws_sqs_queue.events["campaigns"].arn
     campaigns_queue_url                  = aws_sqs_queue.events["campaigns"].id
+
+    # The Pledges service (s5-l10): its network place, its secrets, its topic and queue, its service identity,
+    # the consumers' queues its subscription check looks for, and its size within the writer's connection budget.
+    pledges_security_group_id          = aws_security_group.pledges.id
+    pledges_connection_secret_arn      = aws_secretsmanager_secret.connection["pledges"].arn
+    pledges_jobs_connection_secret_arn = aws_secretsmanager_secret.connection["pledges_jobs"].arn
+    pledges_read_connection_secret_arn = aws_secretsmanager_secret.read_connection["pledges_read"].arn
+    pledges_valkey_secret_arn          = aws_secretsmanager_secret.valkey["pledges"].arn
+    pledges_topic_arn                  = aws_sns_topic.events["pledges"].arn
+    pledges_queue_url                  = aws_sqs_queue.events["pledges"].id
+    pledges_service_client_secret_arn  = aws_secretsmanager_secret.pledges_service_client.arn
+    service_token_endpoint             = local.service_token_endpoint
+    pledges_desired_count              = var.desired_count
+    pledges_max_count                  = var.max_count
+    visibility_timeout_seconds         = local.visibility_timeout_seconds
 
     # Each schema's migration role on the shared cluster (s5-l01), for the service that will own it.
     migrator_secret_arns = { for module, secret in aws_secretsmanager_secret.migrator : module => secret.arn }

@@ -10,7 +10,7 @@ moved {
 }
 
 variable "notifications_serves_preferences" {
-  description = "Whether the gateway sends PUT /v1/me/notifications/{kind} to the Notifications service. Set it only after infra/services/notifications has deployed the service (scripts/deploy-service.sh), so the route always has a target; until then the gateway sends it to the monolith, which answers 404 since s5-l04."
+  description = "Whether the gateway sends PUT /v1/me/notifications/{kind} to the Notifications service. Set it only after infra/services/notifications has deployed the service (scripts/deploy-service.sh), so the route always has a target; until then the gateway sends it to the monolith, which answers 404 (the catch-all: the Pledges service since s5-l10)."
   type        = bool
   default     = false
 }
@@ -22,7 +22,7 @@ variable "notifications_image" {
 }
 
 locals {
-  notifications_public_address = var.notifications_serves_preferences ? "http://notifications:8080/" : "http://${aws_lb.internal.dns_name}/"
+  notifications_public_address = var.notifications_serves_preferences ? "http://notifications:8080/" : local.pledges_public_address
 }
 
 resource "aws_security_group" "notifications" {
@@ -64,6 +64,7 @@ locals {
     for name, task in {
       notifications = aws_ecs_task_definition.notifications_handover
       campaigns     = aws_ecs_task_definition.campaigns_handover
+      pledges       = aws_ecs_task_definition.pledges_handover
     } : name => one(task[*].arn) if length(task) > 0
   }
 }

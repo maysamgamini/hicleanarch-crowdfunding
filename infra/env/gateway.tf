@@ -1,6 +1,6 @@
-# The gateway: its own small service. The public load balancer now sends every request to it,
-# and it forwards /v1/** to the monolith through an internal load balancer, which only the
-# tasks can reach. Moving a module out later is a new route in the gateway's configuration.
+# The gateway: its own small service. The public load balancer sends every request to it, and it sends
+# each path to its service through Service Connect: Payments', Notifications' and Campaigns' paths to
+# them, everything else (/v1/**) to the Pledges service, the old monolith's host (s5-l10).
 
 variable "gateway_image" {
   description = "The gateway image, as repository URL and tag."
@@ -43,57 +43,6 @@ resource "aws_lb_target_group" "gateway" {
   }
 }
 
-# The internal load balancer in front of the monolith. Its address resolves to private IPs, so
-# the gateway's traffic stays inside the VPC and its security group can name the tasks.
-resource "aws_security_group" "internal_alb" {
-  name        = "${var.project}-internal-alb"
-  description = "HTTP from the gateway tasks to the internal load balancer"
-  vpc_id      = aws_vpc.main.id
-}
-
-resource "aws_vpc_security_group_ingress_rule" "internal_alb_from_gateway" {
-  security_group_id            = aws_security_group.internal_alb.id
-  referenced_security_group_id = aws_security_group.gateway.id
-  from_port                    = 80
-  to_port                      = 80
-  ip_protocol                  = "tcp"
-}
-
-resource "aws_vpc_security_group_egress_rule" "internal_alb_to_tasks" {
-  security_group_id            = aws_security_group.internal_alb.id
-  referenced_security_group_id = aws_security_group.tasks.id
-  from_port                    = 8080
-  to_port                      = 8080
-  ip_protocol                  = "tcp"
-}
-
-resource "aws_vpc_security_group_ingress_rule" "tasks_from_internal_alb" {
-  security_group_id            = aws_security_group.tasks.id
-  referenced_security_group_id = aws_security_group.internal_alb.id
-  from_port                    = 8080
-  to_port                      = 8080
-  ip_protocol                  = "tcp"
-}
-
-resource "aws_lb" "internal" {
-  name               = "${var.project}-internal"
-  internal           = true
-  load_balancer_type = "application"
-  subnets            = aws_subnet.public[*].id
-  security_groups    = [aws_security_group.internal_alb.id]
-}
-
-resource "aws_lb_listener" "internal" {
-  load_balancer_arn = aws_lb.internal.arn
-  port              = 80
-  protocol          = "HTTP"
-
-  default_action {
-    type             = "forward"
-    target_group_arn = aws_lb_target_group.api.arn
-  }
-}
-
 resource "aws_cloudwatch_log_group" "gateway" {
   name              = "/${var.project}/sandbox/gateway"
   retention_in_days = 1
@@ -115,7 +64,8 @@ resource "aws_ecs_task_definition" "gateway" {
     essential    = true
     portMappings = [{ containerPort = 8080, protocol = "tcp" }]
     environment = [
-      { name = "ReverseProxy__Clusters__monolith__Destinations__monolith__Address", value = "http://${aws_lb.internal.dns_name}/" },
+      # The catch-all: the Pledges service through Service Connect (s5-l10; the monolith's internal load balancer before).
+      { name = "ReverseProxy__Clusters__pledges__Destinations__pledges__Address", value = local.pledges_public_address },
       # Payments' four public paths: the Payments service through Service Connect, or the monolith (payments-split.tf).
       { name = "ReverseProxy__Clusters__payments__Destinations__payments__Address", value = local.payments_public_address },
       # A user's notification preference: the Notifications service through Service Connect (s5-l03), once
@@ -170,7 +120,8 @@ resource "aws_ecs_service" "gateway" {
     assign_public_ip = true
   }
 
-  # A client of Service Connect: payments:8080 resolves to the Payments service's tasks.
+  # A client of Service Connect: payments:8080, notifications:8080, campaigns:8080 and pledges:8080
+  # resolve to those services' tasks.
   service_connect_configuration {
     enabled   = true
     namespace = aws_service_discovery_http_namespace.services.arn

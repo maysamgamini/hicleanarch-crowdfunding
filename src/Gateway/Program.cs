@@ -2,8 +2,9 @@ using CrowdFunding.Gateway;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Every route and the monolith's address come from configuration ("ReverseProxy" in appsettings.json).
-// Moving a module out of the monolith is a new cluster and a route here, and nothing else.
+// Every route and each service's address come from configuration ("ReverseProxy" in appsettings.json).
+// Moving a module out of the monolith was a new cluster and a route there, and nothing else; since s5-l10
+// the catch-all goes to the Pledges service, the old monolith's host.
 // Payments' four public paths have their own cluster, ahead of the catch-all (a lower Order); it names
 // the monolith by default and the Payments service in ECS, so pointing it back is the rollback.
 builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));

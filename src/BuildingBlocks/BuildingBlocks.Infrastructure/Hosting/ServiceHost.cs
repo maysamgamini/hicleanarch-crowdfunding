@@ -57,6 +57,7 @@ public static class ServiceHost
 
         var services = builder.Services;
         var configuration = builder.Configuration;
+        RetiredSettings.Refuse(configuration);
         services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
         services.AddProblemDetails();
         services.AddExceptionHandler<DatabaseUnavailableHandler>();

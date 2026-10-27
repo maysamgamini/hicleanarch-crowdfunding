@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <RootNamespace>CrowdFunding.Host</RootNamespace>
-    <AssemblyName>CrowdFunding.Host</AssemblyName>
+    <RootNamespace>CrowdFunding.Pledges.Host</RootNamespace>
+    <AssemblyName>CrowdFunding.Pledges.Host</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
@@ -10,15 +10,15 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Modules\Pledges\Pledges.Infrastructure\Pledges.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\Modules\Pledges\Pledges.Infrastructure\Pledges.Infrastructure.csproj" />
     <!-- Of Payments, only its client: StartCardSetup over HTTP, on the Payments.Contracts package (s4-l10). -->
-    <ProjectReference Include="..\Modules\Payments.Client\Payments.Client.csproj" />
-    <ProjectReference Include="..\Messaging\Messaging.csproj" />
+    <ProjectReference Include="..\..\..\Modules\Payments.Client\Payments.Client.csproj" />
+    <ProjectReference Include="..\..\..\Messaging\Messaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Every host reads the same list of event consumers, events/subscriptions.json. -->
-    <Content Include="..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup Label="BuildingBlocks">

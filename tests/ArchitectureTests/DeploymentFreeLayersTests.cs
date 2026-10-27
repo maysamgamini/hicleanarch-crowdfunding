@@ -51,9 +51,9 @@ public class DeploymentFreeLayersTests
     public void The_rule_recognises_what_the_adapters_and_hosts_use()
     {
         Assert.Contains(Assembly.Load("CrowdFunding.Messaging").GetReferencedAssemblies(), r => IsDeploymentConcern(r.Name!));
-        Assert.Contains(Assembly.Load("CrowdFunding.Host").GetReferencedAssemblies(), r => r.Name == "CrowdFunding.Messaging");
+        Assert.Contains(Assembly.Load("CrowdFunding.Pledges.Host").GetReferencedAssemblies(), r => r.Name == "CrowdFunding.Messaging");
         Assert.True(IsDeploymentConcern("CrowdFunding.Messaging"));
-        Assert.True(IsDeploymentConcern("CrowdFunding.Host"));
+        Assert.True(IsDeploymentConcern("CrowdFunding.Pledges.Host"));
         Assert.True(IsDeploymentConcern("CrowdFunding.Payments.Host"));
         Assert.True(IsDeploymentConcern("System.Net.Http"));
         Assert.True(IsDeploymentConcern("AWSSDK.SQS"));

@@ -2,7 +2,7 @@ using System.Globalization;
 
 using Npgsql;
 
-namespace CrowdFunding.Host;
+namespace CrowdFunding.Pledges.Host;
 
 /// <summary>
 /// <c>drop-moved-payments</c> (CQA-2102): what s4-l07's move left of Payments on the shared cluster, its

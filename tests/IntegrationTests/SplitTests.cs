@@ -132,15 +132,18 @@ public sealed class SplitSwitchTests(Database database)
     }
 
     [Theory]
-    [InlineData("Mode", "InProcess")]
-    [InlineData("Mode", "Remote")]
-    [InlineData("Calls", "Http")]
-    public void A_switch_of_the_split_left_in_the_configuration_refuses_the_start(string key, string value)
+    [InlineData("Modules:Payments:Mode", "InProcess")]
+    [InlineData("Modules:Payments:Calls", "Http")]
+    [InlineData("Modules:Campaigns:Mode", "Remote")]
+    [InlineData("Modules:Payments:BaseAddress", "http://payments:8081")]
+    public void A_switch_of_the_splits_left_in_the_configuration_refuses_the_start(string key, string value)
     {
-        using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting($"Modules:Payments:{key}", value));
+        // Lesson s5-l10: no Modules:* setting exists any more; the platform names any one left behind.
+        using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting(key, value));
 
         var refused = Assert.ThrowsAny<Exception>(() => host.Services);
-        Assert.Contains($"Modules:Payments:{key} no longer exist", refused.ToString(), StringComparison.Ordinal);
+        Assert.Contains("These settings no longer exist", refused.ToString(), StringComparison.Ordinal);
+        Assert.Contains(key, refused.ToString(), StringComparison.Ordinal);
     }
 }
 

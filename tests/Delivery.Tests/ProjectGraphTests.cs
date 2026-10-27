@@ -8,7 +8,8 @@ namespace Delivery.Tests;
 public class ProjectGraphTests
 {
     private const string PaymentsFilter = "Payments.slnf";
-    private const string MonolithFilter = "Monolith.slnf";
+    private const string MonolithFilter = "Pledges.slnf";
+    private const string SharedFilter = "Shared.slnf";
     private const string ContractsFilter = "Contracts.slnf";
     private const string NotificationsFilter = "Notifications.slnf";
     private const string CampaignsFilter = "Campaigns.slnf";
@@ -30,7 +31,7 @@ public class ProjectGraphTests
     /// <summary>The shared platform beside the BuildingBlocks: the broker adapter and the remote-call pipeline (s4-l02, s4-l03).</summary>
     private static readonly string[] Platform = ["src/Messaging/", "src/RemoteCalls/"];
 
-    public static TheoryData<string> Filters() => [PaymentsFilter, MonolithFilter, NotificationsFilter, CampaignsFilter, ContractsFilter, SystemFilter];
+    public static TheoryData<string> Filters() => [PaymentsFilter, MonolithFilter, SharedFilter, NotificationsFilter, CampaignsFilter, ContractsFilter, SystemFilter];
 
     [Theory]
     [MemberData(nameof(Filters))]
@@ -49,7 +50,7 @@ public class ProjectGraphTests
     [Fact]
     public void Every_project_is_built_by_a_service_pipeline()
     {
-        var built = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter)).Union(Repository.FilterProjects(NotificationsFilter)).Union(Repository.FilterProjects(CampaignsFilter))
+        var built = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter)).Union(Repository.FilterProjects(SharedFilter)).Union(Repository.FilterProjects(NotificationsFilter)).Union(Repository.FilterProjects(CampaignsFilter))
             .Union(Repository.FilterProjects(SystemFilter)).Append(ThisProject).Append(ContractProducerTests);
 
         Assert.Empty(Repository.SolutionProjects().Except(built));
@@ -76,11 +77,12 @@ public class ProjectGraphTests
     }
 
     [Fact]
-    public void The_monolith_reaches_no_service_host()
+    public void Neither_the_pledges_service_nor_the_gateway_reaches_another_service()
     {
-        var graph = Repository.Closure(["src/Host/Host.csproj", "src/Gateway/Gateway.csproj"]);
+        // The old monolith's host is the Pledges service since s5-l10; it reaches nothing of another service.
+        var graph = Repository.Closure(["src/Services/Pledges/Pledges.Host/Pledges.Host.csproj", "src/Gateway/Gateway.csproj"]);
 
-        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal) && !p.StartsWith("src/Services/Pledges/", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -89,7 +91,7 @@ public class ProjectGraphTests
         // Since s4-l10: Payments' module and host are built, tested and deployed by Payments' pipeline alone.
         var graph = Repository.Closure(Repository.FilterProjects(MonolithFilter));
 
-        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal) && !p.StartsWith("src/Services/Pledges/", StringComparison.Ordinal));
         Assert.All(graph.Where(p => p.StartsWith("src/Modules/Payments", StringComparison.Ordinal)), p => Assert.Equal(PaymentsClient, p));
         Assert.DoesNotContain(graph, p => p.StartsWith("tests/Payments.", StringComparison.Ordinal));
     }

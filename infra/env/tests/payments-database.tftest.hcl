@@ -1,8 +1,8 @@
 # CQA-2100: Payments' cluster holds Payments' only copy of its data, so no ordinary deploy may lose it.
 # At s4-l07 to s4-l09 the move's two variables lived only on move-payments.sh's command line, and the
-# next deploy-monolith.sh apply, which passed neither, destroyed the cluster. Applied twice against a
+# next deploy-shared.sh apply, which passed neither, destroyed the cluster. Applied twice against a
 # mocked AWS provider (no account, no calls): once as the environment stands after the move, then as
-# deploy-monolith.sh applies it; the cluster, its writer and its secrets must come through the second.
+# deploy-shared.sh applies it; the cluster, its writer and its secrets must come through the second.
 # A mock cannot tell a replaced cluster from a kept one, so the protection is what is asserted: at AWS
 # it makes any apply that would delete or replace the cluster fail instead.
 
@@ -98,7 +98,7 @@ run "the_moved_environment" {
   }
 }
 
-# The next ordinary deploy, with only what deploy-monolith.sh passes: the cluster is the same one.
+# The next ordinary deploy, with only what deploy-shared.sh passes: the cluster is the same one.
 run "an_ordinary_deploy_keeps_payments_cluster" {
   command = apply
 
