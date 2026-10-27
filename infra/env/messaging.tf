@@ -171,13 +171,15 @@ resource "aws_cloudwatch_metric_alarm" "topic_failures" {
 }
 
 # Since s4-l10 each service's role names only its own topics and its own queue: the monolith publishes
-# Campaigns' and Pledges' events and reads the monolith queue; Payments' topic and queue are Payments'
+# the events of the modules it runs and reads its queues; Payments' topic and queue are Payments'
 # alone (infra/services/payments). Each producer checks its own topic's subscriptions (SubscriptionCheck).
 locals {
-  # The plan's topics of the modules the monolith runs.
-  monolith_topics = toset([for m in local.broker_plan_services.monolith : lower(m) if contains(local.broker_plan.topics, lower(m))])
-  # The queue the monolith reads: its own (Notifications' left with it at s5-l04).
-  monolith_queues      = ["monolith"]
+  # The modules the monolith runs: its own service's, and Campaigns while it still runs in it (s5-l07).
+  monolith_modules = concat(local.broker_plan_services.monolith, local.broker_plan_services.campaigns)
+  # The plan's topics of those modules.
+  monolith_topics = toset([for m in local.monolith_modules : lower(m) if contains(local.broker_plan.topics, lower(m))])
+  # The queues the monolith reads: its own, and Campaigns' (s5-l07); Notifications' left with it at s5-l04.
+  monolith_queues      = ["monolith", "campaigns"]
   broker_plan_services = jsondecode(file("${path.module}/../../events/subscriptions.json")).services
 }
 
@@ -223,7 +225,11 @@ locals {
       { name = "Events__Broker__Queues__monolith__Url", value = aws_sqs_queue.events["monolith"].id },
       { name = "Events__Broker__Queues__payments__Arn", value = aws_sqs_queue.events["payments"].arn },
       { name = "Events__Broker__Read__0", value = "monolith" },
+      { name = "Events__Broker__Queues__campaigns__Arn", value = aws_sqs_queue.events["campaigns"].arn },
+      { name = "Events__Broker__Queues__campaigns__Url", value = aws_sqs_queue.events["campaigns"].id },
+      { name = "Events__Broker__Read__1", value = "campaigns" },
     ],
+    local.campaigns_broker_routes,
     [for t in local.monolith_topics : { name = "Events__Broker__Topics__${t}", value = aws_sns_topic.events[t].arn }],
   )
 }

@@ -1,5 +1,5 @@
 {
-  "comment": "Every event type, the module that produces it and the modules that consume it. Every host loads this file and routes each consumer InProcess (the module runs in this host) or Broker (the producer's SNS topic and the consumer's SQS queue); a host with a consumer it cannot route refuses to start. Each service has one SQS queue, read by the hosts that run its modules (from s5-l02 the monolith reads the notifications queue while it still runs Notifications); OpenTofu builds the topics, queues and subscriptions from the file events/broker-subscriptions.json, which is generated from this one (BrokerPlanTests).",
+  "comment": "Every event type, the module that produces it and the modules that consume it. Every host loads this file and routes each consumer InProcess (the module runs in this host) or Broker (the producer's SNS topic and the consumer's SQS queue); a host with a consumer it cannot route refuses to start. Each service has one SQS queue, read by the hosts that run its modules (from s5-l07 the monolith also reads the campaigns queue while it still runs Campaigns); OpenTofu builds the topics, queues and subscriptions from the file events/broker-subscriptions.json, which is generated from this one (BrokerPlanTests).",
   "services": {
     "payments": [
       "Payments"
@@ -7,8 +7,10 @@
     "notifications": [
       "Notifications"
     ],
+    "campaigns": [
+      "Campaigns"
+    ],
     "monolith": [
-      "Campaigns",
       "Pledges"
     ]
   },

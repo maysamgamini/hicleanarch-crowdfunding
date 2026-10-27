@@ -23,7 +23,8 @@ namespace IntegrationTests;
 
 /// <summary>
 /// One real PostgreSQL 17 for the whole test run, migrated once, as in a deploy, and one Moto (SNS and
-/// SQS): from s4-l02 every host routes Payments' events, in and out, through the broker.
+/// SQS): from s4-l02 every host routes Payments' events, in and out, through the broker, and from s5-l07
+/// the events between Campaigns and the other modules.
 /// </summary>
 public sealed class Database : IAsyncLifetime
 {
@@ -153,21 +154,24 @@ public sealed class Database : IAsyncLifetime
     /// A fresh monolith on this database, with a Payments service of its own beside it (lesson s4-l10:
     /// Payments runs nowhere else): a new pair is what a restart looks like. The two get topics and queues
     /// of their own (what OpenTofu builds, under a fresh prefix), so no other test's hosts read their
-    /// messages. <see cref="PaymentsBeside"/> says how the pair is wired; <c>host.Payments()</c> is the other one.
+    /// messages. Payments' and Campaigns' routes are on <c>Broker</c> (s4-l02, s5-l07). <see cref="PaymentsBeside"/> says how the pair is wired; <c>host.Payments()</c> is the other one.
     /// <paramref name="payments"/> configures the Payments service (its services, or settings it alone reads).
     /// </summary>
     public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null, Action<IWebHostBuilder>? payments = null) =>
         StartHost(Provision().Settings, services, payments: payments);
 
-    /// <summary>Topics and queues for one pair of hosts: each reads only its own service's queue.</summary>
+    /// <summary>Topics and queues for one pair of hosts: each reads only its own service's queues; the monolith reads
+    /// its own and, while it still runs Campaigns, the campaigns queue (s5-l07).</summary>
     public MotoBroker.Provisioned Provision() =>
-        // The monolith reads its own queue; Payments.Host and Notifications.Host beside it read theirs.
-        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], ["monolith"]).GetAwaiter().GetResult();
+        // The monolith reads its own queue and Campaigns'; Payments.Host and Notifications.Host beside it read theirs.
+        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], ["monolith", "campaigns"]).GetAwaiter().GetResult();
 
-    /// <summary>A monolith and its Payments service on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).</summary>
+    /// <summary>A monolith and its Payments service on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).
+    /// <paramref name="campaignsOnBroker"/> false is s5-l07's rollback: Campaigns' events stay in process,
+    /// while the monolith still reads the campaigns queue.</summary>
     public WebApplicationFactory<Program> StartHost(IReadOnlyDictionary<string, string?> broker, Action<IServiceCollection>? services = null,
-        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null) =>
-        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments);
+        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null, bool campaignsOnBroker = true) =>
+        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments, campaignsOnBroker);
 
     /// <summary>
     /// One monolith started directly, with no Events:Broker section and no Payments service beside it: what
@@ -177,7 +181,7 @@ public sealed class Database : IAsyncLifetime
         Configure(new WebApplicationFactory<Program>(), null, null, "00:10:00", null);
 
     private WebApplicationFactory<Program> Configure(WebApplicationFactory<Program> factory, Action<IServiceCollection>? services,
-        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments) =>
+        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments, bool campaignsOnBroker = true) =>
         factory.WithWebHostBuilder(web =>
         {
             web.ConfigureTestServices(s =>
@@ -233,9 +237,16 @@ public sealed class Database : IAsyncLifetime
                 .UseSetting("Events:Producers:Payments:Pledges", "Broker")
                 .UseSetting("Events:Producers:Payments:Campaigns", "Broker")
                 .UseSetting("Events:Producers:Payments:Notifications", "Broker")
-                // s5-l02: every event Notifications consumes goes through its own queue, still read here.
                 // Notifications runs only in its own service (s5-l04): its events always go through the broker.
                 .UseSetting("Events:Routes:Notifications", "Broker");
+            if (campaignsOnBroker)
+            {
+                // s5-l07: the events between Campaigns and the other modules too; Campaigns' own stay in process.
+                web.UseSetting("Events:Routes:Campaigns", "Broker")
+                    .UseSetting("Events:Producers:Campaigns:Campaigns", "InProcess")
+                    .UseSetting("Events:Producers:Campaigns:Pledges", "Broker")
+                    .UseSetting("Events:Producers:Campaigns:Notifications", "Broker");
+            }
         });
 
     /// <summary>

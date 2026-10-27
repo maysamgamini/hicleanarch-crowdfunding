@@ -24,7 +24,7 @@ public sealed class OperationsTests(Database database) : IDisposable
         var delivered = new ConcurrentBag<Activity>();
         using var listener = new ActivityListener
         {
-            ShouldListenTo = source => source.Name is OutboxDispatcher.ActivitySourceName or "Microsoft.AspNetCore",
+            ShouldListenTo = source => source.Name is OutboxDispatcher.ActivitySourceName or CrowdFunding.Messaging.MessageTraces.ActivitySourceName or "Microsoft.AspNetCore",
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
             ActivityStopped = activity => delivered.Add(activity),
         };
@@ -38,7 +38,10 @@ public sealed class OperationsTests(Database database) : IDisposable
         Assert.False(string.IsNullOrEmpty(traceParent));
         var requestTrace = ActivityContext.Parse(traceParent, null).TraceId;
         await Scenario.Eventually(() => Task.FromResult(delivered.Any(a => a.OperationName == "deliver CampaignPublished" && a.TraceId == requestTrace)));
-        Assert.Contains(delivered, a => a.OperationName.StartsWith("handle Pledges.", StringComparison.Ordinal) && a.TraceId == requestTrace);
+        // From s5-l07 Pledges gets it through SNS and SQS: its handlers run in the message's process span,
+        // which continues the request's trace from the message's traceparent attribute, or links to it.
+        await Scenario.Eventually(() => Task.FromResult(delivered.Any(a => a.OperationName == "process CampaignPublished"
+            && (a.TraceId == requestTrace || a.Links.Any(l => l.Context.TraceId == requestTrace)))));
     }
 
     [Fact]

@@ -113,7 +113,7 @@ public sealed class BrokerTests(Aws aws)
     {
         var ct = TestContext.Current.CancellationToken;
         var plan = BrokerPlanTests.Plan;
-        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "monolith"]);
+        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "monolith", "campaigns"]);
         using var sns = aws.Broker.Sns();
         var options = Options(provisioned);
 
@@ -138,7 +138,7 @@ public sealed class BrokerTests(Aws aws)
     {
         var ct = TestContext.Current.CancellationToken;
         var plan = BrokerPlanTests.Plan;
-        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "monolith"]);
+        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "monolith", "campaigns"]);
         using var sns = aws.Broker.Sns();
         var options = Options(provisioned);
         var subscription = (await sns.ListSubscriptionsByTopicAsync(provisioned.Topics["Payments"], ct)).Subscriptions
@@ -175,14 +175,21 @@ public sealed class BrokerTests(Aws aws)
             p => p.Contains("The Pledges topic has no raw-delivery subscription to the notifications queue", StringComparison.Ordinal));
     }
 
-    /// <summary>The monolith of s5-l02: every module here, Payments' events in and out and Notifications' in through the broker.</summary>
+    /// <summary>
+    /// The monolith of s5-l07: Payments' events in and out and Notifications' in through the broker, and the
+    /// events between Campaigns and the other modules; Campaigns' own stay in process.
+    /// </summary>
     private static SubscriptionCheck Check(IAmazonSimpleNotificationService sns, BrokerOptions options, BrokerPlan plan)
     {
         string[] modules = ["Campaigns", "Pledges", "Payments", "Notifications"];
         var routing = new EventRoutingOptions
         {
-            Routes = new() { ["Payments"] = EventRoute.Broker, ["Notifications"] = EventRoute.Broker },
-            Producers = new() { ["Payments"] = new() { ["Pledges"] = EventRoute.Broker, ["Campaigns"] = EventRoute.Broker, ["Notifications"] = EventRoute.Broker } },
+            Routes = new() { ["Payments"] = EventRoute.Broker, ["Notifications"] = EventRoute.Broker, ["Campaigns"] = EventRoute.Broker },
+            Producers = new()
+            {
+                ["Payments"] = new() { ["Pledges"] = EventRoute.Broker, ["Campaigns"] = EventRoute.Broker, ["Notifications"] = EventRoute.Broker },
+                ["Campaigns"] = new() { ["Campaigns"] = EventRoute.InProcess, ["Pledges"] = EventRoute.Broker, ["Notifications"] = EventRoute.Broker },
+            },
         };
         var routes = new EventRoutes(
             EventSubscriptions.Load(Path.Combine(AppContext.BaseDirectory, "events", "subscriptions.json")),
@@ -194,7 +201,7 @@ public sealed class BrokerTests(Aws aws)
     private static BrokerOptions Options(MotoBroker.Provisioned provisioned)
     {
         var options = new BrokerOptions { Topics = new(provisioned.Topics) };
-        foreach (var service in new[] { "payments", "notifications", "monolith" })
+        foreach (var service in new[] { "payments", "notifications", "monolith", "campaigns" })
         {
             options.Queues[service] = new ServiceQueueAddress
             {

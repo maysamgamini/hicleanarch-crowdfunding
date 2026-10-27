@@ -214,7 +214,7 @@ public static class PledgesModule
                 var placed = result.Value;
                 return Result.Success(new Reply(StatusCodes.Status201Created, Body(placed), $"/v1/pledges/{placed.PledgeId}"));
             });
-        }).RequireAuthorization(Policies.Backer).AddEndpointFilter<SoldOutShortCircuit>().WithTags("Pledges");
+        }).RequireAuthorization(Policies.Backer).AddEndpointFilter<SoldOutShortCircuit>().AddEndpointFilter<PublishGapHint>().WithTags("Pledges");
 
         // PATCH sends the pledge's new amount and tier; tier_id null means no reward.
         app.MapPatch("/v1/pledges/{id}", (string id, ChangeRequest request, ClaimsPrincipal user, HttpContext http,

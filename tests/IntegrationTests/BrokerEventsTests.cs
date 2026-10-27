@@ -116,7 +116,8 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
             return (string)(await command.ExecuteScalarAsync(Ct))!;
         }
 
-        Assert.Equal("Campaigns,Pledges,broker", await SinksOf(viaBroker.CampaignId));
+        // s5-l07: Campaigns' own consumer stays in process; Pledges and Notifications get it through the broker.
+        Assert.Equal("Campaigns,broker", await SinksOf(viaBroker.CampaignId));
     }
 
     [Fact]

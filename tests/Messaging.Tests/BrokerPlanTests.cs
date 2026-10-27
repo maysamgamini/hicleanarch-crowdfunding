@@ -58,4 +58,17 @@ public sealed class BrokerPlanTests
         Assert.DoesNotContain(subscriptions.Values, types => types.Contains("PledgeChargeRequested"));
         Assert.DoesNotContain("Notifications", Plan.Services["monolith"]);
     }
+
+    [Fact]
+    public void Campaigns_gets_a_queue_of_its_own_fed_by_the_other_modules_and_never_by_its_own_topic()
+    {
+        var subscriptions = Plan.Subscriptions.ToDictionary(s => (s.Topic, s.Queue), s => s.EventTypes);
+
+        Assert.Equal("campaigns", Plan.ServiceOf("Campaigns"));
+        Assert.Equal(["CampaignFundingDecided", "FundingCancelled"], subscriptions[("Pledges", "campaigns")]);
+        Assert.Equal(["CampaignSettled"], subscriptions[("Payments", "campaigns")]);
+        Assert.DoesNotContain(("Campaigns", "campaigns"), subscriptions.Keys); // the catalog's invalidation stays in process
+        Assert.Contains("CampaignPublished", subscriptions[("Campaigns", "monolith")]); // Pledges, still in the monolith
+        Assert.Contains("CampaignPublished", subscriptions[("Campaigns", "notifications")]);
+    }
 }

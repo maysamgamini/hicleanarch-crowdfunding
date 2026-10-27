@@ -125,6 +125,53 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
         }
     }
 
+    /// <summary>How long the course's client waits before each retry in the publish gap (lesson s5-l07).</summary>
+    public static readonly IReadOnlyList<TimeSpan> PublishGapWaits = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4)];
+
+    /// <summary>
+    /// The course's client in the publish gap (lesson s5-l07). Pledges answers 404 <c>campaign_not_found</c>
+    /// until <c>CampaignPublished</c> reaches it. The client knows from the catalog whether the campaign is
+    /// LIVE: only then does it retry, with the same Idempotency-Key, at most 3 times after 1, 2 and 4 seconds.
+    /// A draft or a wrong id is never retried. Returns the last answer and how many requests were sent.
+    /// </summary>
+    public static async Task<(HttpResponseMessage Response, int Sent)> SendThroughPublishGap(HttpClient client, string campaignId, Func<HttpRequestMessage> request)
+    {
+        var key = Guid.NewGuid().ToString();
+        for (var attempt = 0; ; attempt++)
+        {
+            using var message = request();
+            message.Headers.Add("Idempotency-Key", key);
+            var response = await client.SendAsync(message, Ct);
+            if (attempt == PublishGapWaits.Count || !await NotOpenYet(client, campaignId, response))
+            {
+                return (response, attempt + 1);
+            }
+
+            response.Dispose();
+            await Task.Delay(PublishGapWaits[attempt], Ct);
+        }
+    }
+
+    private static async Task<bool> NotOpenYet(HttpClient client, string campaignId, HttpResponseMessage response)
+    {
+        if (response.StatusCode != HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        // Read once, and put back: the caller may read the answer it gets back.
+        var body = await response.Content.ReadAsStringAsync(Ct);
+        response.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/problem+json");
+        if (JsonDocument.Parse(body).RootElement.GetProperty("reason").GetString() != "campaign_not_found")
+        {
+            return false;
+        }
+
+        using var catalog = await client.GetAsync($"/v1/campaigns/{campaignId}", Ct);
+        return catalog.IsSuccessStatusCode
+            && (await catalog.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("status").GetString() == "LIVE";
+    }
+
     /// <summary>
     /// Waits for something an event or a background job does. It returns as soon as the condition
     /// holds, so the bound only matters on a loaded machine, where deliveries queue up: it is long

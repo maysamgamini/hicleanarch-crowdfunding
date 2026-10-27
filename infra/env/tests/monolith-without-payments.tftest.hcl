@@ -206,8 +206,8 @@ run "the_monolith_holds_nothing_of_payments" {
   }
 
   assert {
-    condition     = toset(data.aws_iam_policy_document.events.statement[2].resources) == toset([aws_sqs_queue.events["monolith"].arn])
-    error_message = "The monolith's task role reads its own queue and no other: not Payments' (s4-l10), not Notifications' (s5-l04)."
+    condition     = toset(data.aws_iam_policy_document.events.statement[2].resources) == toset([aws_sqs_queue.events["monolith"].arn, aws_sqs_queue.events["campaigns"].arn])
+    error_message = "The monolith's task role reads its own queue and Campaigns' (s5-l07) and no other: not Payments' (s4-l10), not Notifications' (s5-l04)."
   }
 
   assert {
@@ -233,9 +233,9 @@ run "the_monolith_holds_nothing_of_payments" {
     condition = alltrue([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment :
       !contains(["Modules__Payments__Mode", "Modules__Payments__Calls", "Payments__Budget__Prefix", "Auth__ServiceClients__0",
       "Events__Broker__Topics__payments", "Events__Broker__Queues__payments__Url"], e.name)
-      && !(startswith(e.name, "Events__Broker__Read__") && e.value != "monolith")
+      && !(startswith(e.name, "Events__Broker__Read__") && !contains(["monolith", "campaigns"], e.value))
     ])
-    error_message = "The monolith has no Payments switch, budget or service client, reads only its own queue and publishes to no Payments topic."
+    error_message = "The monolith has no Payments switch, budget or service client, reads only its own queue and Campaigns' (s5-l07) and publishes to no Payments topic."
   }
 
   assert {
@@ -330,5 +330,40 @@ run "the_preference_goes_to_notifications_once_it_is_deployed" {
     condition = [for e in jsondecode(aws_ecs_task_definition.gateway.container_definitions)[0].environment : e.value
     if e.name == "ReverseProxy__Clusters__notifications__Destinations__notifications__Address"] == ["http://notifications:8080/"]
     error_message = "Once deployed, the gateway sends the preference to the Notifications service through Service Connect."
+  }
+}
+
+# Lesson s5-l07: Campaigns' events cross the broker while Campaigns still runs in the monolith, which reads
+# the campaigns queue; campaigns_on_broker = false is the rollback, and the queue is still read.
+run "campaigns_events_cross_the_broker_and_roll_back_with_one_switch" {
+  command = apply
+
+  assert {
+    condition = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value
+    if contains(["Events__Routes__Campaigns", "Events__Producers__Campaigns__Campaigns", "Events__Producers__Campaigns__Pledges"], e.name)] == ["Broker", "InProcess", "Broker"]
+    error_message = "Campaigns' events to the other modules go through the broker; its own stay in process."
+  }
+
+  assert {
+    condition     = contains([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value if startswith(e.name, "Events__Broker__Read__")], "campaigns")
+    error_message = "The monolith reads the campaigns queue while it runs Campaigns."
+  }
+}
+
+run "the_rollback_keeps_campaigns_events_in_process_and_still_reads_the_queue" {
+  command = apply
+
+  variables {
+    campaigns_on_broker = false
+  }
+
+  assert {
+    condition     = length([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e if startswith(e.name, "Events__Routes__Campaigns") || startswith(e.name, "Events__Producers__Campaigns__")]) == 0
+    error_message = "With campaigns_on_broker = false every Campaigns route is the default, in process."
+  }
+
+  assert {
+    condition     = contains([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value if startswith(e.name, "Events__Broker__Read__")], "campaigns")
+    error_message = "The rollback still drains the campaigns queue."
   }
 }

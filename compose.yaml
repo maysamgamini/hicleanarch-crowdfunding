@@ -243,6 +243,13 @@ services:
       Events__Broker__Read__0: monolith
       # s5-l04: what Notifications consumes goes to its own queue, which only the Notifications service reads.
       Events__Routes__Notifications: Broker
+      # s5-l07 (infra/env/campaigns-broker.tf): the events between Campaigns and the other modules go through
+      # the broker while Campaigns still runs here; its own stay in process. The monolith reads Campaigns' queue.
+      Events__Routes__Campaigns: Broker
+      Events__Producers__Campaigns__Campaigns: InProcess
+      Events__Producers__Campaigns__Pledges: Broker
+      Events__Producers__Campaigns__Notifications: Broker
+      Events__Broker__Read__1: campaigns
       # s4-l03 and s4-l10: StartCardSetup goes over HTTP to the Payments service's internal port.
       Modules__Payments__BaseAddress: http://payments:8081
       # s4-l04: the monolith's service identity. Without a token endpoint it signs its service tokens

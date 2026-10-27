@@ -69,7 +69,7 @@ public static class FundingCancelModule
                 return result.IsSuccess
                     ? Result.Success(new Reply(StatusCodes.Status200OK, new { campaign_id = id, status = "CANCELLED" }))
                     : Result.Failure<Reply>(result.Errors);
-            })).RequireAuthorization(Policies.Creator).WithTags("Pledges");
+            })).RequireAuthorization(Policies.Creator).AddEndpointFilter<PublishGapHint>().WithTags("Pledges");
         return app;
     }
 

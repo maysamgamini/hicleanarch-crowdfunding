@@ -134,6 +134,25 @@ function pledge(campaignId, token, tierId, amount) {
   }), { headers: auth(token), tags: { kind: "pledge" }, responseCallback: http.expectedStatuses(201, 409) });
 }
 
+// The publish gap (lesson s5-l07): until CampaignPublished reaches Pledges, it answers 404
+// campaign_not_found. Retry only a campaign the catalog shows LIVE, at most 3 times, after 1, 2 and 4
+// seconds, with the same Idempotency-Key; never a draft or a wrong id.
+function pledgeThroughGap(campaignId, token, tierId, amount) {
+  const headers = auth(token);
+  const send = () => http.post(`${API}/v1/campaigns/${campaignId}/pledges`, JSON.stringify({
+    amount_minor: amount, tier_id: tierId, payment_method_id: "pm_card_visa",
+  }), { headers, tags: { kind: "pledge" }, responseCallback: http.expectedStatuses(201, 404, 409) });
+  let res = send();
+  for (const wait of [1, 2, 4]) {
+    if (res.status !== 404 || res.json("reason") !== "campaign_not_found") return res;
+    const catalog = http.get(`${API}/v1/campaigns/${campaignId}`);
+    if (catalog.status !== 200 || catalog.json("status") !== "LIVE") return res;
+    sleep(wait);
+    res = send();
+  }
+  return res;
+}
+
 export function setup() {
   const far = new Date(Date.now() + 30 * 86400_000).toISOString();
   const launch = createCampaign("Load: launch", far, [{ title: "Standard", min_pledge_minor: 500, limit: null }]);
@@ -142,11 +161,11 @@ export function setup() {
   const deadline = new Date(Date.now() + SETTLE_LEAD_S * 1000).toISOString();
   // Its goal is half of what setup pledges, so it is funded and every pledge is charged.
   const settle = createCampaign("Load: settlement", deadline, [{ title: "Copy", min_pledge_minor: 500, limit: null }], (SETTLE_PLEDGES * 6_000) / 2);
-  sleep(3); // the funding windows open when Pledges handles CampaignPublished, just after the commit
 
-  // Enough pledges, before the deadline, to fund the settlement campaign.
+  // Enough pledges, before the deadline, to fund the settlement campaign. The funding windows open when
+  // CampaignPublished reaches Pledges through the broker, so the first pledges may meet the publish gap.
   for (let i = 0; i < SETTLE_PLEDGES; i++) {
-    const res = pledge(settle.id, backers[i % backers.length], null, 6_000);
+    const res = pledgeThroughGap(settle.id, backers[i % backers.length], null, 6_000);
     if (res.status !== 201) throw new Error(`settlement pledge ${i}: ${res.status} ${res.body}`);
   }
   return { launch, hot, settle, settleDeadline: deadline };
