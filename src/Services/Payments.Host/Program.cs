@@ -52,7 +52,8 @@ public static class PaymentsProgram
                 .AddAspNetCoreInstrumentation(o => o.Filter = http => !http.Request.Path.StartsWithSegments("/health"))
                 .AddHttpClientInstrumentation()
                 .AddNpgsql()
-                .AddSource(OutboxDispatcher.ActivitySourceName))
+                // Every source of ours: the outbox's deliveries and the broker's receive and process spans (s4-l08).
+                .AddSource("CrowdFunding.*"))
             .WithMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()

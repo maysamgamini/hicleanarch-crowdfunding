@@ -28,6 +28,7 @@ using Payments.Domain;
 using Payments.Infrastructure.Cutover;
 using Payments.Infrastructure.Persistence;
 using Payments.Infrastructure.Psp;
+using Payments.Infrastructure.Tracing;
 
 using Pledges.Contracts;
 
@@ -271,6 +272,9 @@ public static class PaymentsModule
             return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The message is not one we understand.");
         }
 
+        // A new trace, linked to the one that created the card setup or charge the message is about.
+        var creation = await CreationTrace.Of(services.GetRequiredService<PaymentsDbContext>(), command, ct);
+        using var trace = CreationTrace.StartWebhook(command, creation);
         var dispatcher = services.GetRequiredService<IDispatcher>();
         var handled = await services.GetRequiredService<ModuleTransaction<PaymentsDbContext>>()
             .Run(c => dispatcher.Send<HandlePspWebhook, WebhookHandled>(command, c), ct);

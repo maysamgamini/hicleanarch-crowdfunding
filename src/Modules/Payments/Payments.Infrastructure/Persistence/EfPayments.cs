@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 using Payments.Application;
 using Payments.Domain;
+using Payments.Infrastructure.Tracing;
 
 namespace Payments.Infrastructure.Persistence;
 
@@ -28,8 +29,8 @@ internal sealed class EfPayments(PaymentsDbContext db) : IPspCustomers, ICardSet
         // carry the PSP's same setup id, since the PSP call had the pledge's key, so a conflict on
         // either unique column means the row is already there.
         await db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO payments.card_setups (id, pledge_id, backer_id, psp_setup_id, status)
-            VALUES ({setup.Id}, {setup.PledgeId}, {setup.BackerId}, {setup.PspSetupId}, 'STARTED')
+            INSERT INTO payments.card_setups (id, pledge_id, backer_id, psp_setup_id, status, trace_parent)
+            VALUES ({setup.Id}, {setup.PledgeId}, {setup.BackerId}, {setup.PspSetupId}, 'STARTED', {CreationTrace.Current})
             ON CONFLICT DO NOTHING
             """, cancellationToken);
         var kept = await db.CardSetups.AsNoTracking().SingleAsync(s => s.PledgeId == setup.PledgeId, cancellationToken);

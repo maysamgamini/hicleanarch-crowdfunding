@@ -1,5 +1,3 @@
-using BuildingBlocks.Infrastructure.Events;
-
 using Npgsql;
 
 using OpenTelemetry;
@@ -26,7 +24,9 @@ internal static class Telemetry
                 .AddAspNetCoreInstrumentation(o => o.Filter = http => !http.Request.Path.StartsWithSegments("/health"))
                 .AddHttpClientInstrumentation()
                 .AddNpgsql()
-                .AddSource(OutboxDispatcher.ActivitySourceName))
+                // Every span source of ours, by its prefix, as for the meters: the outbox's deliveries, the
+                // broker's processing spans and the PSP webhook's own traces.
+                .AddSource("CrowdFunding.*"))
             .WithMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()

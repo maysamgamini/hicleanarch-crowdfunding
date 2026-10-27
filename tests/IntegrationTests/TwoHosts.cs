@@ -95,11 +95,22 @@ public sealed class TwoHosts : IDisposable
         }
     }
 
+    /// <summary>
+    /// The network between the hosts. On a real socket, .NET's own handler puts the caller's trace context
+    /// on the request (traceparent); the in-memory server's handler does not, so this does, as it would.
+    /// </summary>
     private sealed class LinkHandler(PaymentsLink link, HttpMessageHandler payments) : DelegatingHandler(payments)
     {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            link.Down
-                ? throw new HttpRequestException("Connection refused (payments:8081)", null, System.Net.HttpStatusCode.ServiceUnavailable)
-                : base.SendAsync(request, cancellationToken);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (link.Down)
+            {
+                throw new HttpRequestException("Connection refused (payments:8081)", null, System.Net.HttpStatusCode.ServiceUnavailable);
+            }
+
+            System.Diagnostics.DistributedContextPropagator.Current.Inject(System.Diagnostics.Activity.Current, request,
+                static (carrier, name, value) => ((HttpRequestMessage)carrier!).Headers.TryAddWithoutValidation(name, value));
+            return base.SendAsync(request, cancellationToken);
+        }
     }
 }
