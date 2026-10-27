@@ -108,8 +108,9 @@ public sealed class LastDayCancelTests(Database database) : IDisposable
 
             var answers = await Task.WhenAll(pledges.Take(2).Select(p => CancelUntilAnswered(p.Backer, p.Pledge)));
 
-            Assert.Equal(1, answers.Count(a => a.Status == HttpStatusCode.OK));
-            Assert.Equal(1, answers.Count(a => a.Reason == "would_drop_below_goal"));
+            var seen = string.Join(", ", answers.Select(a => $"{(int)a.Status} {a.Reason}"));
+            Assert.True(answers.Count(a => a.Status == HttpStatusCode.OK) == 1, $"round {round}: {seen}");
+            Assert.True(answers.Count(a => a.Reason == "would_drop_below_goal") == 1, $"round {round}: {seen}");
             Assert.Equal(10_040L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
         }
     }
