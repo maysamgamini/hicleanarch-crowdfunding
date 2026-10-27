@@ -25,10 +25,10 @@ locals {
       description = "A charge has had an attempt in flight for more than 10 minutes: the PSP may be down, or no settlement worker is running."
     }
     close_recheck_mismatch = {
-      metric      = "pledges.close.recheck_mismatches"
-      meter       = "CrowdFunding.Pledges"
+      metric      = "campaigns.recheck_mismatches"
+      meter       = "CrowdFunding.Operations"
       threshold   = 0
-      description = "A decision's sum differed from the same sum a minute later: an entry landed after the close's time fence (lesson s3-l05). Treat the campaign's outcome as suspect; see the critical log."
+      description = "A campaign decided in the last 24 hours had a different ledger sum a minute after its decision: an entry landed after the close's time fence (lesson s3-l05). Treat its outcome as suspect; see the critical log for the campaign. Clears by itself 24 hours after the recheck."
     }
     display_total_mismatch = {
       metric      = "totals.display_mismatches"
@@ -66,7 +66,7 @@ locals {
   # The gauges are reported by every task at every export, even at 0, so a minute with no data means
   # that no task, or no collector, is reporting: the failure the alarm is there for, so it breaches.
   # A counter reports nothing until it first counts; for these, no data is the normal case.
-  counters = ["close_recheck_mismatch", "reconciliation_differences"]
+  counters = ["reconciliation_differences"]
 }
 
 resource "aws_cloudwatch_metric_alarm" "failure_mode" {

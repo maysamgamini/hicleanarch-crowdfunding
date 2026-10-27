@@ -53,6 +53,8 @@ locals {
       { name = "Notifications__FromAddress", value = var.notifications_from },
       { name = "Notifications__UserPoolId", value = aws_cognito_user_pool.users.id },
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
+      # While Valkey is down each task keeps its share of the PSP's limits: the limit over the most tasks that run.
+      { name = "Valkey__Tasks", value = tostring(var.max_count) },
     ]
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30
