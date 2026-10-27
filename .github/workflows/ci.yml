@@ -6,12 +6,16 @@ on:
     tags: ["s*-l*"]
   pull_request:
 
+# Read the code, nothing else: the default token may be read-write.
+permissions:
+  contents: read
+
 jobs:
   dotnet:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
       - name: Pack the BuildingBlocks into the local feed the modules restore from
@@ -19,6 +23,14 @@ jobs:
         run: dotnet pack BuildingBlocks.slnx -o artifacts/packages
       - run: dotnet build CrowdFunding.slnx
       - run: dotnet test CrowdFunding.slnx --no-build
+      - name: Every model change has its migration
+        # EF Core 9+ refuses to migrate a model that differs from its last migration; catch it here.
+        run: |
+          dotnet tool restore
+          for project in src/Modules/Campaigns/Campaigns.Infrastructure src/Modules/Pledges/Pledges.Infrastructure \
+                         src/Modules/Payments/Payments.Infrastructure src/Modules/Notifications; do
+            dotnet ef migrations has-pending-model-changes --project "$project" --no-build
+          done
       - name: The image builds
         run: docker build -q -t crowdfunding-api:ci .
       - name: The gateway image builds
@@ -27,8 +39,8 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
       - name: fmt and validate every layer that has Terraform files
         run: |
           terraform fmt -check -recursive infra
