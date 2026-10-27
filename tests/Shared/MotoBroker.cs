@@ -27,6 +27,9 @@ public sealed class MotoBroker : IAsyncDisposable
 
     public string ServiceUrl => $"http://{_container.Hostname}:{_container.GetMappedPublicPort(Port)}";
 
+    /// <summary>Moto's address on Docker's network, for another container (a Toxiproxy in front of it) to reach.</summary>
+    public string NetworkAddress => $"{_container.IpAddress}:{Port}";
+
     private static BasicAWSCredentials Credentials => new("test", "test");
 
     public Task Start() => _container.StartAsync();

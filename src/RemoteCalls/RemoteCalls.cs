@@ -1,4 +1,6 @@
+using System.Diagnostics.Metrics;
 using System.Net;
+using System.Threading.RateLimiting;
 
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -7,14 +9,16 @@ using Microsoft.Extensions.Logging;
 
 using Polly;
 using Polly.CircuitBreaker;
+using Polly.RateLimiting;
 using Polly.Retry;
 using Polly.Timeout;
 
 namespace CrowdFunding.RemoteCalls;
 
 /// <summary>
-/// The HTTP client a module uses to call another service. One pipeline, outermost first: a total
-/// timeout, retries, a circuit breaker, and a timeout per attempt.
+/// The HTTP client a module uses to call another service. One pipeline, outermost first: a concurrency
+/// limiter (when <see cref="RemoteCallOptions.MaxConcurrentCalls"/> is set), a total timeout, retries, a
+/// circuit breaker, and a timeout per attempt.
 /// <list type="bullet">
 /// <item>Only a request that carries an <c>Idempotency-Key</c> is retried. The header is the caller's
 /// statement that the command is idempotent at the receiver by that key: the receiver does not read
@@ -28,6 +32,15 @@ namespace CrowdFunding.RemoteCalls;
 public static class RemoteCalls
 {
     public const string IdempotencyKeyHeader = "Idempotency-Key";
+
+    /// <summary>The meter of the remote calls (collected with every <c>CrowdFunding.*</c> meter).</summary>
+    public const string MeterName = "CrowdFunding.RemoteCalls";
+
+    private static readonly Meter Meter = new(MeterName);
+
+    /// <summary>Calls the limiter turned away, by client: a slow or overloaded service, seen from its caller.</summary>
+    private static readonly Counter<long> Rejected = Meter.CreateCounter<long>("crowdfunding.remote_calls.rejected", "{call}",
+        "Calls to another service refused because this task already had its limit in flight.");
 
     public static IHttpClientBuilder AddRemoteServiceClient<TClient>(
         this IServiceCollection services, Uri baseAddress, RemoteCallOptions? options = null)
@@ -45,8 +58,23 @@ public static class RemoteCalls
             http.Timeout = Timeout.InfiniteTimeSpan;
         });
 
+        var name = typeof(TClient).Name;
         client.AddResilienceHandler("remote-call", pipeline =>
         {
+            if (o.MaxConcurrentCalls is { } limit)
+            {
+                // Outermost: a refused call waits for nothing, and the breaker never counts it.
+                pipeline.AddRateLimiter(new RateLimiterStrategyOptions
+                {
+                    DefaultRateLimiterOptions = new ConcurrencyLimiterOptions { PermitLimit = limit, QueueLimit = 0 },
+                    OnRejected = _ =>
+                    {
+                        Rejected.Add(1, new KeyValuePair<string, object?>("client", name));
+                        return ValueTask.CompletedTask;
+                    },
+                });
+            }
+
             pipeline.AddTimeout(o.TotalTimeout);
             pipeline.AddRetry(new HttpRetryStrategyOptions
             {

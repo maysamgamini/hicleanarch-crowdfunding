@@ -18,6 +18,13 @@ public sealed record RemoteCallOptions
     /// <summary>The wait before the first retry; it doubles each time, with jitter of at most the same amount.</summary>
     public TimeSpan BaseDelay { get; init; } = TimeSpan.FromMilliseconds(200);
 
+    /// <summary>
+    /// A bulkhead: at most this many calls of this client in flight in one task, retries included, and no
+    /// queue. A call past the limit is refused at once (<c>RateLimiterRejectedException</c>), so a slow
+    /// service holds at most this many of the caller's requests, and receives no more than that. Null: no limit.
+    /// </summary>
+    public int? MaxConcurrentCalls { get; init; }
+
     /// <summary>The worst case: every attempt runs to its timeout and every wait gets its full jitter.</summary>
     public TimeSpan WorstCase =>
         (AttemptTimeout * (MaxRetries + 1)) + TimeSpan.FromTicks(Enumerable.Range(0, MaxRetries).Sum(i => BaseDelay.Ticks * (1L << i) * 2));
@@ -25,6 +32,11 @@ public sealed record RemoteCallOptions
     /// <summary>Refuses settings whose worst case would not fit in the total timeout.</summary>
     public void Validate()
     {
+        if (MaxConcurrentCalls is <= 0)
+        {
+            throw new InvalidOperationException($"MaxConcurrentCalls must be positive, or not set; it is {MaxConcurrentCalls}.");
+        }
+
         if (WorstCase > TotalTimeout)
         {
             throw new InvalidOperationException(

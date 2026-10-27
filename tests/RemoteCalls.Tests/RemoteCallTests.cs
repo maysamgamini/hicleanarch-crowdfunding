@@ -6,6 +6,7 @@ using CrowdFunding.RemoteCalls;
 using Microsoft.Extensions.DependencyInjection;
 
 using Polly.CircuitBreaker;
+using Polly.RateLimiting;
 using Polly.Timeout;
 
 namespace RemoteCalls.Tests;
@@ -141,5 +142,62 @@ public sealed class RemoteCallTests
         Assert.Throws<InvalidOperationException>(tooMany.Validate);
         new RemoteCallOptions().Validate();
         Assert.True(new RemoteCallOptions().WorstCase <= TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Holds every call until the test lets them go, and counts the most it held at once.</summary>
+    private sealed class HeldService : HttpMessageHandler
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _inFlight;
+
+        public int MostInFlight { get; private set; }
+
+        public void Release() => _release.TrySetResult();
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            lock (_release)
+            {
+                MostInFlight = Math.Max(MostInFlight, ++_inFlight);
+            }
+
+            await _release.Task.WaitAsync(cancellationToken);
+            lock (_release)
+            {
+                _inFlight--;
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    [Fact]
+    public async Task Past_the_limit_a_call_is_refused_at_once_without_waiting_and_without_reaching_the_service()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var service = new HeldService();
+        var client = ClientOf(service, new RemoteCallOptions { MaxConcurrentCalls = 2, AttemptTimeout = TimeSpan.FromSeconds(2) });
+        var held = new[] { client.StartCardSetup(withKey: true, ct), client.StartCardSetup(withKey: true, ct) };
+
+        var clock = Stopwatch.StartNew();
+        await Assert.ThrowsAsync<RateLimiterRejectedException>(() => client.StartCardSetup(withKey: true, ct));
+        Assert.True(clock.Elapsed < TimeSpan.FromMilliseconds(200), $"refused after {clock.Elapsed}");
+
+        service.Release();
+        Assert.All(await Task.WhenAll(held), r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        Assert.Equal(2, service.MostInFlight);
+        Assert.Equal(HttpStatusCode.OK, (await client.StartCardSetup(withKey: true, ct)).StatusCode); // room again
+    }
+
+    [Fact]
+    public void A_limit_must_be_positive() =>
+        Assert.Throws<InvalidOperationException>(new RemoteCallOptions { MaxConcurrentCalls = 0 }.Validate);
+
+    private static PaymentsClient ClientOf(HttpMessageHandler service, RemoteCallOptions options)
+    {
+        var services = new ServiceCollection();
+        services.AddRemoteServiceClient<PaymentsClient>(new Uri("http://payments:8081"), options)
+            .ConfigurePrimaryHttpMessageHandler(() => service);
+        return services.BuildServiceProvider().GetRequiredService<PaymentsClient>();
     }
 }

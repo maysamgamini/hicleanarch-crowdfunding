@@ -6,6 +6,7 @@
     <PackageReference Include="Testcontainers" />
     <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.Toxiproxy" />
   </ItemGroup>
 
   <ItemGroup>

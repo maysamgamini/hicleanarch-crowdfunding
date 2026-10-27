@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using Payments.Contracts;
 
 using Polly.CircuitBreaker;
+using Polly.RateLimiting;
 using Polly.Timeout;
 
 namespace Payments.Client;
@@ -24,7 +25,8 @@ namespace Payments.Client;
 /// circuit open as <see cref="ErrorKind.Unavailable"/> with a wait, which Pledges treats as it treats a
 /// full lane: the pledge keeps its place and the backer asks for the card form again later. A 4xx with
 /// no reason is a fault of contract or configuration, not an outage: <see cref="PaymentsRefused"/>, with
-/// no wait, so Pledges keeps nothing; it is counted and logged (<see cref="RefusedCalls"/>).
+/// no wait, so Pledges keeps nothing; it is counted and logged (<see cref="RefusedCalls"/>). A call this task's limit turns away (s5-l12) gets the
+/// unavailable answer at once: one fallback for every outage.
 /// </summary>
 public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<RemoteStartCardSetup> logger, RefusedCalls refused)
     : ICommandHandler<StartCardSetup, CardSetupStarted>
@@ -76,6 +78,11 @@ public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<Remote
             LogUnreadable(logger, command.PledgeId);
             return Result.Failure<CardSetupStarted>(PaymentsRefused);
         }
+        catch (RateLimiterRejectedException)
+        {
+            LogTurnedAway(logger, command.PledgeId);
+            return Result.Failure<CardSetupStarted>(PaymentsUnavailable);
+        }
         catch (Exception e) when (e is HttpRequestException or TimeoutRejectedException or BrokenCircuitException)
         {
             LogUnavailable(logger, e, command.PledgeId);
@@ -122,4 +129,7 @@ public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<Remote
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Payments did not answer the card setup of pledge {PledgeId}; the pledge keeps its place")]
     private static partial void LogUnavailable(ILogger logger, Exception exception, Guid pledgeId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "This task already has its limit of card setups in flight; pledge {PledgeId} keeps its place without a card form")]
+    private static partial void LogTurnedAway(ILogger logger, Guid pledgeId);
 }
