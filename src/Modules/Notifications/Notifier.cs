@@ -1,50 +1,36 @@
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
 
 namespace Notifications;
 
 /// <summary>
-/// Sends at most once per event and recipient, and honours the recipient's preferences. Each
-/// recipient gets a transaction of their own, apart from the handler's: the row in
-/// <c>sent_notifications</c> commits before the email leaves, so a failure for one recipient never
-/// undoes, or repeats, the emails already sent to the others. If the send fails, the row is removed
-/// and the error goes up, so the event is delivered again and only the recipients without a row are
-/// told. A task that dies between the commit and the send loses that one email: at most once.
+/// What the handlers do: record who is to be told, never tell. Each email is one row in
+/// <c>outgoing_emails</c>, written in the handler's own transaction with its inbox row, keyed by the
+/// event, the recipient and the kind, so a repeated event records nothing twice. A fan-out to every
+/// backer is one statement, however many backers there are. <see cref="EmailWorker"/> sends the rows,
+/// paced, and retries each recipient on their own. Preferences are honoured when the row is recorded.
 /// </summary>
-internal sealed class Notifier(NotificationsDbContext db, IServiceScopeFactory scopes, IEmailSender sender)
+internal sealed class Notifier(NotificationsDbContext db)
 {
-    public async Task Tell(Guid eventId, Guid recipientId, string kind, string subject, string body, CancellationToken cancellationToken)
-    {
-        await using var scope = scopes.CreateAsyncScope();
-        var own = scope.ServiceProvider.GetRequiredService<NotificationsDbContext>(); // its own connection, outside the handler's transaction
-        var disabled = await own.Set<NotificationPreference>().AsNoTracking()
-            .AnyAsync(p => p.UserId == recipientId && p.Kind == kind && !p.Enabled, cancellationToken);
-        if (disabled)
-        {
-            return;
-        }
-
-        var first = await own.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO notifications.sent_notifications (event_id, recipient_id, kind) VALUES ({eventId}, {recipientId}, {kind})
+    public Task Tell(Guid eventId, Guid recipientId, string kind, string subject, string body, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO notifications.outgoing_emails (event_id, recipient_id, kind, subject, body, attempts)
+            SELECT {eventId}, {recipientId}, {kind}, {subject}, {body}, 0
+            WHERE NOT EXISTS (SELECT 1 FROM notifications.notification_preferences
+                              WHERE user_id = {recipientId} AND kind = {kind} AND NOT enabled)
             ON CONFLICT DO NOTHING
             """, cancellationToken);
-        if (first == 0)
-        {
-            return; // told already
-        }
 
-        try
-        {
-            await sender.Send(new Email(recipientId, subject, body), cancellationToken);
-        }
-        catch
-        {
-            await own.Database.ExecuteSqlInterpolatedAsync($"""
-                DELETE FROM notifications.sent_notifications WHERE event_id = {eventId} AND recipient_id = {recipientId} AND kind = {kind}
-                """, CancellationToken.None);
-            throw;
-        }
-    }
+    /// <summary>One row per distinct backer of the campaign's live pledges, in one statement.</summary>
+    public Task<int> TellBackers(Guid eventId, Guid campaignId, string kind, string subject, string body, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO notifications.outgoing_emails (event_id, recipient_id, kind, subject, body, attempts)
+            SELECT DISTINCT {eventId}, p.backer_id, {kind}, {subject}, {body}, 0
+            FROM notifications.campaign_pledges p
+            WHERE p.campaign_id = {campaignId} AND p.activated_at IS NOT NULL AND p.cancelled_at IS NULL AND p.released_at IS NULL
+              AND NOT EXISTS (SELECT 1 FROM notifications.notification_preferences n
+                              WHERE n.user_id = p.backer_id AND n.kind = {kind} AND NOT n.enabled)
+            ON CONFLICT DO NOTHING
+            """, cancellationToken);
 
     /// <summary>Who backs what, per pledge: kept in the handler's own transaction, with its inbox row.</summary>
     public Task Activated(Guid pledgeId, Guid campaignId, Guid backerId, DateTimeOffset at, CancellationToken cancellationToken) =>
@@ -74,10 +60,4 @@ internal sealed class Notifier(NotificationsDbContext db, IServiceScopeFactory s
 
     public async Task<Guid?> CreatorOf(Guid campaignId, CancellationToken cancellationToken) =>
         await db.Set<CampaignCreator>().AsNoTracking().Where(c => c.CampaignId == campaignId).Select(c => (Guid?)c.CreatorId).SingleOrDefaultAsync(cancellationToken);
-
-    /// <summary>The distinct backers of the campaign's live pledges: a backer who cancelled and pledged again is one of them.</summary>
-    public async Task<IReadOnlyList<Guid>> BackersOf(Guid campaignId, CancellationToken cancellationToken) =>
-        await db.Set<CampaignPledge>().AsNoTracking()
-            .Where(p => p.CampaignId == campaignId && p.ActivatedAt != null && p.CancelledAt == null && p.ReleasedAt == null)
-            .Select(p => p.BackerId).Distinct().ToListAsync(cancellationToken);
 }

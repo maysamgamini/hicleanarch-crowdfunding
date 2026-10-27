@@ -4,6 +4,7 @@ using Amazon.CognitoIdentityProvider;
 using Amazon.SimpleEmailV2;
 
 using BuildingBlocks.Infrastructure.Events;
+using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Persistence;
 
@@ -53,18 +54,30 @@ public static class NotificationsModule
             .Validate(o => o.Sender is "InMemory" or "Ses", "Notifications:Sender must be InMemory or Ses.")
             .Validate(o => o.Sender != "Ses" || (o.FromAddress.Contains('@', StringComparison.Ordinal) && o.UserPoolId.Length > 0),
                 "Notifications: sending through SES needs FromAddress and UserPoolId.")
+            .Validate(o => o.SendsPerSecond > 0 && o.MaxConcurrentSends > 0 && o.BatchSize > 0 && o.MaxAttempts > 0
+                    && o.PollEvery > TimeSpan.Zero && o.RetryAfter > TimeSpan.Zero && o.AddressFreshFor > TimeSpan.Zero
+                    && o.Lease > TimeSpan.FromSeconds(2 * o.BatchSize / o.SendsPerSecond),
+                "Notifications: the send rate, sizes and waits must be positive, and a batch sent at SendsPerSecond must take less than half the Lease.")
             .ValidateOnStart();
         if (options["Sender"] == "Ses")
         {
             services.AddSingleton<IAmazonSimpleEmailServiceV2, AmazonSimpleEmailServiceV2Client>();
             services.AddSingleton<IAmazonCognitoIdentityProvider, AmazonCognitoIdentityProviderClient>();
             services.AddSingleton<IEmailSender, SesEmailSender>();
+            services.AddSingleton<IUserDirectory, CognitoUserDirectory>();
         }
         else
         {
             services.AddSingleton<InMemoryEmailSender>();
             services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<InMemoryEmailSender>());
+            services.AddSingleton<IUserDirectory, InMemoryUserDirectory>();
         }
+
+        services.AddScoped<EmailQueue>();
+        services.AddScoped<AddressBook>();
+        services.AddSingleton<EmailWorker>();
+        services.AddHostedService(sp => sp.GetRequiredService<EmailWorker>());
+        services.AddSingleton<IStopParticipant>(sp => sp.GetRequiredService<EmailWorker>());
 
         return services;
     }

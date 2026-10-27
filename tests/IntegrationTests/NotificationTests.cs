@@ -65,7 +65,7 @@ public sealed class NotificationTests(Database database) : IDisposable
         var backer = Guid.NewGuid();
         var activated = new PledgeActivated(Guid.CreateVersion7(), DateTimeOffset.UtcNow, Guid.NewGuid(), Guid.NewGuid(), backer, null, 6_000, "USD");
 
-        // The handler itself, twice, past the inbox: the sent_notifications row is what stops the second send.
+        // The handler itself, twice, past the inbox: the outgoing_emails row is what stops the second send.
         for (var i = 0; i < 2; i++)
         {
             await using var scope = _host.Services.CreateAsyncScope();
@@ -75,7 +75,8 @@ public sealed class NotificationTests(Database database) : IDisposable
             await transaction.CommitAsync(Ct);
         }
 
-        Assert.Equal(1, SentTo(backer));
+        Assert.Equal(1L, await database.Count("notifications.outgoing_emails", "recipient_id::text", backer.ToString()));
+        await Scenario.Eventually(() => Task.FromResult(SentTo(backer) == 1));
     }
 
     /// <summary>One Notifications handler call, in a transaction of its own, as the inbox runs it.</summary>
@@ -139,6 +140,7 @@ public sealed class NotificationTests(Database database) : IDisposable
         (await client.PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
         await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM notifications.campaign_pledges WHERE campaign_id = @id AND activated_at IS NOT NULL AND cancelled_at IS NULL", campaign.CampaignId) == 1);
 
+        Assert.Equal(0L, await database.Count("notifications.outgoing_emails", "recipient_id::text", backer.ToString()));
         Assert.Equal(0, SentTo(backer));
     }
 }

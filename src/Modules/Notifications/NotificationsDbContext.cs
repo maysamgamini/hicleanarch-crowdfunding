@@ -15,13 +15,24 @@ internal sealed class NotificationsDbContext(DbContextOptions<NotificationsDbCon
         modelBuilder.HasDefaultSchema(Schema);
         modelBuilder.MapOutboxAndInbox();
 
-        modelBuilder.Entity<SentNotification>(sent =>
+        modelBuilder.Entity<OutgoingEmail>(email =>
         {
-            sent.ToTable("sent_notifications");
-            // One send per event and recipient: a repeated event finds its row and sends nothing.
-            sent.HasKey(s => new { s.EventId, s.RecipientId });
-            sent.Property(s => s.Kind).HasMaxLength(40);
-            sent.Property(s => s.SentAt).HasDefaultValueSql("now()");
+            email.ToTable("outgoing_emails");
+            // One email per event, recipient and kind: a repeated event finds its row and records nothing.
+            email.HasKey(e => new { e.EventId, e.RecipientId, e.Kind });
+            email.Property(e => e.Kind).HasMaxLength(40);
+            email.Property(e => e.Status).HasMaxLength(12).HasDefaultValue("PENDING");
+            email.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            email.Property(e => e.NextAttemptAt).HasDefaultValueSql("now()");
+            // The workers claim due emails on this index; sent and failed ones leave it.
+            email.HasIndex(e => e.NextAttemptAt).HasFilter("status = 'PENDING'").HasDatabaseName("outgoing_emails_due");
+        });
+
+        modelBuilder.Entity<RecipientAddress>(address =>
+        {
+            address.ToTable("recipient_addresses");
+            address.HasKey(a => a.UserId);
+            address.Property(a => a.UserId).ValueGeneratedNever();
         });
 
         modelBuilder.Entity<NotificationPreference>(preference =>
@@ -50,7 +61,11 @@ internal sealed class NotificationsDbContext(DbContextOptions<NotificationsDbCon
     }
 }
 
-internal sealed class SentNotification
+/// <summary>
+/// One email to tell one person, recorded by a handler and sent by <see cref="EmailWorker"/>:
+/// PENDING until SENT, FAILED after its last attempt, or NO_ADDRESS when the user no longer exists.
+/// </summary>
+internal sealed class OutgoingEmail
 {
     public Guid EventId { get; init; }
 
@@ -58,7 +73,33 @@ internal sealed class SentNotification
 
     public required string Kind { get; init; }
 
-    public DateTimeOffset SentAt { get; init; }
+    public required string Subject { get; init; }
+
+    public required string Body { get; init; }
+
+    public required string Status { get; init; }
+
+    /// <summary>Attempts claimed so far, the one in progress included.</summary>
+    public int Attempts { get; init; }
+
+    /// <summary>When a worker may claim it: now for a new one, a lease ahead while claimed, later after a failure.</summary>
+    public DateTimeOffset NextAttemptAt { get; init; }
+
+    public string? LastError { get; init; }
+
+    public DateTimeOffset CreatedAt { get; init; }
+
+    public DateTimeOffset? SentAt { get; init; }
+}
+
+/// <summary>A user's email address as last looked up in the user pool.</summary>
+internal sealed class RecipientAddress
+{
+    public Guid UserId { get; init; }
+
+    public required string Address { get; init; }
+
+    public DateTimeOffset LookedUpAt { get; init; }
 }
 
 internal sealed class NotificationPreference
