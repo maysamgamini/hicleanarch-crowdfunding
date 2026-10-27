@@ -13,16 +13,24 @@ resource "aws_cognito_user_pool" "users" {
     require_numbers   = true
     require_symbols   = false
   }
+
+  # No self sign-up: the client id is public, so with sign-up open anyone could create accounts.
+  # Users are created by an administrator (the smoke and load tests use admin-create-user).
+  admin_create_user_config {
+    allow_admin_create_user_only = true
+  }
 }
 
 # A public client (no secret), as a browser or mobile app is. Password sign-in is enabled only
 # so the sandbox smoke test can get a token; a real front end signs in through Cognito's hosted
-# pages or SRP.
+# pages or SRP. An unknown email gets the same answer as a wrong password, so nobody can test
+# which emails have accounts (the API's default for a new client is LEGACY, which tells them apart).
 resource "aws_cognito_user_pool_client" "api" {
-  name                = "${var.project}-api"
-  user_pool_id        = aws_cognito_user_pool.users.id
-  generate_secret     = false
-  explicit_auth_flows = ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+  name                          = "${var.project}-api"
+  user_pool_id                  = aws_cognito_user_pool.users.id
+  generate_secret               = false
+  explicit_auth_flows           = ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH"]
+  prevent_user_existence_errors = "ENABLED"
 }
 
 resource "aws_cognito_user_group" "creator" {
