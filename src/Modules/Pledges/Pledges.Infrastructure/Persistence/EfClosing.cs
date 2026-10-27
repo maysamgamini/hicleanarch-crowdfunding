@@ -8,9 +8,9 @@ using Pledges.Application;
 namespace Pledges.Infrastructure.Persistence;
 
 /// <summary>The time fence's numbers: the request path's transaction limit and the close's margin over it.</summary>
-public sealed record TimeFence(TimeSpan TransactionLimit, TimeSpan WaitAfterEnd)
+public sealed record TimeFence(TimeSpan TransactionLimit, TimeSpan WaitAfterEnd, TimeSpan TierWait)
 {
-    public static readonly TimeFence Default = new(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3));
+    public static readonly TimeFence Default = new(TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(3), TimeSpan.FromMilliseconds(300));
 }
 
 internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, ILogger<EfClosing> logger) : IClosing
@@ -36,6 +36,17 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
 
     // ended_at is the statement's own clock, not the transaction's start, so it is as close to the
     // ENDED commit as the database can say.
+    public async Task<TimeSpan> StillToWait(IReadOnlyList<Guid> campaignIds, CancellationToken cancellationToken)
+    {
+        var ids = campaignIds.ToArray();
+        var wait = fence.WaitAfterEnd;
+        var seconds = await db.Database.SqlQuery<double>($"""
+            SELECT coalesce(max(extract(epoch FROM (ended_at + {wait} - clock_timestamp()))), 0)::float8 AS "Value"
+            FROM pledges.funding_windows WHERE campaign_id = ANY({ids}) AND status = 'ENDED'
+            """).SingleAsync(cancellationToken);
+        return seconds > 0 ? TimeSpan.FromSeconds(seconds) : TimeSpan.Zero;
+    }
+
     public async Task<bool> TryEnd(Guid campaignId, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE pledges.funding_windows SET status = 'ENDED', ended_at = clock_timestamp()

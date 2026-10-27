@@ -30,8 +30,9 @@ internal static class Telemetry
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()
-                .AddMeter(OutboxDispatcher.MeterName)
-                .AddMeter(BuildingBlocks.Infrastructure.Operations.MeterName));
+                // Every meter of ours, by its prefix: the outbox, the operations gauges, and each module's
+                // own counters (such as Pledges' close recheck), without a line per meter to forget.
+                .AddMeter("CrowdFunding.*"));
 
         // The collector's address comes from the standard variable; without it, nothing is sent.
         if (!string.IsNullOrEmpty(configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))

@@ -6,6 +6,7 @@ using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Events;
 using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Persistence;
+using BuildingBlocks.Infrastructure.Valkey;
 
 using Campaigns.Contracts;
 
@@ -22,6 +23,7 @@ using Payments.Contracts;
 using Pledges.Application;
 using Pledges.Contracts;
 using Pledges.Domain;
+using Pledges.Infrastructure.HotTier;
 using Pledges.Infrastructure.Persistence;
 using Pledges.Infrastructure.Totals;
 
@@ -45,6 +47,7 @@ public static class PledgesModule
         var fence = TimeFence.Default with
         {
             WaitAfterEnd = configuration.GetValue("Pledges:Close:WaitAfterEnd", TimeFence.Default.WaitAfterEnd),
+            TierWait = configuration.GetValue("Pledges:TierWait", TimeFence.Default.TierWait),
         };
         services.AddDbContext<PledgesDbContext>((sp, db) => PledgesDbOptions
             .Configure((DbContextOptionsBuilder<PledgesDbContext>)db, connectionString)
@@ -80,13 +83,23 @@ public static class PledgesModule
         services.AddReadSide<PledgesDbContext>(
             configuration.GetConnectionString("PledgesRead") ?? connectionString, PledgesDbOptions.Configure);
         services.AddScoped<EfPledges>();
+        services.AddSharedValkey(configuration);
+        if (configuration.HasValkey())
+        {
+            services.AddSingleton<ISoldOutTiers, ValkeySoldOutTiers>();
+        }
+        else
+        {
+            services.AddSingleton<ISoldOutTiers, NoSoldOutTiers>();
+        }
+
         return services
             .AddPledgesApplication()
             .AddScoped<EfFundingWindows>()
             .AddScoped<IFundingWindows, TimeFencedFundingWindows>()
             .AddScoped<IPledges>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IPledgeLedger>(sp => sp.GetRequiredService<EfPledges>())
-            .AddScoped<ITierSlots>(sp => sp.GetRequiredService<EfPledges>())
+            .AddScoped<ITierSlots>(sp => new SoldOutAwareTierSlots(sp.GetRequiredService<EfPledges>(), sp.GetRequiredService<ISoldOutTiers>()))
             .AddScoped<IHolds>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IClosing, EfClosing>()
             .AddScoped<ILastDayRule, EfLastDayRule>()
@@ -132,12 +145,20 @@ public static class PledgesModule
             {
                 var pledgeId = Guid.CreateVersion7();
                 var setup = await dispatcher.Send<StartCardSetup, CardSetupStarted>(new StartCardSetup(pledgeId, user.UserId()), http.RequestAborted);
-                if (!setup.IsSuccess)
+                if (setup.IsSuccess)
+                {
+                    newCard = new NewCard(pledgeId, setup.Value.ClientSecret);
+                }
+                else if (setup.Errors[0].RetryAfter is { } wait)
+                {
+                    // The card-setup lane is full (lesson s3-a04): the pledge and its place are kept, and
+                    // the backer asks for the card form later.
+                    newCard = new NewCard(pledgeId, null, wait);
+                }
+                else
                 {
                     return new[] { PledgeErrors.CardSetupFailed }.ToProblem();
                 }
-
-                newCard = new NewCard(pledgeId, setup.Value.ClientSecret);
             }
 
             return await once.Run(http, user.UserId(), new { id, request }, async ct =>
@@ -166,18 +187,9 @@ public static class PledgesModule
                 }
 
                 var placed = result.Value;
-                object body = placed.ClientSecret is null
-                    ? new { pledge_id = placed.PledgeId, status = placed.Status }
-                    : new
-                    {
-                        pledge_id = placed.PledgeId,
-                        status = placed.Status,
-                        hold_expires_at = placed.HoldExpiresAt!.Value.UtcDateTime,
-                        setup = new { provider = "psp", client_secret = placed.ClientSecret },
-                    };
-                return Result.Success(new Reply(StatusCodes.Status201Created, body, $"/v1/pledges/{placed.PledgeId}"));
+                return Result.Success(new Reply(StatusCodes.Status201Created, Body(placed), $"/v1/pledges/{placed.PledgeId}"));
             });
-        }).RequireAuthorization(Policies.Backer).WithTags("Pledges");
+        }).RequireAuthorization(Policies.Backer).AddEndpointFilter<SoldOutShortCircuit>().WithTags("Pledges");
 
         // PATCH sends the pledge's new amount and tier; tier_id null means no reward.
         app.MapPatch("/v1/pledges/{id}", (string id, ChangeRequest request, ClaimsPrincipal user, HttpContext http,
@@ -243,6 +255,22 @@ public static class PledgesModule
             return Results.Ok(result.Value.View);
         }).WithTags("Pledges");
 
+        // The card form, asked for again by a pledge that waited in the card-setup lane (lesson s3-a04).
+        app.MapPost("/v1/pledges/{id}/card-setup", (string id, ClaimsPrincipal user, HttpContext http,
+            IDispatcher dispatcher, IdempotentRequests<PledgesDbContext> once) =>
+            once.Run(http, user.UserId(), new { id }, async ct =>
+            {
+                if (!PublicId.TryParse(Pledge.IdPrefix, id, out var pledgeId))
+                {
+                    return Result.Failure<Reply>(PledgeErrors.PledgeNotFound);
+                }
+
+                var result = await dispatcher.Send<ResumeCardSetup, PledgePlaced>(new ResumeCardSetup(pledgeId, user.UserId()), ct);
+                return result.IsSuccess
+                    ? Result.Success(new Reply(StatusCodes.Status200OK, Body(result.Value)))
+                    : Result.Failure<Reply>(result.Errors);
+            })).RequireAuthorization(Policies.Backer).WithTags("Pledges");
+
         app.MapGet("/v1/pledges/{id}", async (string id, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
         {
             if (!PublicId.TryParse(Pledge.IdPrefix, id, out var pledgeId))
@@ -256,6 +284,23 @@ public static class PledgesModule
 
         return app;
     }
+
+    /// <summary>
+    /// A placed pledge as the API shows it. A pledge waiting for its card carries its hold and the
+    /// card form's secret, or, while the card-setup lane is full, when to ask for it again.
+    /// </summary>
+    private static object Body(PledgePlaced placed) =>
+        placed.Status != "PENDING_SETUP"
+            ? new { pledge_id = placed.PledgeId, status = placed.Status }
+            : new
+            {
+                pledge_id = placed.PledgeId,
+                status = placed.Status,
+                hold_expires_at = placed.HoldExpiresAt!.Value.UtcDateTime,
+                setup = placed.ClientSecret is not null
+                    ? (object)new { provider = "psp", client_secret = placed.ClientSecret }
+                    : new { provider = "psp", client_secret = (string?)null, retry_after_seconds = (int)Math.Ceiling(placed.SetupRetryAfter!.Value.TotalSeconds) },
+            };
 
     /// <summary>What a ledger entry names as its cause: the caller and the request's idempotency key.</summary>
     private static string Cause(ClaimsPrincipal user, HttpContext http) =>

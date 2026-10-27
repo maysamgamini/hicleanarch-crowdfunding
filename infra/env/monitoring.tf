@@ -24,6 +24,12 @@ locals {
       threshold   = 0
       description = "A charge has had an attempt in flight for more than 10 minutes: the PSP may be down, or no settlement worker is running."
     }
+    close_recheck_mismatch = {
+      metric      = "pledges.close.recheck_mismatches"
+      meter       = "CrowdFunding.Pledges"
+      threshold   = 0
+      description = "A decision's sum differed from the same sum a minute later: an entry landed after the close's time fence (lesson s3-l05). Treat the campaign's outcome as suspect; see the critical log."
+    }
     display_total_mismatch = {
       metric      = "totals.display_mismatches"
       meter       = "CrowdFunding.Operations"

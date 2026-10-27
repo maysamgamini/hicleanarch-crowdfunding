@@ -23,11 +23,17 @@ public sealed record PlacePledge(
     string CauseId,
     NewCard? NewCard = null) : ICommand<PledgePlaced>;
 
-/// <summary>A card setup already started at the PSP for the pledge that will have <see cref="PledgeId"/>.</summary>
-public sealed record NewCard(Guid PledgeId, string ClientSecret);
+/// <summary>
+/// A card setup already started at the PSP for the pledge that will have <see cref="PledgeId"/>, or,
+/// with no secret, one that waits for its turn in the card-setup lane for <see cref="SetupRetryAfter"/>.
+/// </summary>
+public sealed record NewCard(Guid PledgeId, string? ClientSecret, TimeSpan? SetupRetryAfter = null);
 
-/// <summary>A new-card pledge also gets when its hold ends and the secret the PSP's card form needs.</summary>
-public sealed record PledgePlaced(string PledgeId, string Status, DateTimeOffset? HoldExpiresAt = null, string? ClientSecret = null);
+/// <summary>
+/// A new-card pledge also gets when its hold ends and the secret the PSP's card form needs, or, when
+/// the card-setup lane is full, how long to wait before asking for it (lesson s3-a04).
+/// </summary>
+public sealed record PledgePlaced(string PledgeId, string Status, DateTimeOffset? HoldExpiresAt = null, string? ClientSecret = null, TimeSpan? SetupRetryAfter = null);
 
 /// <summary>
 /// One transaction, opened by the request's idempotency key: the fence and the snapshot on the
@@ -146,6 +152,6 @@ public sealed class PlacePledgeHandler(
             return Result.Failure<PledgePlaced>(PledgeErrors.TierSoldOut);
         }
 
-        return Result.Success(new PledgePlaced(pledge.Value.PublicId, "PENDING_SETUP", pledge.Value.HoldExpiresAt, newCard.ClientSecret));
+        return Result.Success(new PledgePlaced(pledge.Value.PublicId, "PENDING_SETUP", pledge.Value.HoldExpiresAt, newCard.ClientSecret, newCard.SetupRetryAfter));
     }
 }

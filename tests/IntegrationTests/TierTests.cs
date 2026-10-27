@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,7 +16,10 @@ namespace IntegrationTests;
 /// <summary>Lesson 6 under load: a limited tier never sells more than its limit.</summary>
 public sealed class TierTests(Database database) : IDisposable
 {
-    private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host = database.StartHost();
+    // These tests hold a tier row open on purpose to watch another transaction wait for it; under the
+    // whole suite's load that can take longer than the 300 ms a pledge waits in production.
+    private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host =
+        database.StartHost().WithWebHostBuilder(web => web.UseSetting("Pledges:TierWait", "00:00:10"));
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 

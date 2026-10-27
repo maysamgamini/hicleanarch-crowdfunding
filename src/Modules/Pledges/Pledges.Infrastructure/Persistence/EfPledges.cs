@@ -7,7 +7,7 @@ using Pledges.Domain;
 
 namespace Pledges.Infrastructure.Persistence;
 
-internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, ITierSlots, IHolds
+internal sealed class EfPledges(PledgesDbContext db, TimeFence fence) : IPledges, IPledgeLedger, ITierSlots, IHolds
 {
     public async Task<bool> TryAdd(Pledge pledge, CancellationToken cancellationToken)
     {
@@ -102,13 +102,10 @@ internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, 
     Task<TierCounter?> ITierSlots.Find(Guid tierId, CancellationToken cancellationToken) =>
         db.TierCounters.AsNoTracking().SingleOrDefaultAsync(t => t.TierId == tierId, cancellationToken);
 
-    /// <summary>
-    /// How long a pledge may wait for a tier row before it answers "try again" (lesson s3-l05). With
-    /// no window lock in front of it, the tier row is where a launch's pledges meet; a wait that runs
-    /// out ends one statement and keeps the session, well inside the request path's two-second limit.
-    /// </summary>
-    public static readonly TimeSpan TierWait = TimeSpan.FromMilliseconds(300);
-
+    // How long a pledge may wait for a tier row before it answers "try again" (lesson s3-l05):
+    // TimeFence.TierWait, 300 ms. With no window lock in front of it, the tier row is where a launch's
+    // pledges meet; a wait that runs out ends one statement and keeps the session, well inside the
+    // request path's two-second limit.
     // Lesson 6: the rule is in the WHERE. A second transaction waits for the row lock, then re-checks
     // the row as the first left it (Read Committed); 0 rows changed means sold out.
     public Task<bool> TryClaim(Guid tierId, CancellationToken cancellationToken) =>
@@ -124,7 +121,14 @@ internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, 
             """, cancellationToken) == 1, cancellationToken);
 
     private Task<T> WaitForTier<T>(Func<Task<T>> statement, CancellationToken cancellationToken) =>
-        DatabaseBusy.WithLockTimeout(sql => db.Database.ExecuteSqlRawAsync(sql, cancellationToken), TierWait, "tier_busy", statement);
+        DatabaseBusy.WithLockTimeout(sql => db.Database.ExecuteSqlRawAsync(sql, cancellationToken), fence.TierWait, "tier_busy", statement);
+
+    /// <summary>A limited tier's places left, read inside the caller's transaction; null for a tier with no limit.</summary>
+    public async Task<int?> PlacesLeft(Guid tierId, CancellationToken cancellationToken) =>
+        await db.TierCounters.AsNoTracking()
+            .Where(t => t.TierId == tierId)
+            .Select(t => t.LimitQty - t.Claimed - t.Held)
+            .SingleOrDefaultAsync(cancellationToken);
 
     public Task HoldToClaim(Guid tierId, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""

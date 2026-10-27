@@ -200,7 +200,11 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
         return (given, campaign, transaction);
     }
 
-    /// <summary>Runs the close job's pass, as the jobs role, until this campaign is decided.</summary>
+    /// <summary>
+    /// Runs the close job's pass for this campaign only, as the jobs role, until it is decided. An
+    /// untargeted pass would decide other tests' campaigns in this host, whose events this host then
+    /// dispatches, not theirs.
+    /// </summary>
     private async Task CloseUntilDecided(Guid campaignId)
     {
         var jobs = _host.Services.GetRequiredService<PledgesJobsConnection>();
@@ -209,7 +213,7 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
             await using (var scope = _host.Services.CreateAsyncScope())
             {
                 jobs.Use(scope.ServiceProvider.GetRequiredService<PledgesDbContext>());
-                await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<CloseDueCampaigns, int>(new CloseDueCampaigns(), Ct);
+                await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<CloseDueCampaigns, int>(new CloseDueCampaigns(campaignId), Ct);
             }
 
             await using var owner = new NpgsqlConnection(database.Owner);

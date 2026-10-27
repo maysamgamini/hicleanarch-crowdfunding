@@ -4,6 +4,7 @@ using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Events;
 using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Persistence;
+using BuildingBlocks.Infrastructure.Valkey;
 
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -43,6 +44,9 @@ public static class PaymentsModule
         services.AddPublishedEvent<CampaignSettled>();
         services.AddEventHandler<PledgeChargeRequested, CreateCharge>(PaymentsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, CreateSettlementJob>(PaymentsModuleName.Value);
+        services.AddSharedValkey(configuration);
+        services.AddOptions<PspBudget>().Bind(configuration.GetSection("Payments:Budget"));
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<PspBudget>>().Value);
         services.AddOptions<SettlementOptions>().Bind(configuration.GetSection("Payments:Settlement"));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SettlementOptions>>().Value);
         services.AddSingleton<SettlementWorker>();

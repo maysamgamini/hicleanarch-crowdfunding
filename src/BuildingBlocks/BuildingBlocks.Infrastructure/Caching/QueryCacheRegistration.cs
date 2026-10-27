@@ -2,6 +2,7 @@ using BuildingBlocks.Application;
 
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using StackExchange.Redis;
 
@@ -23,7 +24,7 @@ public static class QueryCacheRegistration
 
         var options = ConfigurationOptions.Parse(valkey);
         options.AbortOnConnectFail = false;
-        services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(options));
+        services.TryAddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(options));
         return services.AddSingleton<IQueryCache, ValkeyQueryCache>();
     }
 }

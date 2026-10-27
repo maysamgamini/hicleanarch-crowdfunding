@@ -23,6 +23,12 @@ public interface IClosing
     Task<bool> TryEnd(Guid campaignId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// How long until every one of these campaigns that is ENDED has been ENDED for the fence's wait,
+    /// whoever ended it: this pass, or another task's. Zero when none needs waiting for.
+    /// </summary>
+    Task<TimeSpan> StillToWait(IReadOnlyList<Guid> campaignIds, CancellationToken cancellationToken);
+
+    /// <summary>
     /// How long to wait after an ENDED commit is acknowledged before the exact sum. Zero when the
     /// close itself waited for every pledge in flight (a row lock); the transactions' time limit plus
     /// a margin when pledges take no lock. <see cref="TryDecide"/> refuses to decide sooner.
@@ -71,19 +77,20 @@ public sealed class CloseDueCampaignsHandler(
 {
     public async Task<Result<int>> Handle(CloseDueCampaigns command, CancellationToken cancellationToken)
     {
-        // First end every due campaign, then wait once, from the moment the last ENDED commit was
-        // acknowledged, then decide each. A campaign left ENDED by an earlier pass is decided too.
+        // First end every due campaign, then wait once, until the last ENDED commit, this pass's or
+        // another task's, is the fence's wait behind, then decide each. A campaign left ENDED by an
+        // earlier pass is decided too.
         var due = await closing.Due(50, command.CampaignId, cancellationToken);
-        var ended = false;
         foreach (var campaignId in due)
         {
-            var end = await transaction.Run(async ct => Result.Success(await closing.TryEnd(campaignId, ct)), cancellationToken);
-            ended |= end.Value;
+            await transaction.Run(async ct => Result.Success(await closing.TryEnd(campaignId, ct)), cancellationToken);
         }
 
-        if (ended && closing.WaitAfterEnd > TimeSpan.Zero)
+        // The guard in TryDecide judges the wait by the database's clock, so the wait is measured there
+        // too, until the database says it is over; this task's clock may run a little apart from it.
+        for (var wait = await closing.StillToWait(due, cancellationToken); wait > TimeSpan.Zero; wait = await closing.StillToWait(due, cancellationToken))
         {
-            await Task.Delay(closing.WaitAfterEnd, clock, cancellationToken);
+            await Task.Delay(wait, clock, cancellationToken);
         }
 
         var decided = 0;
