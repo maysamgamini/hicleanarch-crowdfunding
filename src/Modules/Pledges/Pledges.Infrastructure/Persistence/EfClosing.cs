@@ -20,7 +20,8 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
         var only = campaignId ?? Guid.Empty;
         return await db.Database.SqlQuery<Guid>($"""
             SELECT campaign_id AS "Value" FROM pledges.funding_windows
-            WHERE ((status IN ('LIVE', 'ENDED') AND deadline <= now()) OR (status = 'FUNDED' AND marking_finished_at IS NULL))
+            WHERE ((status IN ('LIVE', 'ENDED') AND deadline <= now()) OR (status = 'FUNDED' AND marking_finished_at IS NULL)
+                   OR (status = 'UNSUCCESSFUL' AND told_finished_at IS NULL))
               AND ({any} OR campaign_id = {only})
             ORDER BY deadline LIMIT {batchSize}
             """).ToListAsync(cancellationToken);
@@ -133,6 +134,37 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
         return marked;
     }
 
+    public async Task<IReadOnlyList<DecidedPledge>> TellNextBatch(Guid campaignId, int batchSize, CancellationToken cancellationToken)
+    {
+        // The window's row is locked first, so two passes tell one batch after the other, each from
+        // the cursor the other left.
+        var window = await db.Database.SqlQuery<TellingCursor>($"""
+            SELECT told_through, currency FROM pledges.funding_windows
+            WHERE campaign_id = {campaignId} AND status = 'UNSUCCESSFUL' AND told_finished_at IS NULL
+            FOR UPDATE
+            """).ToListAsync(cancellationToken);
+        if (window.Count == 0)
+        {
+            return [];
+        }
+
+        var after = window[0].ToldThrough ?? Guid.Empty;
+        var told = await db.Database.SqlQuery<DecidedPledge>($"""
+            SELECT id AS pledge_id, backer_id, amount_minor, {window[0].Currency} AS currency FROM pledges.pledges
+            WHERE campaign_id = {campaignId} AND status = 'RELEASED' AND id > {after}
+            ORDER BY id
+            LIMIT {batchSize}
+            """).ToListAsync(cancellationToken);
+        var through = told.Count > 0 ? told.Select(p => p.PledgeId).MaxBy(id => id.ToString("N"), StringComparer.Ordinal) : after;
+        var finished = told.Count < batchSize;
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.funding_windows
+            SET told_through = {through}, told_finished_at = CASE WHEN {finished} THEN now() ELSE NULL END
+            WHERE campaign_id = {campaignId}
+            """, cancellationToken);
+        return told;
+    }
+
     public async Task<int> Release(Guid campaignId, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE pledges.pledges SET status = 'RELEASED' WHERE campaign_id = {campaignId} AND status = 'ACTIVE'
@@ -199,3 +231,5 @@ internal sealed record Recheck(Guid CampaignId, long FinalMinor, long RecheckMin
 
 /// <summary>Where a funded campaign's marking stands, and the currency its charges are in.</summary>
 internal sealed record MarkingCursor(Guid? MarkedThrough, string Currency);
+
+internal sealed record TellingCursor(Guid? ToldThrough, string Currency);

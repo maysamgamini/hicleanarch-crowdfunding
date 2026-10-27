@@ -44,6 +44,7 @@ public static class NotificationsModule
         services.AddEventHandler<CampaignFundingDecided, Handlers>(Name);
         services.AddEventHandler<CampaignCancelled, Handlers>(Name);
         services.AddEventHandler<PledgeReleased, Handlers>(Name);
+        services.AddEventHandler<PledgeDecided, Handlers>(Name);
         services.AddEventHandler<PledgeChargeSucceeded, Handlers>(Name);
         services.AddEventHandler<PledgeChargeFailed, Handlers>(Name);
         services.AddSingleton<IModuleMigrator, NotificationsMigrator>();

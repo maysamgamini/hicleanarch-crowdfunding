@@ -96,33 +96,32 @@ public sealed class EmailQueueTests(OwnDatabase own) : IClassFixture<OwnDatabase
         await transaction.CommitAsync(Ct);
     }
 
-    /// <summary>A campaign's backers, as Notifications hears them, and its unsuccessful decision: the event's id.</summary>
-    /// <summary>The backers have turned pledge_confirmed off, so the outcome is the one email each gets.</summary>
-    private async Task<Guid> DecideWithBackers(WebApplicationFactory<Program> host, IEnumerable<Guid> backers)
+    /// <summary>
+    /// A campaign's backers, as Notifications hears them, and its unsuccessful decision, told per pledge.
+    /// The backers have turned pledge_confirmed off, so the outcome is the one email each gets.
+    /// </summary>
+    private async Task DecideWithBackers(WebApplicationFactory<Program> host, IEnumerable<Guid> backers)
     {
         var campaign = Guid.NewGuid();
         foreach (var backer in backers)
         {
             await _database.Execute($"INSERT INTO notifications.notification_preferences (user_id, kind, enabled) VALUES ('{backer}', 'pledge_confirmed', false)");
-            await Handle(host, new PledgeActivated(Guid.CreateVersion7(), DateTimeOffset.UtcNow, Guid.NewGuid(), campaign, backer, null, 6_000, "USD"));
+            var pledge = Guid.NewGuid();
+            await Handle(host, new PledgeActivated(Guid.CreateVersion7(), DateTimeOffset.UtcNow, pledge, campaign, backer, null, 6_000, "USD"));
+            await Handle(host, new PledgeDecided(Guid.CreateVersion7(), DateTimeOffset.UtcNow, pledge, campaign, backer, CampaignFundingDecided.Unsuccessful, 6_000, "USD"));
         }
-
-        var decided = new CampaignFundingDecided(Guid.CreateVersion7(), DateTimeOffset.UtcNow, campaign, CampaignFundingDecided.Unsuccessful, 6_000, 1, 50_000);
-        await Handle(host, decided);
-        return decided.EventId;
     }
 
     private static int Told(WebApplicationFactory<Program> host, Guid user) =>
         host.Services.GetRequiredService<InMemoryEmailSender>().Sent.Count(m => m.RecipientId == user && m.Subject == Outcome);
 
-    /// <summary>The status and attempts of the email to one recipient for one event, read as the owner.</summary>
-    private async Task<(string Status, int Attempts)> Row(Guid eventId, Guid recipient)
+    /// <summary>The status and attempts of the outcome email to one recipient, read as the owner.</summary>
+    private async Task<(string Status, int Attempts)> Row(Guid recipient)
     {
         await using var owner = new NpgsqlConnection(_database.Owner);
         await owner.OpenAsync(Ct);
         await using var read = new NpgsqlCommand(
-            "SELECT status, attempts FROM notifications.outgoing_emails WHERE event_id = @event AND recipient_id = @recipient AND kind = 'campaign_unsuccessful'", owner);
-        read.Parameters.AddWithValue("event", eventId);
+            "SELECT status, attempts FROM notifications.outgoing_emails WHERE recipient_id = @recipient AND kind = 'campaign_unsuccessful'", owner);
         read.Parameters.AddWithValue("recipient", recipient);
         await using var row = await read.ExecuteReaderAsync(Ct);
         Assert.True(await row.ReadAsync(Ct));
@@ -138,14 +137,14 @@ public sealed class EmailQueueTests(OwnDatabase own) : IClassFixture<OwnDatabase
         sender.FailuresLeft[flaky] = 2;
         sender.FailuresLeft[broken] = int.MaxValue;
 
-        var eventId = await DecideWithBackers(host, [fine, flaky, broken]);
+        await DecideWithBackers(host, [fine, flaky, broken]);
 
         await Scenario.Eventually(() => Task.FromResult(Told(host, fine) == 1));
         await Scenario.Eventually(() => Task.FromResult(Told(host, flaky) == 1));
-        await Scenario.Eventually(async () => (await Row(eventId, broken)).Status == "FAILED");
-        Assert.Equal(("SENT", 1), await Row(eventId, fine));
-        Assert.Equal(("SENT", 3), await Row(eventId, flaky));
-        Assert.Equal(("FAILED", 3), await Row(eventId, broken));
+        await Scenario.Eventually(async () => (await Row(broken)).Status == "FAILED");
+        Assert.Equal(("SENT", 1), await Row(fine));
+        Assert.Equal(("SENT", 3), await Row(flaky));
+        Assert.Equal(("FAILED", 3), await Row(broken));
         Assert.Equal(0, Told(host, broken));
         var directory = host.Services.GetRequiredService<CountingDirectory>();
         Assert.Equal(1, directory.Lookups[flaky]); // three attempts, one lookup: the address was kept
@@ -159,11 +158,11 @@ public sealed class EmailQueueTests(OwnDatabase own) : IClassFixture<OwnDatabase
         var (stays, gone) = (Guid.NewGuid(), Guid.NewGuid());
         host.Services.GetRequiredService<CountingDirectory>().Gone[gone] = true;
 
-        var eventId = await DecideWithBackers(host, [stays, gone]);
+        await DecideWithBackers(host, [stays, gone]);
 
         await Scenario.Eventually(() => Task.FromResult(Told(host, stays) == 1));
-        await Scenario.Eventually(async () => (await Row(eventId, gone)).Status == "NO_ADDRESS");
-        Assert.Equal(("NO_ADDRESS", 1), await Row(eventId, gone));
+        await Scenario.Eventually(async () => (await Row(gone)).Status == "NO_ADDRESS");
+        Assert.Equal(("NO_ADDRESS", 1), await Row(gone));
     }
 
     /// <summary>The rate is SES's quota, so the worker never sends faster than it is set to, whatever the backlog.</summary>

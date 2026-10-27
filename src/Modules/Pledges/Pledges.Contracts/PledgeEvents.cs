@@ -51,6 +51,24 @@ public sealed record CampaignFundingDecided(
     public const string Unsuccessful = "UNSUCCESSFUL";
 }
 
+/// <summary>
+/// One pledge's campaign was decided: <see cref="Outcome"/> is <see cref="CampaignFundingDecided.Funded"/>
+/// (the pledge is about to be charged) or <see cref="CampaignFundingDecided.Unsuccessful"/> (it was
+/// released and is never charged). One per pledge, so its backer is told by their own pledge whatever
+/// order events arrive in. It carries no payment data: a consumer that only tells people never sees a
+/// saved card. Funded, it is written with the pledge's <see cref="PledgeChargeRequested"/>; unsuccessful,
+/// by a pass after the decision, batch by batch from a cursor.
+/// </summary>
+public sealed record PledgeDecided(
+    Guid EventId,
+    DateTimeOffset OccurredAt,
+    Guid PledgeId,
+    Guid CampaignId,
+    Guid BackerId,
+    string Outcome,
+    long AmountMinor,
+    string Currency) : IntegrationEvent(EventId, OccurredAt);
+
 /// <summary>A pledge of a funded campaign is to be charged, once, with its saved card.</summary>
 public sealed record PledgeChargeRequested(
     Guid EventId,

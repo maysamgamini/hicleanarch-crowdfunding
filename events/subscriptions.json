@@ -73,6 +73,12 @@
         "Payments"
       ]
     },
+    "PledgeDecided": {
+      "producer": "Pledges",
+      "consumers": [
+        "Notifications"
+      ]
+    },
     "PaymentMethodSaved": {
       "producer": "Payments",
       "consumers": [

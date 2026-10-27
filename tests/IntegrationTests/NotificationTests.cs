@@ -100,23 +100,6 @@ public sealed class NotificationTests(Database database) : IDisposable
     private static PledgeCancelled Cancelled(Guid pledgeId, Guid campaignId, Guid backerId) =>
         new(Guid.CreateVersion7(), DateTimeOffset.UtcNow, pledgeId, campaignId, backerId, 6_000);
 
-    private Task Decided(Guid campaignId) =>
-        Handle(new CampaignFundingDecided(Guid.CreateVersion7(), DateTimeOffset.UtcNow, campaignId, CampaignFundingDecided.Unsuccessful, 6_000, 1, 50_000));
-
-    /// <summary>A backer cancels and pledges again; the first pledge's cancel reaches Notifications last.</summary>
-    [Fact]
-    public async Task A_late_cancel_of_an_earlier_pledge_does_not_drop_a_backer_who_pledged_again()
-    {
-        var (campaign, backer, first, second) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
-
-        await Handle(Activated(first, campaign, backer));
-        await Handle(Activated(second, campaign, backer));
-        await Handle(Cancelled(first, campaign, backer));
-        await Decided(campaign);
-
-        await Scenario.Eventually(() => Task.FromResult(SentTo(backer, "The campaign was not funded") == 1));
-    }
-
     /// <summary>Whether the backer is on the campaign's list: a live pledge of theirs, activated and neither cancelled nor released.</summary>
     private async Task<bool> OnTheList(Guid campaignId, Guid backerId)
     {
@@ -175,21 +158,6 @@ public sealed class NotificationTests(Database database) : IDisposable
         }
 
         Assert.False(await OnTheList(campaign, backer));
-    }
-
-    /// <summary>The activation of a pledge is retried and arrives after its cancel.</summary>
-    [Fact]
-    public async Task A_late_activation_does_not_bring_back_a_backer_who_cancelled()
-    {
-        var (campaign, stays, leaves, pledge) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
-
-        await Handle(Activated(Guid.NewGuid(), campaign, stays));
-        await Handle(Cancelled(pledge, campaign, leaves));
-        await Handle(Activated(pledge, campaign, leaves));
-        await Decided(campaign);
-
-        await Scenario.Eventually(() => Task.FromResult(SentTo(stays, "The campaign was not funded") == 1));
-        Assert.Equal(0, SentTo(leaves, "The campaign was not funded"));
     }
 
     [Theory]
