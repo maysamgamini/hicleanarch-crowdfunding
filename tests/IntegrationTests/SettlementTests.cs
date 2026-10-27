@@ -225,6 +225,51 @@ public sealed class SettlementTests(Database database) : IDisposable
         Assert.True(await Settle(campaign, "another-task")); // no wait for the lease
         Assert.Equal(1L, await Count(given, campaign, "CHARGED"));
     }
+
+    [Fact]
+    public async Task Two_workers_that_reach_the_same_charge_at_once_start_one_attempt_and_charge_once()
+    {
+        var (given, campaign) = await Funded(FakePaymentProvider.CardSucceeds);
+        var pledge = (await PledgesOf(given, campaign))[0];
+        var publicId = BuildingBlocks.Domain.PublicId.Format("plg", pledge);
+        var before = Psp.ChargesMade;
+
+        // Both find the charge TO_CHARGE (a lease ran out while the first was slow, say) and start an
+        // attempt at the same moment: a lock held on the row lets them go together when it is released.
+        await using var gate = new Npgsql.NpgsqlConnection(given.OwnerConnection);
+        await gate.OpenAsync(Ct);
+        await using var hold = await gate.BeginTransactionAsync(Ct);
+        await using (var lockRow = new Npgsql.NpgsqlCommand("SELECT 1 FROM payments.charges WHERE pledge_id = @id FOR UPDATE", gate, hold))
+        {
+            lockRow.Parameters.AddWithValue("id", pledge);
+            await lockRow.ExecuteNonQueryAsync(Ct);
+        }
+
+        async Task<int?> Start()
+        {
+            await using var scope = _host.Services.CreateAsyncScope();
+            return await scope.ServiceProvider.GetRequiredService<ISettlements>().TryStartAttempt(pledge, publicId, onSession: false, lookUpAt: null, Ct);
+        }
+
+        var first = Task.Run(Start, Ct);
+        var second = Task.Run(Start, Ct);
+        await Scenario.Eventually(async () => await given.Scalar<long>(
+            "SELECT count(DISTINCT pid) FROM pg_locks l JOIN pg_stat_activity s USING (pid) WHERE NOT l.granted AND s.usename = 'payments_app' AND s.query LIKE '%attempt_no + 1%'", pledge) >= 2);
+        await hold.CommitAsync(Ct);
+        int?[] started = [await first, await second];
+
+        Assert.Equal([1], started.Where(n => n is not null).Cast<int>());
+        Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM payments.charge_attempts WHERE pledge_id = @id", pledge));
+
+        // The one attempt is then settled with its own key: one charge at the PSP.
+        while (await given.Scalar<string>("SELECT status FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId) != "DONE")
+        {
+            await Settle(campaign);
+        }
+
+        Assert.Equal(before + 1, Psp.ChargesMade);
+        Assert.Equal(1L, await Count(given, campaign, "CHARGED"));
+    }
     private Task<HttpResponseMessage> Deliver(SignedWebhook webhook)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(webhook.Body, System.Text.Encoding.UTF8, "application/json") };
