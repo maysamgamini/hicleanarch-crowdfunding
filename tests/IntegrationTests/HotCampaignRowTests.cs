@@ -119,9 +119,9 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
         await CloseUntilDecided(campaign.CampaignId);
 
         // The decision is now two minutes old, and an entry that began before it committed after its
-        // sum, as a failed fence would leave it.
+        // sum, as a failed fence would leave it. (The window opened earlier still: no entry precedes it.)
         await given.Execute($"""
-            UPDATE pledges.funding_windows SET decided_at = decided_at - interval '2 minutes' WHERE campaign_id = @id;
+            UPDATE pledges.funding_windows SET decided_at = decided_at - interval '2 minutes', opened_at = opened_at - interval '3 minutes' WHERE campaign_id = @id;
             INSERT INTO pledges.pledge_ledger (campaign_id, pledge_id, cause_id, delta_minor, kind, created_at)
             SELECT campaign_id, '{Guid.NewGuid()}', 'test:{Guid.NewGuid():N}', 6000, 'ACTIVATE', decided_at - interval '1 second'
             FROM pledges.funding_windows WHERE campaign_id = @id;

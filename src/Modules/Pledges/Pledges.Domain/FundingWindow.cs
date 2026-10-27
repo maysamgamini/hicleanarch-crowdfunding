@@ -50,6 +50,9 @@ public sealed class FundingWindow
     /// <summary>When every pledge of a decided campaign was marked; null while a funded campaign's marking is unfinished.</summary>
     public DateTimeOffset? MarkingFinishedAt { get; private set; }
 
+    /// <summary>When pledging opened. Every ledger entry of the campaign is at or after it, so sums can name the months to read.</summary>
+    public DateTimeOffset OpenedAt { get; private set; }
+
     public static FundingWindow Open(Guid campaignId, DateTimeOffset deadline, long goalMinor, string currency) => new()
     {
         CampaignId = campaignId,

@@ -57,7 +57,8 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
     public async Task<(long SumMinor, int Backers, long GoalMinor, string Currency)> ExactSum(Guid campaignId, CancellationToken cancellationToken)
     {
         var window = await db.FundingWindows.AsNoTracking().SingleAsync(w => w.CampaignId == campaignId, cancellationToken);
-        var sum = await db.Ledger.Where(e => e.CampaignId == campaignId).SumAsync(e => (long?)e.DeltaMinor, cancellationToken) ?? 0;
+        // Bounded by the window's opening, so the partitioned ledger reads only this campaign's months (lesson s3-l10).
+        var sum = await db.Ledger.Where(e => e.CampaignId == campaignId && e.CreatedAt >= window.OpenedAt).SumAsync(e => (long?)e.DeltaMinor, cancellationToken) ?? 0;
         var backers = await db.Pledges.CountAsync(p => p.CampaignId == campaignId && p.Status == Domain.PledgeStatus.Active, cancellationToken);
         return (sum, backers, window.GoalMinor, window.Currency);
     }
@@ -84,7 +85,7 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
             UPDATE pledges.funding_windows w
             SET rechecked_at = now(),
                 recheck_minor = (SELECT coalesce(sum(delta_minor), 0) FROM pledges.pledge_ledger l
-                                 WHERE l.campaign_id = w.campaign_id AND l.created_at <= w.decided_at + interval '1 minute')
+                                 WHERE l.campaign_id = w.campaign_id AND l.created_at >= w.opened_at AND l.created_at <= w.decided_at + interval '1 minute')
             WHERE w.campaign_id IN (SELECT campaign_id FROM pledges.funding_windows
                                     WHERE decided_at <= now() - interval '1 minute' AND rechecked_at IS NULL
                                     ORDER BY decided_at LIMIT {batchSize})

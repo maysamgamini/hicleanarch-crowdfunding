@@ -69,12 +69,13 @@ internal sealed partial class TotalsCheck(IServiceScopeFactory scopes, IConfigur
         var db = services.GetRequiredService<PledgesDbContext>();
         services.GetRequiredService<PledgesJobsConnection>().Use(db);
         var store = services.GetRequiredService<ITotalsStore>();
+        var sums = services.GetRequiredService<ILedgerSums>();
         var campaigns = await db.FundingWindows.AsNoTracking().Select(w => w.CampaignId).ToListAsync(cancellationToken);
 
         var suspects = new List<Guid>();
         foreach (var campaignId in campaigns)
         {
-            if (await Differs(db, store, campaignId, cancellationToken))
+            if (await Differs(sums, store, campaignId, cancellationToken))
             {
                 suspects.Add(campaignId);
             }
@@ -86,7 +87,7 @@ internal sealed partial class TotalsCheck(IServiceScopeFactory scopes, IConfigur
             await Task.Delay(LookAgainAfter, cancellationToken);
             foreach (var campaignId in suspects)
             {
-                if (await Differs(db, store, campaignId, cancellationToken))
+                if (await Differs(sums, store, campaignId, cancellationToken))
                 {
                     different.Add(campaignId);
                 }
@@ -96,15 +97,15 @@ internal sealed partial class TotalsCheck(IServiceScopeFactory scopes, IConfigur
         return different;
     }
 
-    private static async Task<bool> Differs(PledgesDbContext db, ITotalsStore store, Guid campaignId, CancellationToken cancellationToken)
+    private static async Task<bool> Differs(ILedgerSums sums, ITotalsStore store, Guid campaignId, CancellationToken cancellationToken)
     {
         if (await store.Get(campaignId, cancellationToken) is not { } shown)
         {
             return false; // not computed yet: the page computes it from the ledger on its first read
         }
 
-        var sum = await db.Ledger.Where(e => e.CampaignId == campaignId).SumAsync(e => (long?)e.DeltaMinor, cancellationToken) ?? 0;
-        return shown.PledgedMinor != sum;
+        // Through the shard seam, bounded by the window's opening (lesson s3-l10).
+        return shown.PledgedMinor != await sums.SumSinceOpened(campaignId, cancellationToken);
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Campaign {CampaignId}: the display total differs from the ledger's sum")]

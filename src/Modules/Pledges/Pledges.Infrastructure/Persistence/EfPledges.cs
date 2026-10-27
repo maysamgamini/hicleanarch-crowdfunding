@@ -95,10 +95,15 @@ internal sealed class EfPledges(PledgesDbContext db, TimeFence fence) : IPledges
         return expired;
     }
 
+    // The database's trigger writes the guards in the same statement: a replayed cause, or a second
+    // activation of one pledge, fails on their primary keys and the entry goes with it (lesson s3-l10).
     public async Task Append(LedgerEntry entry, CancellationToken cancellationToken)
     {
-        db.Ledger.Add(entry);
-        await db.SaveChangesAsync(cancellationToken);
+        var kind = StatusNames.Of(entry.Kind);
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO pledges.pledge_ledger (campaign_id, pledge_id, cause_id, delta_minor, kind)
+            VALUES ({entry.CampaignId}, {entry.PledgeId}, {entry.CauseId}, {entry.DeltaMinor}, {kind})
+            """, cancellationToken);
     }
 
     Task<TierCounter?> ITierSlots.Find(Guid tierId, CancellationToken cancellationToken) =>

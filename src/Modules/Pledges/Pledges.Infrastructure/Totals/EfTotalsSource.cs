@@ -17,7 +17,8 @@ internal sealed class EfTotalsSource(PledgesDbContext db, TimeProvider clock) : 
     public async Task<DisplayTotals> Compute(Guid campaignId, CancellationToken cancellationToken)
     {
         var asOf = clock.GetUtcNow();
-        var sum = await db.Ledger.Where(e => e.CampaignId == campaignId).SumAsync(e => (long?)e.DeltaMinor, cancellationToken) ?? 0;
+        var opened = await db.FundingWindows.AsNoTracking().Where(w => w.CampaignId == campaignId).Select(w => w.OpenedAt).SingleAsync(cancellationToken);
+        var sum = await db.Ledger.Where(e => e.CampaignId == campaignId && e.CreatedAt >= opened).SumAsync(e => (long?)e.DeltaMinor, cancellationToken) ?? 0;
         var backers = await db.Pledges.CountAsync(p => p.CampaignId == campaignId && Counted.Contains(p.Status), cancellationToken);
         var tiers = await db.TierCounters.AsNoTracking()
             .Where(t => t.CampaignId == campaignId && t.LimitQty != null)

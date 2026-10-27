@@ -185,6 +185,12 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("marking_finished_at");
 
+                    b.Property<DateTimeOffset>("OpenedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("opened_at")
+                        .HasDefaultValueSql("now()");
+
                     b.Property<long>("PledgedMinor")
                         .HasColumnType("bigint")
                         .HasColumnName("pledged_minor");
@@ -230,6 +236,12 @@ namespace Pledges.Infrastructure.Persistence.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("EntryId"));
 
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
                     b.Property<Guid>("CampaignId")
                         .HasColumnType("uuid")
                         .HasColumnName("campaign_id");
@@ -239,12 +251,6 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
                         .HasColumnName("cause_id");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("now()");
 
                     b.Property<long>("DeltaMinor")
                         .HasColumnType("bigint")
@@ -260,22 +266,13 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("pledge_id");
 
-                    b.HasKey("EntryId")
+                    b.HasKey("EntryId", "CreatedAt")
                         .HasName("pk_pledge_ledger");
 
-                    b.HasIndex("CampaignId")
-                        .HasDatabaseName("ix_pledge_ledger_campaign_id");
+                    b.HasIndex("CampaignId", "CreatedAt")
+                        .HasDatabaseName("ix_pledge_ledger_campaign_id_created_at");
 
-                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex("CampaignId"), new[] { "DeltaMinor" });
-
-                    b.HasIndex("PledgeId")
-                        .IsUnique()
-                        .HasDatabaseName("one_activation_per_pledge")
-                        .HasFilter("kind = 'ACTIVATE'");
-
-                    b.HasIndex("CauseId", "Kind")
-                        .IsUnique()
-                        .HasDatabaseName("ix_pledge_ledger_cause_id_kind");
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex("CampaignId", "CreatedAt"), new[] { "DeltaMinor" });
 
                     b.ToTable("pledge_ledger", "pledges", t =>
                         {
@@ -395,6 +392,45 @@ namespace Pledges.Infrastructure.Persistence.Migrations
 
                             t.HasCheckConstraint("tier_counters_limit_positive", "limit_qty IS NULL OR limit_qty > 0");
                         });
+                });
+
+            modelBuilder.Entity("Pledges.Infrastructure.Persistence.LedgerCause", b =>
+                {
+                    b.Property<string>("CauseId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("cause_id");
+
+                    b.Property<string>("Kind")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("kind");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("CauseId", "Kind")
+                        .HasName("pk_ledger_causes");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("ix_ledger_causes_created_at");
+
+                    b.ToTable("ledger_causes", "pledges");
+                });
+
+            modelBuilder.Entity("Pledges.Infrastructure.Persistence.PledgeActivation", b =>
+                {
+                    b.Property<Guid>("PledgeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pledge_id");
+
+                    b.HasKey("PledgeId")
+                        .HasName("pk_pledge_activations");
+
+                    b.ToTable("pledge_activations", "pledges");
                 });
 #pragma warning restore 612, 618
         }

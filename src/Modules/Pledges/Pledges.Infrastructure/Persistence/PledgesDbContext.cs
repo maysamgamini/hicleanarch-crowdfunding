@@ -20,6 +20,10 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
 
     public DbSet<LedgerEntry> Ledger => Set<LedgerEntry>();
 
+    public DbSet<LedgerCause> LedgerCauses => Set<LedgerCause>();
+
+    public DbSet<PledgeActivation> PledgeActivations => Set<PledgeActivation>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
@@ -35,6 +39,7 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
                 .HasConversion(s => s.ToString().ToUpperInvariant(), s => Enum.Parse<FundingStatus>(s, true))
                 .HasMaxLength(20);
             window.Property(w => w.Currency).HasMaxLength(3).IsFixedLength();
+            window.Property(w => w.OpenedAt).HasDefaultValueSql("now()");
             // The close job finds due windows on this index (lesson s2-l12).
             window.HasIndex(w => w.Deadline, "funding_windows_due").HasFilter("status IN ('LIVE', 'ENDED')").HasDatabaseName("funding_windows_due");
             // Written only by the close's SQL: when the decision was made, and the check a minute later (lesson s3-l05).
@@ -91,18 +96,33 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
                 t.HasCheckConstraint("pledge_ledger_sign",
                     "(kind = 'ACTIVATE' AND delta_minor > 0) OR (kind IN ('CANCEL', 'DROP') AND delta_minor < 0) OR (kind = 'CHANGE' AND delta_minor <> 0)");
             });
-            entry.HasKey(e => e.EntryId);
+            // Partitioned by month on created_at (lesson s3-l10): every key must include it.
+            entry.HasKey(e => new { e.EntryId, e.CreatedAt });
             entry.Property(e => e.EntryId).UseIdentityAlwaysColumn();
             entry.Property(e => e.CauseId).HasMaxLength(200);
             entry.Property(e => e.Kind)
                 .HasConversion(k => Application.StatusNames.Of(k), k => Application.StatusNames.Parse<LedgerKind>(k))
                 .HasMaxLength(10);
             entry.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
-            // A replayed request or message cannot add a second entry.
-            entry.HasIndex(e => new { e.CauseId, e.Kind }).IsUnique();
-            // Two different causes cannot activate one pledge twice.
-            entry.HasIndex(e => e.PledgeId).IsUnique().HasFilter("kind = 'ACTIVATE'").HasDatabaseName("one_activation_per_pledge");
-            entry.HasIndex(e => e.CampaignId).IncludeProperties(e => e.DeltaMinor);
+            entry.HasIndex(e => new { e.CampaignId, e.CreatedAt }).IncludeProperties(e => e.DeltaMinor);
+        });
+
+        // The replay guards that a partitioned table cannot hold: unique across all months.
+        modelBuilder.Entity<LedgerCause>(cause =>
+        {
+            cause.ToTable("ledger_causes");
+            cause.HasKey(c => new { c.CauseId, c.Kind });
+            cause.Property(c => c.CauseId).HasMaxLength(200);
+            cause.Property(c => c.Kind).HasMaxLength(10);
+            cause.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
+            cause.HasIndex(c => c.CreatedAt);
+        });
+
+        modelBuilder.Entity<PledgeActivation>(activation =>
+        {
+            activation.ToTable("pledge_activations");
+            activation.HasKey(a => a.PledgeId);
+            activation.Property(a => a.PledgeId).ValueGeneratedNever();
         });
     }
 }

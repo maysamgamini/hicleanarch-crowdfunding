@@ -25,6 +25,7 @@ using Pledges.Contracts;
 using Pledges.Domain;
 using Pledges.Infrastructure.HotTier;
 using Pledges.Infrastructure.Persistence;
+using Pledges.Infrastructure.Sharding;
 using Pledges.Infrastructure.Totals;
 
 using StackExchange.Redis;
@@ -94,6 +95,10 @@ public static class PledgesModule
             services.AddSingleton<ISoldOutTiers, NoSoldOutTiers>();
         }
 
+        // Sums are job work: the shard's connection is the jobs role, without the request path's two-second limit.
+        services.AddSingleton<ICampaignShards>(new SingleShard(jobsConnection));
+        services.AddSingleton<ILedgerSums, ShardedLedgerSums>();
+        services.AddHostedService<LedgerPartitionJob>();
         return services
             .AddPledgesApplication()
             .AddScoped<EfFundingWindows>()

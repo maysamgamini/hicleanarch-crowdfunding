@@ -32,8 +32,9 @@ internal sealed class EfLastDayRule(PledgesDbContext db) : ILastDayRule
                 """, cancellationToken));
 
         // Read after the lock: every cancel that held it before has committed or rolled back.
-        var goal = await db.FundingWindows.AsNoTracking().Where(w => w.CampaignId == campaignId).Select(w => w.GoalMinor).SingleAsync(cancellationToken);
-        var sum = await db.Ledger.Where(e => e.CampaignId == campaignId).SumAsync(e => (long?)e.DeltaMinor, cancellationToken) ?? 0;
+        var window = await db.FundingWindows.AsNoTracking().Where(w => w.CampaignId == campaignId).Select(w => new { w.GoalMinor, w.OpenedAt }).SingleAsync(cancellationToken);
+        var goal = window.GoalMinor;
+        var sum = await db.Ledger.Where(e => e.CampaignId == campaignId && e.CreatedAt >= window.OpenedAt).SumAsync(e => (long?)e.DeltaMinor, cancellationToken) ?? 0;
         return sum < goal || sum - decreaseMinor >= goal;
     }
 }
