@@ -46,15 +46,13 @@ internal sealed class Handlers(Notifier notifier) :
 
     public Task Handle(PledgeCancelled e, CancellationToken ct) => notifier.Cancelled(e.PledgeId, e.CampaignId, e.BackerId, e.OccurredAt, ct);
 
+    /// <summary>Every backer, in one statement: a row each, sent later by the worker.</summary>
     public async Task Handle(CampaignFundingDecided e, CancellationToken ct)
     {
         var funded = e.Outcome == CampaignFundingDecided.Funded;
-        foreach (var backer in await notifier.BackersOf(e.CampaignId, ct))
-        {
-            await notifier.Tell(e.EventId, backer, funded ? "campaign_funded" : "campaign_unsuccessful",
-                funded ? "The campaign is funded" : "The campaign was not funded",
-                funded ? "It reached its goal. Your saved card will be charged in the next few minutes." : "It did not reach its goal. You were not charged, and you will not be.", ct);
-        }
+        await notifier.TellBackers(e.EventId, e.CampaignId, funded ? "campaign_funded" : "campaign_unsuccessful",
+            funded ? "The campaign is funded" : "The campaign was not funded",
+            funded ? "It reached its goal. Your saved card will be charged in the next few minutes." : "It did not reach its goal. You were not charged, and you will not be.", ct);
     }
 
     /// <summary>The creator only: each backer is told by their own pledge's <see cref="PledgeReleased"/>.</summary>

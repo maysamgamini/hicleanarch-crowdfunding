@@ -23,6 +23,13 @@ public sealed class Database : IAsyncLifetime
 
     public string Owner => _container.GetConnectionString();
 
+    /// <summary>
+    /// The emails every host of the run sends. The hosts share one database, so any host's email
+    /// worker may send an email another host's handler recorded, as any task's would in AWS: a test
+    /// looks for its own recipients here, whichever host sent them.
+    /// </summary>
+    public static Notifications.InMemoryEmailSender Mail { get; } = new();
+
     public string Campaigns => new Npgsql.NpgsqlConnectionStringBuilder(Owner)
     {
         Username = "campaigns_app",
@@ -103,7 +110,11 @@ public sealed class Database : IAsyncLifetime
     /// <summary>A fresh host process on this database: a new host is what a restart looks like.</summary>
     public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(web => web
-            .ConfigureTestServices(s => services?.Invoke(s))
+            .ConfigureTestServices(s =>
+            {
+                s.AddSingleton(Mail);
+                services?.Invoke(s);
+            })
             .UseEnvironment("Testing")
             // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.
             .UseSetting("ConnectionStrings:Owner", Owner)
@@ -117,6 +128,8 @@ public sealed class Database : IAsyncLifetime
             .UseSetting("Payments:Settlement:PollEvery", "01:00:00")
             .UseSetting("Payments:Money:PollEvery", "01:00:00")
             .UseSetting("Pledges:CloseEvery", "01:00:00")
+            // The email worker looks for new rows often, so a test waits for an email briefly.
+            .UseSetting("Notifications:PollEvery", "00:00:00.200")
             .UseSetting("Auth:ClientId", ClientId)
             .UseSetting("Auth:LocalSigningKey", SigningKey));
 
