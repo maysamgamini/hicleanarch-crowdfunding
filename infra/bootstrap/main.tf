@@ -128,12 +128,111 @@ resource "aws_iam_role" "deploy" {
   assume_role_policy = data.aws_iam_policy_document.github_assume.json
 }
 
-# The sandbox creates most kinds of resources, so the role gets PowerUserAccess, which grants
-# no IAM rights. The IAM rights below let it create only the project's own task roles, and only
-# with the task boundary attached, so no role it creates can do more than a task needs.
-resource "aws_iam_role_policy_attachment" "deploy_power_user" {
+# What the sandbox workflow does outside IAM: apply and destroy infra/env, push the images, run the
+# migration task, create test users. Only the services infra/env uses, in the course's Region; the
+# project's own secrets, topics, log groups, image repositories and state bucket. No KMS rights:
+# every key the sandbox encrypts with is an AWS managed key, which the services use on its behalf.
+# The IAM rights (deploy_iam below) let it create only the project's own task roles, and only with
+# the task boundary attached, so no role it creates can do more than a task needs.
+data "aws_iam_policy_document" "deploy_services" {
+  statement {
+    sid = "SandboxServices"
+    actions = [
+      "ecs:*", "elasticloadbalancing:*", "rds:*", "elasticache:*", "cognito-idp:*",
+      "application-autoscaling:*", "cloudwatch:*", "ses:*",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.region]
+    }
+  }
+  # The network: a VPC and what it holds, nothing that runs (no instances, no NAT, no endpoints).
+  statement {
+    sid = "SandboxNetwork"
+    actions = [
+      "ec2:Describe*", "ec2:GetManagedPrefixListEntries", "ec2:CreateTags", "ec2:DeleteTags",
+      "ec2:CreateVpc", "ec2:DeleteVpc", "ec2:ModifyVpcAttribute",
+      "ec2:CreateSubnet", "ec2:DeleteSubnet", "ec2:ModifySubnetAttribute",
+      "ec2:CreateInternetGateway", "ec2:DeleteInternetGateway", "ec2:AttachInternetGateway", "ec2:DetachInternetGateway",
+      "ec2:CreateRouteTable", "ec2:DeleteRouteTable", "ec2:CreateRoute", "ec2:DeleteRoute", "ec2:ReplaceRoute",
+      "ec2:AssociateRouteTable", "ec2:DisassociateRouteTable", "ec2:ReplaceRouteTableAssociation",
+      "ec2:CreateSecurityGroup", "ec2:DeleteSecurityGroup", "ec2:ModifySecurityGroupRules",
+      "ec2:AuthorizeSecurityGroupIngress", "ec2:AuthorizeSecurityGroupEgress",
+      "ec2:RevokeSecurityGroupIngress", "ec2:RevokeSecurityGroupEgress",
+      "ec2:UpdateSecurityGroupRuleDescriptionsIngress", "ec2:UpdateSecurityGroupRuleDescriptionsEgress",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:RequestedRegion"
+      values   = [var.region]
+    }
+  }
+  # CloudFront is global: its API has no Region of the sandbox's own.
+  statement {
+    sid       = "SandboxCdn"
+    actions   = ["cloudfront:*"]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "ProjectSecrets"
+    actions   = ["secretsmanager:*"]
+    resources = ["arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:${var.project}/*"]
+  }
+  statement {
+    sid       = "ProjectAlarmTopics"
+    actions   = ["sns:*"]
+    resources = ["arn:aws:sns:${var.region}:${data.aws_caller_identity.current.account_id}:${var.project}-*"]
+  }
+  statement {
+    sid     = "ProjectLogGroups"
+    actions = ["logs:*"]
+    resources = [
+      "arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:/${var.project}/*",
+      "arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:log-group:/aws/ecs/application/metrics*",
+    ]
+  }
+  statement {
+    sid       = "ListLogGroups"
+    actions   = ["logs:DescribeLogGroups"]
+    resources = ["*"]
+  }
+  statement {
+    sid       = "PushImagesSignIn"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+  statement {
+    sid = "PushImages"
+    actions = [
+      "ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload",
+      "ecr:PutImage", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:DescribeImages", "ecr:DescribeRepositories",
+    ]
+    resources = [aws_ecr_repository.api.arn, aws_ecr_repository.gateway.arn]
+  }
+  # The environment's state: read, write, and the lock file S3 itself keeps (use_lockfile).
+  statement {
+    sid       = "StateBucket"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.state.arn]
+  }
+  statement {
+    sid       = "StateObjects"
+    actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.state.arn}/env/*"]
+  }
+}
+
+resource "aws_iam_policy" "deploy_services" {
+  name   = "${var.project}-github-deploy-services"
+  policy = data.aws_iam_policy_document.deploy_services.json
+}
+
+resource "aws_iam_role_policy_attachment" "deploy_services" {
   role       = aws_iam_role.deploy.name
-  policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
+  policy_arn = aws_iam_policy.deploy_services.arn
 }
 
 # The most any task role may do, whatever policies are attached to it.
@@ -229,14 +328,14 @@ data "aws_iam_policy_document" "deploy_iam" {
     ]
     resources = [aws_iam_role.deploy.arn, aws_iam_role.packages.arn]
   }
-  # Nor the boundary itself.
+  # Nor the boundary, nor the deploy role's own service policy.
   statement {
     effect = "Deny"
     actions = [
       "iam:CreatePolicyVersion", "iam:DeletePolicy", "iam:DeletePolicyVersion", "iam:SetDefaultPolicyVersion",
       "iam:TagPolicy", "iam:UntagPolicy",
     ]
-    resources = [aws_iam_policy.task_boundary.arn]
+    resources = [aws_iam_policy.task_boundary.arn, aws_iam_policy.deploy_services.arn]
   }
 }
 
