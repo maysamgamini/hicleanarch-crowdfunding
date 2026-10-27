@@ -31,6 +31,8 @@ dotnet test                                   # every test; the integration test
 
 Each module connects as its own database role (`campaigns_app`, `pledges_app`, `payments_app`, `notifications_app`), which can use only its own schema. Pledges' background jobs (the close and the totals aggregator) connect as `pledges_jobs`, with the same rights but without the two-second `transaction_timeout` that `migrate` sets on `pledges_app` and checks is enforced. `migrate` connects as the owner, creates the roles and schemas, applies each module's EF Core migrations and grants the module's role its tables.
 
+Emails are kept in memory, not sent: each one is logged, and `GET /dev/emails` (optionally `?to=<user id>`) lists them, newest first. Both exist only on a laptop (the Development environment).
+
 Payments runs on a fake PSP in memory. On a laptop, `POST /dev/fake-psp/setups/{setup_id}/complete` plays the backer finishing the card form: the setup id is the start of the `client_secret` a new-card pledge returns.
 
 ## Run it locally
