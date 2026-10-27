@@ -12,7 +12,8 @@ namespace Pledges.Infrastructure;
 
 /// <summary>
 /// Pledges' failure modes, as numbers: a campaign past its deadline still LIVE (the close job is not
-/// running), or ENDED for too long (a pass died between the close and the decision).
+/// running), ENDED for too long (a pass died between the close and the decision), or decided on a
+/// sum that differed a minute later (an entry landed after the time fence).
 /// </summary>
 internal sealed partial class PledgesMonitor(IServiceScopeFactory scopes, ILogger<PledgesMonitor> logger) : ModuleMonitor(scopes, logger)
 {
@@ -22,6 +23,13 @@ internal sealed partial class PledgesMonitor(IServiceScopeFactory scopes, ILogge
     public static readonly Operations.Measured EndedUndecided = new Operations.Measured(
         "campaigns.ended_undecided", "{campaign}", "Campaigns ENDED for more than 5 minutes without a decision").Register();
 
+    /// <summary>
+    /// A level read from the rows, not a count of events: every task reports the same number, it
+    /// survives a restart, and it falls back to 0 a day after the recheck, by when someone has looked.
+    /// </summary>
+    public static readonly Operations.Measured RecheckMismatches = new Operations.Measured(
+        "campaigns.recheck_mismatches", "{campaign}", "Campaigns rechecked in the last 24 hours whose ledger sum a minute after the decision differs from the decided sum").Register();
+
     protected override async Task Measure(IServiceProvider services, CancellationToken cancellationToken)
     {
         var db = services.GetRequiredService<PledgesDbContext>();
@@ -30,6 +38,10 @@ internal sealed partial class PledgesMonitor(IServiceScopeFactory scopes, ILogge
             """).SingleAsync(cancellationToken));
         EndedUndecided.Set(await db.Database.SqlQuery<int>($"""
             SELECT count(*)::int AS "Value" FROM pledges.funding_windows WHERE status = 'ENDED' AND ended_at < now() - interval '5 minutes'
+            """).SingleAsync(cancellationToken));
+        RecheckMismatches.Set(await db.Database.SqlQuery<int>($"""
+            SELECT count(*)::int AS "Value" FROM pledges.funding_windows
+            WHERE rechecked_at > now() - interval '24 hours' AND recheck_minor <> final_minor
             """).SingleAsync(cancellationToken));
     }
 }

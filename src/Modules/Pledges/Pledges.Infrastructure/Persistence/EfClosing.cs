@@ -1,5 +1,3 @@
-using System.Diagnostics.Metrics;
-
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -15,11 +13,6 @@ public sealed record TimeFence(TimeSpan TransactionLimit, TimeSpan WaitAfterEnd,
 
 internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, ILogger<EfClosing> logger) : IClosing
 {
-    private static readonly Meter Meter = new("CrowdFunding.Pledges");
-
-    // Alarmed on in s2-l16's dashboard: any value above zero means a ledger entry landed after a decision's sum.
-    private static readonly Counter<long> Mismatches = Meter.CreateCounter<long>("pledges.close.recheck_mismatches");
-
     public TimeSpan WaitAfterEnd => fence.WaitAfterEnd;
 
     // The partial index funding_windows_due holds exactly these rows.
@@ -81,6 +74,8 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
     {
         // The sum again, a minute after the decision, kept beside the recorded one. Later entries of
         // other kinds (a dropped charge) come long after, so a minute later only a fence failure differs.
+        // The rows themselves are what the alarm counts (PledgesMonitor), so it does not depend on
+        // which task found the difference or on that task living until the next metrics export.
         var rechecked = await db.Database.SqlQuery<Recheck>($"""
             UPDATE pledges.funding_windows w
             SET rechecked_at = now(),
@@ -95,7 +90,6 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
         foreach (var r in differed)
         {
             LogMismatch(logger, r.CampaignId, r.FinalMinor, r.RecheckMinor);
-            Mismatches.Add(1);
         }
 
         return differed.Count;

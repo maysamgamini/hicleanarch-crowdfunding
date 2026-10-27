@@ -37,8 +37,8 @@ public interface IClosing
 
     /// <summary>
     /// The check behind the fence: for campaigns decided at least a minute ago and not yet checked,
-    /// sums the ledger again and compares it with the recorded sum. Returns how many differed; each
-    /// is logged and counted for an alarm.
+    /// sums the ledger again and keeps it beside the recorded sum. Returns how many differed; each is
+    /// logged, and the rows raise the alarm while they are recent.
     /// </summary>
     Task<int> RecheckDecided(int batchSize, CancellationToken cancellationToken);
 
