@@ -153,8 +153,12 @@ public sealed class CardSetupTests(Database database) : IDisposable
         var late = await Deliver(Psp.CompleteSetup(setupId));
 
         Assert.Equal(HttpStatusCode.OK, late.StatusCode); // the PSP is told we got it
-        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM pledges.inbox WHERE handler LIKE '%ActivatePledge'", Guid.Empty) > 0
-            && await given.Scalar<long>("SELECT count(*) FROM payments.outbox WHERE delivered_at IS NULL", Guid.Empty) == 0);
+        // Wait for this pledge's own message to have been handled by Pledges, and nothing else.
+        await Scenario.Eventually(async () => await given.Scalar<long>("""
+            SELECT count(*) FROM payments.outbox o
+            JOIN pledges.inbox i ON i.event_id = o.id AND i.handler LIKE '%ActivatePledge'
+            WHERE o.type = 'PaymentMethodSaved' AND o.payload ->> 'pledgeId' = @id::text
+            """, pledgeId) == 1);
         Assert.Equal("EXPIRED", await given.Scalar<string>("SELECT status FROM pledges.pledges WHERE id = @id", pledgeId));
         Assert.Equal(0L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(0, await given.Scalar<int>("SELECT claimed + held FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
@@ -187,5 +191,29 @@ public sealed class CardSetupTests(Database database) : IDisposable
         Assert.False(WebhookSignature.Verify("secret-0123456789abcdef", signature, "{\"a\":1}", now.AddMinutes(6)));
         Assert.False(WebhookSignature.Verify("secret-0123456789abcdef", null, "{\"a\":1}", now));
         Assert.False(WebhookSignature.Verify("secret-0123456789abcdef", "t=abc,v1=00", "{\"a\":1}", now));
+    }
+
+    [Fact]
+    public void Any_of_several_signatures_may_match_and_a_malformed_header_is_refused()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var signature = WebhookSignature.Sign("secret-0123456789abcdef", "{\"a\":1}", now);
+        var v1 = signature.Split(",v1=")[1];
+        var t = signature.Split(',')[0];
+
+        Assert.True(WebhookSignature.Verify("secret-0123456789abcdef", $"{t},v1=0000,v1={v1}", "{\"a\":1}", now)); // while the PSP rotates its secret
+        Assert.False(WebhookSignature.Verify("secret-0123456789abcdef", $"{t},v1=0000,v1=1111", "{\"a\":1}", now));
+        Assert.False(WebhookSignature.Verify("secret-0123456789abcdef", $"{t},{t},garbage", "{\"a\":1}", now));
+        Assert.False(WebhookSignature.Verify("secret-0123456789abcdef", $"t=99999999999999999,v1={v1}", "{\"a\":1}", now));
+    }
+
+    [Fact]
+    public async Task A_signed_message_we_cannot_read_is_a_400()
+    {
+        var body = "{\"not\":\"a message\"}";
+
+        var response = await Deliver(new SignedWebhook(body, WebhookSignature.Sign(Database.WebhookSecret, body, DateTimeOffset.UtcNow)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 }

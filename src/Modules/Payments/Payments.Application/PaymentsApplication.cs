@@ -12,5 +12,6 @@ public static class PaymentsApplication
         services
             .AddScoped<ICommandHandler<StartCardSetup, CardSetupStarted>, StartCardSetupHandler>()
             .AddScoped<ICommandHandler<HandlePspWebhook, WebhookHandled>, HandlePspWebhookHandler>()
+            .AddScoped<ChargeResults>()
             .AddScoped<ICommandHandler<RunSettlement, bool>, RunSettlementHandler>();
 }

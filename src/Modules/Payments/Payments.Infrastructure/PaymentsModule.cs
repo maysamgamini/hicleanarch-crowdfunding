@@ -97,9 +97,18 @@ public static class PaymentsModule
             return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The signature does not match.");
         }
 
-        using var message = JsonDocument.Parse(body);
-        var root = message.RootElement;
-        var command = new HandlePspWebhook(root.GetProperty("id").GetString()!, root.GetProperty("type").GetString()!, root.GetProperty("data").Clone());
+        HandlePspWebhook command;
+        try
+        {
+            using var message = JsonDocument.Parse(body);
+            var root = message.RootElement;
+            command = new HandlePspWebhook(root.GetProperty("id").GetString()!, root.GetProperty("type").GetString()!, root.GetProperty("data").Clone());
+        }
+        catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The message is not one we understand.");
+        }
+
         var dispatcher = services.GetRequiredService<IDispatcher>();
         var handled = await services.GetRequiredService<ModuleTransaction<PaymentsDbContext>>()
             .Run(c => dispatcher.Send<HandlePspWebhook, WebhookHandled>(command, c), ct);

@@ -36,10 +36,13 @@ public sealed class RuleTests(Database database) : IDisposable
 
     private async Task Decide(Scenario given, Scenario.Published campaign)
     {
-        // The deadline is now: every pledge so far was made before it.
-        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() WHERE campaign_id = @id", campaign.CampaignId);
+        await PassTheDeadline(given, campaign);
         await Send<CloseDueCampaigns, int>(new CloseDueCampaigns(campaign.CampaignId));
     }
+
+    /// <summary>The deadline is now: every pledge so far was made before it. No close pass has run.</summary>
+    private static Task PassTheDeadline(Scenario given, Scenario.Published campaign) =>
+        given.Execute("UPDATE pledges.funding_windows SET deadline = now() WHERE campaign_id = @id", campaign.CampaignId);
 
     private async Task SettleUntilDone(Scenario given, Scenario.Published campaign)
     {
@@ -66,7 +69,11 @@ public sealed class RuleTests(Database database) : IDisposable
         await Decide(given, campaign);
         await Task.Delay(500, Ct); // anything the decision set in motion has had time to run
 
+        Assert.Equal("UNSUCCESSFUL", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(before, Psp.ChargesMade);
+        Assert.Equal(0L, await given.Scalar<long>(
+            "SELECT count(*) FROM pledges.outbox WHERE type = 'PledgeChargeRequested' AND payload::jsonb ->> 'campaignId' = @id::text", campaign.CampaignId));
+        Assert.Equal(0L, await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(0L, await given.Scalar<long>("""
             SELECT count(*) FROM payments.charges c
             JOIN pledges.funding_windows w ON w.campaign_id = c.campaign_id
@@ -85,12 +92,14 @@ public sealed class RuleTests(Database database) : IDisposable
         }
 
         await Decide(given, campaign);
+        var before = Psp.ChargesMade;
         Psp.LoseNextReplies(2); // two charges happen and their replies are lost
         await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId) == 4);
         await Task.WhenAll(Task.Run(() => SettleUntilDone(given, campaign), Ct), Task.Run(() => SettleUntilDone(given, campaign), Ct));
         await SettleUntilDone(given, campaign);
 
         Assert.Equal(4L, await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id AND status = 'CHARGED'", campaign.CampaignId));
+        Assert.Equal(before + 4, Psp.ChargesMade); // four cards, four charges at the PSP: none twice
         Assert.Equal(0L, await given.Scalar<long>("""
             SELECT count(*) FROM (
                 SELECT a.pledge_id FROM payments.charge_attempts a JOIN payments.charges c USING (pledge_id)
@@ -127,11 +136,15 @@ public sealed class RuleTests(Database database) : IDisposable
         var campaign = await given.Publish(1_000);
         await PledgeWithCard(given, campaign, Guid.NewGuid());
         await PledgeWithCard(given, campaign, Guid.NewGuid());
-        await Decide(given, campaign);
+        await PassTheDeadline(given, campaign);
 
+        // After the deadline, before any close pass: the funding window still says LIVE, and the
+        // database's clock alone refuses the pledge.
         var late = await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct);
-
         Assert.Equal(HttpStatusCode.Conflict, late.StatusCode);
+        Assert.Equal("LIVE", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+
+        await Send<CloseDueCampaigns, int>(new CloseDueCampaigns(campaign.CampaignId));
         Assert.Equal(0L, await given.Scalar<long>("""
             SELECT count(*) FROM pledges.funding_windows w
             WHERE w.campaign_id = @id AND (w.final_minor IS NULL

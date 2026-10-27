@@ -27,6 +27,8 @@ public enum WebhookHandled
 public sealed class HandlePspWebhookHandler(
     IWebhookInbox inbox,
     ICardSetups setups,
+    ISettlements settlements,
+    ChargeResults results,
     TimeProvider clock,
     [FromKeyedServices(PaymentsModuleName.Value)] IOutbox outbox) : ICommandHandler<HandlePspWebhook, WebhookHandled>
 {
@@ -59,8 +61,31 @@ public sealed class HandlePspWebhookHandler(
                     ? WebhookHandled.Applied
                     : WebhookHandled.Ignored);
 
+            // A charge's result, when its reply was lost or the bank decided later. The same conditional
+            // move as the resolver's: whichever hears first records it, the other changes nothing.
+            case "charge_succeeded":
+            case "charge_failed":
+                return Result.Success(await ApplyCharge(command, cancellationToken) ? WebhookHandled.Applied : WebhookHandled.Ignored);
+
             default:
                 return Result.Success(WebhookHandled.Ignored);
         }
+    }
+
+    private async Task<bool> ApplyCharge(HandlePspWebhook command, CancellationToken ct)
+    {
+        var data = command.Data;
+        if (!PublicId.TryParse("plg", data.GetProperty("pledge_id").GetString(), out var pledgeId)
+            || await settlements.FindCharge(pledgeId, ct) is not { } found)
+        {
+            return false;
+        }
+
+        var paymentId = data.GetProperty("payment_id").GetString()!;
+        var n = data.GetProperty("attempt_no").GetInt32();
+        ChargeOutcome outcome = command.Type == "charge_succeeded"
+            ? new ChargeOutcome.Succeeded(paymentId)
+            : new ChargeOutcome.Declined(data.GetProperty("decline_code").GetString()!, paymentId);
+        return await results.Apply(found.CampaignId, found.Work, n, outcome, ct);
     }
 }

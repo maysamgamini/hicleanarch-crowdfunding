@@ -15,6 +15,8 @@ namespace Notifications;
 /// so it is one project: the handlers, the storage and the senders together.
 /// </summary>
 internal sealed class Handlers(Notifier notifier) :
+    IIntegrationEventHandler<CampaignPublished>,
+    IIntegrationEventHandler<CampaignSettled>,
     IIntegrationEventHandler<PledgeActivated>,
     IIntegrationEventHandler<PledgeCancelled>,
     IIntegrationEventHandler<CampaignFundingDecided>,
@@ -22,6 +24,18 @@ internal sealed class Handlers(Notifier notifier) :
     IIntegrationEventHandler<PledgeChargeSucceeded>,
     IIntegrationEventHandler<PledgeChargeFailed>
 {
+    public Task Handle(CampaignPublished e, CancellationToken ct) => notifier.RememberCreator(e.CampaignId, e.CreatorId, ct);
+
+    /// <summary>The creator's summary, once every charge has ended.</summary>
+    public async Task Handle(CampaignSettled e, CancellationToken ct)
+    {
+        if (await notifier.CreatorOf(e.CampaignId, ct) is { } creator)
+        {
+            await notifier.Tell(e.EventId, creator, "campaign_settled", "Your campaign is settled",
+                $"{e.Charged.ToString(CultureInfo.InvariantCulture)} pledges were charged; {e.Failed.ToString(CultureInfo.InvariantCulture)} could not be charged and were dropped.", ct);
+        }
+    }
+
     public async Task Handle(PledgeActivated e, CancellationToken ct)
     {
         await notifier.Remember(e.CampaignId, e.BackerId, ct);
@@ -56,7 +70,8 @@ internal sealed class Handlers(Notifier notifier) :
 
     public Task Handle(PledgeChargeFailed e, CancellationToken ct) =>
         e.Final
-            ? notifier.Tell(e.EventId, e.BackerId, "charge_failed", "We could not charge your card", "Three attempts were declined, so your pledge was dropped.", ct)
+            ? notifier.Tell(e.EventId, e.BackerId, "charge_failed", "We could not charge your card",
+                $"{e.AttemptNo.ToString(CultureInfo.InvariantCulture)} attempts were declined, so your pledge was dropped.", ct)
             : Task.CompletedTask;
 
     private static string Money(long minor, string currency) =>

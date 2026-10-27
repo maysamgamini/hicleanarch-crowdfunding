@@ -3,8 +3,6 @@ using BuildingBlocks.Domain;
 
 using Microsoft.Extensions.DependencyInjection;
 
-using Payments.Contracts;
-
 using Pledges.Contracts;
 using Pledges.Domain;
 
@@ -12,7 +10,9 @@ namespace Pledges.Application;
 
 /// <summary>
 /// A pledge, with a saved card or with a new one. <see cref="CauseId"/> names the request, so its
-/// ledger entry can be traced back to it.
+/// ledger entry can be traced back to it. A new card's setup was started at the PSP before this
+/// command's transaction opened; <see cref="NewCard"/> carries the pledge id it was started for and
+/// the secret the PSP's card form needs.
 /// </summary>
 public sealed record PlacePledge(
     Guid CampaignId,
@@ -20,7 +20,11 @@ public sealed record PlacePledge(
     Guid? TierId,
     long AmountMinor,
     string? PaymentMethodRef,
-    string CauseId) : ICommand<PledgePlaced>;
+    string CauseId,
+    NewCard? NewCard = null) : ICommand<PledgePlaced>;
+
+/// <summary>A card setup already started at the PSP for the pledge that will have <see cref="PledgeId"/>.</summary>
+public sealed record NewCard(Guid PledgeId, string ClientSecret);
 
 /// <summary>A new-card pledge also gets when its hold ends and the secret the PSP's card form needs.</summary>
 public sealed record PledgePlaced(string PledgeId, string Status, DateTimeOffset? HoldExpiresAt = null, string? ClientSecret = null);
@@ -36,7 +40,6 @@ public sealed class PlacePledgeHandler(
     ITierSlots tiers,
     IPledges pledges,
     IPledgeLedger ledger,
-    IDispatcher dispatcher,
     TimeProvider clock,
     [FromKeyedServices(PledgesModuleName.Value)] IOutbox outbox) : ICommandHandler<PlacePledge, PledgePlaced>
 {
@@ -53,7 +56,9 @@ public sealed class PlacePledgeHandler(
 
         if (command.PaymentMethodRef is null)
         {
-            return await WithNewCard(command, cancellationToken);
+            return command.NewCard is { } newCard
+                ? await WithNewCard(command, newCard, cancellationToken)
+                : Result.Failure<PledgePlaced>(PledgeErrors.CardSetupFailed);
         }
 
         // Lesson 7's fence, pledge side: closed by status or by the database's clock.
@@ -105,9 +110,10 @@ public sealed class PlacePledgeHandler(
 
     /// <summary>
     /// Lesson 1's second step: the pledge waits for its card and does not count yet, but it keeps a
-    /// tier place for 15 minutes. Payments starts the card setup and returns the form's secret.
+    /// tier place for 15 minutes. The card setup was started before this transaction; nothing here
+    /// calls the PSP.
     /// </summary>
-    private async Task<Result<PledgePlaced>> WithNewCard(PlacePledge command, CancellationToken cancellationToken)
+    private async Task<Result<PledgePlaced>> WithNewCard(PlacePledge command, NewCard newCard, CancellationToken cancellationToken)
     {
         if (!await windows.IsOpen(command.CampaignId, cancellationToken))
         {
@@ -124,7 +130,7 @@ public sealed class PlacePledgeHandler(
             }
         }
 
-        var pledge = Pledge.WaitingForCard(command.CampaignId, command.BackerId, tier, command.AmountMinor, clock.GetUtcNow() + HoldFor);
+        var pledge = Pledge.WaitingForCard(newCard.PledgeId, command.CampaignId, command.BackerId, tier, command.AmountMinor, clock.GetUtcNow() + HoldFor);
         if (!pledge.IsSuccess)
         {
             return Result.Failure<PledgePlaced>(pledge.Errors);
@@ -140,12 +146,6 @@ public sealed class PlacePledgeHandler(
             return Result.Failure<PledgePlaced>(PledgeErrors.TierSoldOut);
         }
 
-        var setup = await dispatcher.Send<StartCardSetup, CardSetupStarted>(new StartCardSetup(pledge.Value.Id, command.BackerId), cancellationToken);
-        if (!setup.IsSuccess)
-        {
-            return Result.Failure<PledgePlaced>(PledgeErrors.CardSetupFailed);
-        }
-
-        return Result.Success(new PledgePlaced(pledge.Value.PublicId, "PENDING_SETUP", pledge.Value.HoldExpiresAt, setup.Value.ClientSecret));
+        return Result.Success(new PledgePlaced(pledge.Value.PublicId, "PENDING_SETUP", pledge.Value.HoldExpiresAt, newCard.ClientSecret));
     }
 }

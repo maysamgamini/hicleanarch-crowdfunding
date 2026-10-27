@@ -113,5 +113,11 @@ public sealed class SettlementJob
 
     public DateTimeOffset? LeaseUntil { get; private set; }
 
+    /// <summary>
+    /// No worker claims the job before this: set when a pass gives it back with nothing it can do
+    /// yet, so a waiting campaign never keeps the workers from the next one.
+    /// </summary>
+    public DateTimeOffset? NotBefore { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 }

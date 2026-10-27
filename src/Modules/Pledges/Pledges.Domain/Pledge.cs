@@ -91,7 +91,7 @@ public sealed class Pledge
     /// <paramref name="holdExpiresAt"/>. Every waiting pledge gets an expiry, on any tier or none,
     /// so none waits forever.
     /// </summary>
-    public static Result<Pledge> WaitingForCard(Guid campaignId, Guid backerId, TierCounter? tier, long amountMinor, DateTimeOffset holdExpiresAt)
+    public static Result<Pledge> WaitingForCard(Guid id, Guid campaignId, Guid backerId, TierCounter? tier, long amountMinor, DateTimeOffset holdExpiresAt)
     {
         if (amountMinor <= 0)
         {
@@ -105,7 +105,7 @@ public sealed class Pledge
 
         return Result.Success(new Pledge
         {
-            Id = Guid.CreateVersion7(),
+            Id = id,
             CampaignId = campaignId,
             BackerId = backerId,
             TierId = tier?.TierId,

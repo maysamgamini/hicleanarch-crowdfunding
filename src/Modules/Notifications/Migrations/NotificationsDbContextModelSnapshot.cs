@@ -115,6 +115,22 @@ namespace Notifications.Migrations
                     b.ToTable("campaign_backers", "notifications");
                 });
 
+            modelBuilder.Entity("Notifications.CampaignCreator", b =>
+                {
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<Guid>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creator_id");
+
+                    b.HasKey("CampaignId")
+                        .HasName("pk_campaign_creators");
+
+                    b.ToTable("campaign_creators", "notifications");
+                });
+
             modelBuilder.Entity("Notifications.NotificationPreference", b =>
                 {
                     b.Property<Guid>("UserId")

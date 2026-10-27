@@ -176,6 +176,59 @@ public sealed class SettlementTests(Database database) : IDisposable
         Assert.Equal("one_success_per_pledge", refused.ConstraintName);
     }
 
+    [Fact]
+    public async Task A_job_that_must_wait_does_not_keep_the_workers_from_the_next_one()
+    {
+        var (given, waiting) = await Funded(FakePaymentProvider.CardSucceeds);
+        var (_, next) = await Funded(FakePaymentProvider.CardSucceeds);
+
+        // The first job's only charge is not due for an hour. Both jobs are made the oldest in the
+        // table, so a worker that claims "any job" meets them first, in this order.
+        await given.Execute("UPDATE payments.charges SET next_attempt_at = now() + interval '1 hour' WHERE campaign_id = @id", waiting.CampaignId);
+        await given.Execute("UPDATE payments.settlement_jobs SET created_at = '2000-01-01' WHERE campaign_id = @id", waiting.CampaignId);
+        await given.Execute("UPDATE payments.settlement_jobs SET created_at = '2000-01-02' WHERE campaign_id = @id", next.CampaignId);
+
+        Assert.False(await Send<RunSettlement, bool>(new RunSettlement("any-worker"))); // the waiting job: nothing to do yet
+        Assert.True(await given.Scalar<bool>("SELECT not_before > now() + interval '59 minutes' FROM payments.settlement_jobs WHERE campaign_id = @id", waiting.CampaignId));
+        Assert.True(await Send<RunSettlement, bool>(new RunSettlement("any-worker")));  // the next job, not the waiting one again
+
+        Assert.Equal(1L, await Count(given, next, "CHARGED"));
+        Assert.Equal(1L, await Count(given, waiting, "TO_CHARGE"));
+    }
+
+    [Fact]
+    public async Task A_charge_webhook_records_an_attempt_whose_reply_was_lost_once()
+    {
+        var (given, campaign) = await Funded(FakePaymentProvider.CardSucceeds);
+        Psp.LoseNextReplies(1);
+        await Settle(campaign);
+        Assert.Equal(1L, await Count(given, campaign, "CHARGING"));
+
+        var pledge = (await PledgesOf(given, campaign))[0];
+        var publicId = BuildingBlocks.Domain.PublicId.Format("plg", pledge);
+        var customer = await given.Scalar<string>(
+            "SELECT p.psp_customer_id FROM payments.psp_customers p JOIN payments.charges c ON c.backer_id = p.backer_id WHERE c.pledge_id = @id", pledge);
+        var paid = Assert.IsType<ChargeOutcome.Succeeded>(await Psp.LookUp(new ChargeReference(null, customer, publicId, 1), Ct));
+        var webhook = Psp.Webhook("charge_succeeded", new { payment_id = paid.PspPaymentId, pledge_id = publicId, attempt_no = 1 });
+
+        Assert.Equal(HttpStatusCode.OK, (await Deliver(webhook)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Deliver(webhook)).StatusCode); // the PSP sends it again
+
+        Assert.Equal(1L, await Count(given, campaign, "CHARGED"));
+        Assert.Equal(1L, await given.Scalar<long>(
+            "SELECT count(*) FROM payments.outbox WHERE type = 'PledgeChargeSucceeded' AND payload ->> 'pledgeId' = @id::text", pledge));
+        await Settle(campaign); // the resolver now finds nothing to resolve
+        Assert.Equal(1L, await given.Scalar<long>(
+            "SELECT count(*) FROM payments.outbox WHERE type = 'PledgeChargeSucceeded' AND payload ->> 'pledgeId' = @id::text", pledge));
+    }
+
+    private Task<HttpResponseMessage> Deliver(SignedWebhook webhook)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(webhook.Body, System.Text.Encoding.UTF8, "application/json") };
+        request.Headers.Add(WebhookSignature.Header, webhook.Signature);
+        return _host.CreateClient().SendAsync(request, Ct);
+    }
+
     private static async Task<List<Guid>> PledgesOf(Scenario given, Scenario.Published campaign)
     {
         var ids = new List<Guid>();

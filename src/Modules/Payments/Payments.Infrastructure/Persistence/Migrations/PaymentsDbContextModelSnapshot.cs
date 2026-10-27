@@ -322,6 +322,10 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("lease_until");
 
+                    b.Property<DateTimeOffset?>("NotBefore")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("not_before");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)

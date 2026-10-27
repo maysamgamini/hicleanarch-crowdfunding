@@ -35,6 +35,8 @@ public static class NotificationsModule
             .Configure((DbContextOptionsBuilder<NotificationsDbContext>)db, connectionString)
             .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor<NotificationsDbContext>>()));
         services.AddModuleEvents<NotificationsDbContext>(Name);
+        services.AddEventHandler<CampaignPublished, Handlers>(Name);
+        services.AddEventHandler<CampaignSettled, Handlers>(Name);
         services.AddEventHandler<PledgeActivated, Handlers>(Name);
         services.AddEventHandler<PledgeCancelled, Handlers>(Name);
         services.AddEventHandler<CampaignFundingDecided, Handlers>(Name);

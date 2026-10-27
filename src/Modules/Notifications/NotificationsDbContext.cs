@@ -36,6 +36,13 @@ internal sealed class NotificationsDbContext(DbContextOptions<NotificationsDbCon
             backer.ToTable("campaign_backers");
             backer.HasKey(b => new { b.CampaignId, b.BackerId });
         });
+
+        modelBuilder.Entity<CampaignCreator>(creator =>
+        {
+            creator.ToTable("campaign_creators");
+            creator.HasKey(c => c.CampaignId);
+            creator.Property(c => c.CampaignId).ValueGeneratedNever();
+        });
     }
 }
 
@@ -65,6 +72,14 @@ internal sealed class CampaignBacker
     public Guid CampaignId { get; init; }
 
     public Guid BackerId { get; init; }
+}
+
+/// <summary>Who created a campaign, as Notifications heard it when the campaign was published.</summary>
+internal sealed class CampaignCreator
+{
+    public Guid CampaignId { get; init; }
+
+    public Guid CreatorId { get; init; }
 }
 
 /// <summary>Used only by <c>dotnet ef migrations add</c>; it never connects.</summary>

@@ -26,10 +26,11 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
         var any = campaignId is null;
         return (await db.Database.SqlQuery<Guid>($"""
             UPDATE payments.settlement_jobs
-            SET status = 'RUNNING', lease_owner = {worker}, lease_until = now() + {lease}
+            SET status = 'RUNNING', lease_owner = {worker}, lease_until = now() + {lease}, not_before = NULL
             WHERE campaign_id = (
                 SELECT campaign_id FROM payments.settlement_jobs
                 WHERE status <> 'DONE' AND (lease_until IS NULL OR lease_until < now())
+                  AND (NOT {any} OR not_before IS NULL OR not_before <= now())   -- a named job is claimed at once
                   AND ({any} OR campaign_id = {only})
                 ORDER BY created_at
                 LIMIT 1
@@ -44,10 +45,27 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
             WHERE campaign_id = {campaignId} AND lease_owner = {worker} AND status = 'RUNNING'
             """, cancellationToken) == 1;
 
-    public Task Release(Guid campaignId, string worker, CancellationToken cancellationToken) =>
+    public Task Release(Guid campaignId, string worker, TimeSpan recheckAfter, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE payments.settlement_jobs SET status = 'PENDING', lease_owner = NULL, lease_until = NULL
-            WHERE campaign_id = {campaignId} AND lease_owner = {worker} AND status = 'RUNNING'
+            UPDATE payments.settlement_jobs j
+            SET status = 'PENDING', lease_owner = NULL, lease_until = NULL,
+                not_before = CASE
+                    WHEN EXISTS (SELECT 1 FROM payments.charges c
+                                 WHERE c.campaign_id = j.campaign_id AND c.status = 'TO_CHARGE'
+                                   AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now()))
+                        THEN NULL                       -- work is waiting now
+                    WHEN EXISTS (SELECT 1 FROM payments.charges c WHERE c.campaign_id = j.campaign_id AND c.status = 'CHARGING')
+                      OR (SELECT count(*) FROM payments.charges c WHERE c.campaign_id = j.campaign_id) < j.expected_charges
+                        THEN LEAST(                     -- an unknown attempt, or charges still to be created
+                            (SELECT min(c.next_attempt_at) FROM payments.charges c
+                             WHERE c.campaign_id = j.campaign_id AND c.status = 'TO_CHARGE'),
+                            now() + {recheckAfter})
+                    ELSE COALESCE(                      -- only retries, each due at its own time
+                        (SELECT min(c.next_attempt_at) FROM payments.charges c
+                         WHERE c.campaign_id = j.campaign_id AND c.status = 'TO_CHARGE'),
+                        now() + {recheckAfter})
+                END
+            WHERE j.campaign_id = {campaignId} AND j.lease_owner = {worker} AND j.status = 'RUNNING'
             """, cancellationToken);
 
     public async Task<bool> TryFinish(Guid campaignId, string worker, CancellationToken cancellationToken) =>
@@ -65,6 +83,14 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
             ORDER BY created_at
             """).AsNoTracking().ToListAsync(cancellationToken);
         return [.. rows.Select(c => new ChargeWork(c.PledgeId, c.BackerId, c.AmountMinor, c.Currency, c.PaymentMethodRef, c.Status, c.AttemptNo, c.PspPaymentId))];
+    }
+
+    public async Task<ChargeOfPledge?> FindCharge(Guid pledgeId, CancellationToken cancellationToken)
+    {
+        var c = await db.Charges.AsNoTracking().SingleOrDefaultAsync(c => c.PledgeId == pledgeId, cancellationToken);
+        return c is null
+            ? null
+            : new ChargeOfPledge(c.CampaignId, new ChargeWork(c.PledgeId, c.BackerId, c.AmountMinor, c.Currency, c.PaymentMethodRef, c.Status, c.AttemptNo, c.PspPaymentId));
     }
 
     public async Task<SettlementCounts> Counts(Guid campaignId, CancellationToken cancellationToken)

@@ -73,9 +73,26 @@ public static class PledgesModule
     public static IEndpointRouteBuilder MapPledgesEndpoints(this IEndpointRouteBuilder app)
     {
         // Every change carries an Idempotency-Key and runs once per key (lesson s1-a04).
-        app.MapPost("/v1/campaigns/{id}/pledges", (string id, PledgeRequest request, ClaimsPrincipal user, HttpContext http,
+        // A new card's setup is started at the PSP before the pledge's transaction opens, so no PSP
+        // call ever runs while that transaction holds the funding window or a tier row. A retry of the
+        // same request may start a second setup, which nobody completes and which costs nothing.
+        app.MapPost("/v1/campaigns/{id}/pledges", async (string id, PledgeRequest request, ClaimsPrincipal user, HttpContext http,
             IDispatcher dispatcher, IdempotentRequests<PledgesDbContext> once) =>
-            once.Run(http, user.UserId(), new { id, request }, async ct =>
+        {
+            NewCard? newCard = null;
+            if (request.PaymentMethodId is null)
+            {
+                var pledgeId = Guid.CreateVersion7();
+                var setup = await dispatcher.Send<StartCardSetup, CardSetupStarted>(new StartCardSetup(pledgeId, user.UserId()), http.RequestAborted);
+                if (!setup.IsSuccess)
+                {
+                    return new[] { PledgeErrors.CardSetupFailed }.ToProblem();
+                }
+
+                newCard = new NewCard(pledgeId, setup.Value.ClientSecret);
+            }
+
+            return await once.Run(http, user.UserId(), new { id, request }, async ct =>
             {
                 if (!PublicId.TryParse("cmp", id, out var campaignId))
                 {
@@ -94,7 +111,7 @@ public static class PledgesModule
                 }
 
                 var result = await dispatcher.Send<PlacePledge, PledgePlaced>(
-                    new PlacePledge(campaignId, user.UserId(), tierId, request.AmountMinor, request.PaymentMethodId, Cause(user, http)), ct);
+                    new PlacePledge(campaignId, user.UserId(), tierId, request.AmountMinor, request.PaymentMethodId, Cause(user, http), newCard), ct);
                 if (!result.IsSuccess)
                 {
                     return Result.Failure<Reply>(result.Errors);
@@ -111,7 +128,8 @@ public static class PledgesModule
                         setup = new { provider = "psp", client_secret = placed.ClientSecret },
                     };
                 return Result.Success(new Reply(StatusCodes.Status201Created, body, $"/v1/pledges/{placed.PledgeId}"));
-            })).RequireAuthorization(Policies.Backer).WithTags("Pledges");
+            });
+        }).RequireAuthorization(Policies.Backer).WithTags("Pledges");
 
         // PATCH sends the pledge's new amount and tier; tier_id null means no reward.
         app.MapPatch("/v1/pledges/{id}", (string id, ChangeRequest request, ClaimsPrincipal user, HttpContext http,
