@@ -18,9 +18,10 @@ public static class EventRegistration
                 Path.Combine(AppContext.BaseDirectory, sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EventRoutingOptions>>().Value.SubscriptionsFile))
             .With(sp.GetServices<EventSubscription>()));
         services.TryAddSingleton<EventRoutes>();
-        services.AddHostedService<EventRoutesCheck>();
         // A program with no broker publisher does not start while its outboxes owe the broker anything (s4-l02).
+        // First, so a start without the broker's settings names the rows at risk, not only the routes it lacks.
         services.AddHostedService<OwedPublishesCheck>();
+        services.AddHostedService<EventRoutesCheck>();
         services.TryAddSingleton<EventBus>();
         services.TryAddSingleton<OutboxDispatcher>();
         services.AddHostedService(sp => sp.GetRequiredService<OutboxDispatcher>());

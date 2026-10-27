@@ -90,7 +90,7 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         await Scenario.Eventually(async () =>
             await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id", funded.CampaignId) == 1
             && await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id", funded.CampaignId) == 1);
-        await using (var scope = host.Services.CreateAsyncScope())
+        await using (var scope = host.Payments().Services.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<RunSettlement, bool>(new RunSettlement("cache-test", funded.CampaignId), Ct);
         }

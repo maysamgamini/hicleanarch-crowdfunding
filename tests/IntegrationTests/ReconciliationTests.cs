@@ -34,7 +34,7 @@ public sealed class ReconciliationTests(Database database) : IDisposable
     private static async Task<Result<T>> Send<TCommand, T>(WebApplicationFactory<Program> host, TCommand command)
         where TCommand : ICommand<T>
     {
-        await using var scope = host.Services.CreateAsyncScope();
+        await using var scope = host.ServicesFor<TCommand>().CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<TCommand, T>(command, Ct);
     }
 
@@ -70,7 +70,7 @@ public sealed class ReconciliationTests(Database database) : IDisposable
     {
         var host = Host();
         var (given, campaign) = await Settled(host, 1);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         psp.ReportLagsBy(TimeSpan.FromHours(1));
         var transfers = psp.TransfersMade;
 
@@ -110,7 +110,7 @@ public sealed class ReconciliationTests(Database database) : IDisposable
     {
         var host = Host();
         var (given, campaign) = await Settled(host, 1);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         psp.ReportFeeAs(await FirstPayment(given, campaign), 999);
         var transfers = psp.TransfersMade;
         long counted = 0;
@@ -144,7 +144,7 @@ public sealed class ReconciliationTests(Database database) : IDisposable
         var host = Host();
         var (given, campaign) = await Settled(host, 1);
         var pledge = await given.Scalar<Guid>("SELECT pledge_id FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId);
-        host.Services.GetRequiredService<FakePaymentProvider>().AddToReport("pi_unbooked", PublicId.Format("plg", pledge), 6_000, 204);
+        host.Payments().Services.GetRequiredService<FakePaymentProvider>().AddToReport("pi_unbooked", PublicId.Format("plg", pledge), 6_000, 204);
 
         var pass = (await Send<RunMoneyPass, MoneyPass>(host, new RunMoneyPass(campaign.CampaignId))).Value;
 

@@ -7,6 +7,7 @@ using BuildingBlocks.Infrastructure.Valkey;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace IntegrationTests;
@@ -28,7 +29,7 @@ public sealed class CardSetupLaneTests : IDisposable
     public CardSetupLaneTests(Database database)
     {
         _database = database;
-        _host = database.StartHost(services => services.AddSingleton<ITokenBuckets>(new InProcessTokenBuckets(_laneClock)))
+        _host = database.StartHost(payments: web => web.ConfigureTestServices(services => services.AddSingleton<ITokenBuckets>(new InProcessTokenBuckets(_laneClock))))
             .WithWebHostBuilder(web => web.UseSetting("Payments:Budget:CardSetupsPerSecond", "0.5")); // one card setup every two seconds
     }
 

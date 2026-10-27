@@ -60,7 +60,10 @@ public sealed class HostingTests(Database database, Valkey valkey) : IClassFixtu
         var ready = await host.CreateClient().GetFromJsonAsync<JsonElement>("/health/ready", ct);
 
         Assert.Equal("ready", ready.GetProperty("status").GetString());
+        // Both services' ready checks: Payments' database is its own service's to check (s4-l10).
         var report = await ReadyReport(host, ct);
+        var payments = await host.Payments().Services.GetRequiredService<HealthCheckService>().CheckHealthAsync(c => c.Tags.Contains(HealthEndpoints.Ready), ct);
+        report = new HealthReport(report.Entries.Concat(payments.Entries).DistinctBy(e => e.Key).ToDictionary(), report.TotalDuration);
         Assert.Subset(report.Entries.Keys.ToHashSet(), new HashSet<string>
         {
             "database:Campaigns", "database:Pledges", "database:PledgesJobs", "database:Payments", "database:Notifications",

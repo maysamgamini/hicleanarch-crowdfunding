@@ -39,7 +39,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
     private static async Task<T> Send<TCommand, T>(WebApplicationFactory<Program> host, TCommand command)
         where TCommand : ICommand<T>
     {
-        await using var scope = host.Services.CreateAsyncScope();
+        await using var scope = host.ServicesFor<TCommand>().CreateAsyncScope();
         return (await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<TCommand, T>(command, Ct)).Value;
     }
 
@@ -134,7 +134,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
     {
         await using var host = Host(("Payments:Budget:ChargesPerSecond", "4"), ("Payments:Settlement:BatchSize", "100"));
         var (given, campaign) = await Funded(host, 10);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         var started = DateTimeOffset.UtcNow;
 
         await Send<RunSettlement, bool>(host, new RunSettlement("budget", campaign.CampaignId));
@@ -152,7 +152,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
     {
         await using var host = Host(("Payments:Budget:ChargesPerSecond", "4"));
         var (given, campaign) = await Funded(host, 1);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         var before = psp.ChargesMade;
         var started = DateTimeOffset.UtcNow;
         psp.RateLimitNext("charge", 1);
@@ -171,12 +171,12 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
     {
         await using var host = Host(("Payments:Breaker:MinimumThroughput", "2"), ("Payments:Breaker:OpenFor", "00:00:00.500"), ("Payments:Breaker:OpenJitter", "0"));
         var (given, campaign) = await Funded(host, 2);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         psp.Unreachable(true);
 
         Assert.False(await Send<RunSettlement, bool>(host, new RunSettlement("breaker", campaign.CampaignId)));
         Assert.False(await Send<RunSettlement, bool>(host, new RunSettlement("breaker", campaign.CampaignId)));
-        Assert.True(host.Services.GetRequiredService<CircuitBreaker>().IsOpen);
+        Assert.True(host.Payments().Services.GetRequiredService<CircuitBreaker>().IsOpen);
         var attempts = psp.Attempts;
 
         Assert.False(await Send<RunSettlement, bool>(host, new RunSettlement("breaker", campaign.CampaignId)));
@@ -188,7 +188,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
         await Send<RunSettlement, bool>(host, new RunSettlement("breaker", campaign.CampaignId));
 
         Assert.Equal(2L, await Charged(given, campaign));
-        Assert.False(host.Services.GetRequiredService<CircuitBreaker>().IsOpen);
+        Assert.False(host.Payments().Services.GetRequiredService<CircuitBreaker>().IsOpen);
     }
 
     [Fact]

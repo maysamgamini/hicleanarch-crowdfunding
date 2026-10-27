@@ -23,12 +23,12 @@ public sealed class SettlementTests(Database database) : IDisposable
 
     public void Dispose() => _host.Dispose();
 
-    private FakePaymentProvider Psp => _host.Services.GetRequiredService<FakePaymentProvider>();
+    private FakePaymentProvider Psp => _host.Payments().Services.GetRequiredService<FakePaymentProvider>();
 
     private async Task<T> Send<TCommand, T>(TCommand command)
         where TCommand : ICommand<T>
     {
-        await using var scope = _host.Services.CreateAsyncScope();
+        await using var scope = _host.ServicesFor<TCommand>().CreateAsyncScope();
         return (await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<TCommand, T>(command, Ct)).Value;
     }
 
@@ -211,7 +211,7 @@ public sealed class SettlementTests(Database database) : IDisposable
     public async Task A_stopping_worker_gives_its_job_back_at_once()
     {
         var (given, campaign) = await Funded(FakePaymentProvider.CardSucceeds);
-        var worker = _host.Services.GetRequiredService<SettlementWorker>();
+        var worker = _host.Payments().Services.GetRequiredService<SettlementWorker>();
         await given.Execute(
             $"UPDATE payments.settlement_jobs SET status = 'RUNNING', lease_owner = '{worker.WorkerName}', lease_until = now() + interval '1 minute' WHERE campaign_id = @id",
             campaign.CampaignId);
@@ -227,7 +227,7 @@ public sealed class SettlementTests(Database database) : IDisposable
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(webhook.Body, System.Text.Encoding.UTF8, "application/json") };
         request.Headers.Add(WebhookSignature.Header, webhook.Signature);
-        return _host.CreateClient().SendAsync(request, Ct);
+        return Database.Client(_host).SendAsync(request, Ct);
     }
 
     private static async Task<List<Guid>> PledgesOf(Scenario given, Scenario.Published campaign)

@@ -26,18 +26,18 @@ public sealed class MoneyTests(Database database) : IDisposable
 
     public void Dispose() => _host.Dispose();
 
-    private FakePaymentProvider Psp => _host.Services.GetRequiredService<FakePaymentProvider>();
+    private FakePaymentProvider Psp => _host.Payments().Services.GetRequiredService<FakePaymentProvider>();
 
     private async Task<Result<T>> Send<TCommand, T>(TCommand command)
         where TCommand : ICommand<T>
     {
-        await using var scope = _host.Services.CreateAsyncScope();
+        await using var scope = _host.ServicesFor<TCommand>().CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<TCommand, T>(command, Ct);
     }
 
     private async Task<IReadOnlyDictionary<string, long>> Balances(Guid campaignId)
     {
-        await using var scope = _host.Services.CreateAsyncScope();
+        await using var scope = _host.Payments().Services.CreateAsyncScope();
         return (await scope.ServiceProvider.GetRequiredService<IDispatcher>()
             .Query<GetCampaignMoney, CampaignMoney>(new GetCampaignMoney(campaignId), Ct)).Value.Balances;
     }
@@ -45,7 +45,7 @@ public sealed class MoneyTests(Database database) : IDisposable
     /// <summary>Posts journals in one transaction of the Payments module, as its handlers do.</summary>
     private async Task<IReadOnlyList<bool>> Post(params MoneyJournal[] journals)
     {
-        await using var scope = _host.Services.CreateAsyncScope();
+        await using var scope = _host.Payments().Services.CreateAsyncScope();
         var ledger = scope.ServiceProvider.GetRequiredService<IMoneyLedger>();
         var transaction = scope.ServiceProvider.GetRequiredKeyedService<ITransactionScope>(PaymentsModuleName.Value);
         var posted = new List<bool>();
