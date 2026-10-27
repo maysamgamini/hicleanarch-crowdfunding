@@ -128,8 +128,9 @@ public sealed partial class CampaignPageTests(Database database)
         Assert.All(scripts, script => Assert.DoesNotMatch(ReadsReplyTotals(), File.ReadAllText(script)));
     }
 
-    // The scripts read the totals endpoint only through as_of, and the reply's totals by name never
-    // (".backers" alone is the tokens file's list of backers, not a field of a reply).
-    [GeneratedRegex("""(\.json\(\s*["'](pledged_minor|backers)["']\s*\))|(\.pledged_minor\b)""")]
+    // The scripts read the totals by name only from the totals endpoint's reply, held in a variable
+    // named for it (launchTotals): never from the campaign reply (".backers" alone is the tokens file's
+    // list of backers, not a field of a reply).
+    [GeneratedRegex("""(\.json\(\s*["'](pledged_minor|backers)["']\s*\))|((?<!Totals)\.pledged_minor\b)""")]
     private static partial Regex ReadsReplyTotals();
 }

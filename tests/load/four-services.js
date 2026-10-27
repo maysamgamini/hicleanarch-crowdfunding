@@ -197,23 +197,23 @@ export function raceForTier(data) {
  */
 export function verifyTotals(data) {
   const started = Date.now();
-  let launch;
-  let hot;
+  let launchTotals;
+  let hotTotals;
   let same = 0;
   while (Date.now() - started < 60_000) {
-    const next = call("GET", API, `/v1/campaigns/${data.launch}/totals`, null, null).json();
-    hot = call("GET", API, `/v1/campaigns/${data.hot}/totals`, null, null).json();
-    same = launch && next.backers === launch.backers && next.pledged_minor === launch.pledged_minor ? same + 1 : 0;
-    launch = next;
-    if (same >= 2 && hot.tiers[0].remaining === 0) break;
+    const nextTotals = call("GET", API, `/v1/campaigns/${data.launch}/totals`, null, null).json();
+    hotTotals = call("GET", API, `/v1/campaigns/${data.hot}/totals`, null, null).json();
+    same = launchTotals && nextTotals.backers === launchTotals.backers && nextTotals.pledged_minor === launchTotals.pledged_minor ? same + 1 : 0;
+    launchTotals = nextTotals;
+    if (same >= 2 && hotTotals.tiers[0].remaining === 0) break;
     sleep(1);
   }
 
   totalsSettled.add((Date.now() - started) / 1000);
-  launchBackersSeen.add(launch.backers);
-  launchPledgedSeen.add(launch.pledged_minor);
-  hotBackersSeen.add(hot.backers);
-  hotRemainingSeen.add(hot.tiers[0].remaining);
+  launchBackersSeen.add(launchTotals.backers);
+  launchPledgedSeen.add(launchTotals.pledged_minor);
+  hotBackersSeen.add(hotTotals.backers);
+  hotRemainingSeen.add(hotTotals.tiers[0].remaining);
 }
 
 /** A page load: the catalog from Campaigns, and the totals the page polls, through the CDN path. */
