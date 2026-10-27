@@ -61,7 +61,10 @@ public sealed class InvariantTests(Database database) : IDisposable
         var given = new Scenario(database, _host);
         var campaign = await WithOnePledge(given);
         await given.Execute("""
-            UPDATE pledges.funding_windows SET status = 'UNSUCCESSFUL' WHERE campaign_id = @id;
+            UPDATE pledges.funding_windows
+            SET status = 'UNSUCCESSFUL', decided_at = now(), final_minor = 6000, marking_finished_at = now(), told_finished_at = now(),
+                rechecked_at = now(), recheck_minor = 6000
+            WHERE campaign_id = @id;
             UPDATE pledges.pledges SET status = 'TO_CHARGE' WHERE campaign_id = @id;
             """, campaign.CampaignId);
         try
@@ -79,7 +82,13 @@ public sealed class InvariantTests(Database database) : IDisposable
     {
         var given = new Scenario(database, _host);
         var campaign = await WithOnePledge(given);
-        await given.Execute("UPDATE pledges.funding_windows SET status = 'FUNDED', decided_at = now() - interval '1 hour' WHERE campaign_id = @id", campaign.CampaignId);
+        // A whole decided window (final sum, already rechecked), so no other test's close pass trips on it.
+        await given.Execute("""
+            UPDATE pledges.funding_windows
+            SET status = 'FUNDED', decided_at = now() - interval '1 hour', final_minor = 6000, marking_finished_at = now(),
+                rechecked_at = now(), recheck_minor = 6000
+            WHERE campaign_id = @id
+            """, campaign.CampaignId);
         try
         {
             await MeasuredAfter(() => PledgesInvariants.LedgerAfterDecision.Value >= 1);
