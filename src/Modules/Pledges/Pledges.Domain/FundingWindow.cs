@@ -78,6 +78,15 @@ public sealed class TierCounter
     /// <summary>Places kept for pledges waiting for their card, for 15 minutes each.</summary>
     public int Held { get; private set; }
 
+    /// <summary>Only a tier with a limit is counted.</summary>
+    public bool IsLimited => LimitQty is not null;
+
+    /// <summary>
+    /// The domain's statement of lesson 6's rule, on the counts it was read with: no room left. It
+    /// gives an early, clear refusal; the conditional update in the database is the guarantee.
+    /// </summary>
+    public bool LooksSoldOut => LimitQty is { } limit && Claimed + Held >= limit;
+
     public static TierCounter For(Guid tierId, Guid campaignId, long minPledgeMinor, int? limitQty) => new()
     {
         TierId = tierId,

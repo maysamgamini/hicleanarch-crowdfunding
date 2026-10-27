@@ -20,8 +20,18 @@ public interface IPledgeLedger
     Task Append(LedgerEntry entry, CancellationToken cancellationToken);
 }
 
-/// <summary>A campaign's tiers, as Pledges counts them.</summary>
+/// <summary>A campaign's tiers, as Pledges counts them. Only limited tiers are counted.</summary>
 public interface ITierSlots
 {
     Task<TierCounter?> Find(Guid tierId, CancellationToken cancellationToken);
+
+    /// <summary>Takes a place for an active pledge, only if one is left. False: sold out.</summary>
+    Task<bool> TryClaim(Guid tierId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Moves a pledge's place from one tier to another, either of which may be none or unlimited.
+    /// Both rows are locked in tier id order first, so two backers swapping in opposite directions
+    /// cannot deadlock. False: the new tier is sold out; the caller rolls back, which also undoes the release.
+    /// </summary>
+    Task<bool> TryMove(Guid? fromTierId, Guid? toTierId, CancellationToken cancellationToken);
 }

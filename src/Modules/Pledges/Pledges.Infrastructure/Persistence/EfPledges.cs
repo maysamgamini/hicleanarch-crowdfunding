@@ -33,6 +33,41 @@ internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, 
     Task<TierCounter?> ITierSlots.Find(Guid tierId, CancellationToken cancellationToken) =>
         db.TierCounters.AsNoTracking().SingleOrDefaultAsync(t => t.TierId == tierId, cancellationToken);
 
+    // Lesson 6: the rule is in the WHERE. A second transaction waits for the row lock, then re-checks
+    // the row as the first left it (Read Committed); 0 rows changed means sold out.
+    public async Task<bool> TryClaim(Guid tierId, CancellationToken cancellationToken) =>
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.tier_counters SET claimed = claimed + 1
+            WHERE tier_id = {tierId} AND limit_qty IS NOT NULL AND claimed + held + 1 <= limit_qty
+            """, cancellationToken) == 1;
+
+    public async Task<bool> TryMove(Guid? fromTierId, Guid? toTierId, CancellationToken cancellationToken)
+    {
+        if (fromTierId == toTierId)
+        {
+            return true;
+        }
+
+        Guid[] ids = [.. new[] { fromTierId, toTierId }.OfType<Guid>().Order()];
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            SELECT 1 FROM pledges.tier_counters WHERE tier_id = ANY({ids}) ORDER BY tier_id FOR UPDATE
+            """, cancellationToken);
+        if (fromTierId is { } from)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE pledges.tier_counters SET claimed = claimed - 1 WHERE tier_id = {from} AND limit_qty IS NOT NULL
+                """, cancellationToken);
+        }
+
+        if (toTierId is not { } to)
+        {
+            return true;
+        }
+
+        var unlimited = await db.TierCounters.AsNoTracking().AnyAsync(t => t.TierId == to && t.LimitQty == null, cancellationToken);
+        return unlimited || await TryClaim(to, cancellationToken);
+    }
+
     public async Task<Contracts.CampaignTotals?> Get(Guid campaignId, CancellationToken cancellationToken) =>
         await db.FundingWindows.AsNoTracking()
             .Where(w => w.CampaignId == campaignId)

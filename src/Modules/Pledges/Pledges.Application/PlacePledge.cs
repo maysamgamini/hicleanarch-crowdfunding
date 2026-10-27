@@ -57,6 +57,11 @@ public sealed class PlacePledgeHandler(
             {
                 return Result.Failure<PledgePlaced>(PledgeErrors.UnknownTier);
             }
+
+            if (tier.LooksSoldOut)
+            {
+                return Result.Failure<PledgePlaced>(PledgeErrors.TierSoldOut);
+            }
         }
 
         var pledge = Pledge.WithSavedCard(command.CampaignId, command.BackerId, tier, command.AmountMinor, command.PaymentMethodRef);
@@ -69,6 +74,12 @@ public sealed class PlacePledgeHandler(
         if (!await pledges.TryAdd(pledge.Value, cancellationToken))
         {
             return Result.Failure<PledgePlaced>(PledgeErrors.AlreadyBacking);
+        }
+
+        // Lesson 6: the conditional update is what keeps the limit, whatever the domain read before.
+        if (tier is { IsLimited: true } && !await tiers.TryClaim(tier.TierId, cancellationToken))
+        {
+            return Result.Failure<PledgePlaced>(PledgeErrors.TierSoldOut);
         }
 
         await ledger.Append(LedgerEntry.Activate(pledge.Value, command.CauseId), cancellationToken);
