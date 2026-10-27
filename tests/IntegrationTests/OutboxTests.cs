@@ -70,15 +70,7 @@ public sealed class OutboxTests(Database database)
         .AddEventHandler<FlakyPing, Flaky>(CampaignsModuleName.Value)
         .Configure<OutboxOptions>(o => o.RetryDelays = [TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50)]));
 
-    private static async Task Eventually(Func<Task<bool>> condition)
-    {
-        for (var i = 0; i < 100 && !await condition(); i++)
-        {
-            await Task.Delay(50, Ct);
-        }
-
-        Assert.True(await condition());
-    }
+    private static Task Eventually(Func<Task<bool>> condition) => Scenario.Eventually(condition);
 
     private async Task<DateTimeOffset?> DeliveredAt(Guid eventId)
     {

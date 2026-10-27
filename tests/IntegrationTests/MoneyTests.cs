@@ -78,7 +78,9 @@ public sealed class MoneyTests(Database database) : IDisposable
             await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId) == 1
             && await given.Scalar<long>("SELECT count(*) FROM payments.campaign_payees WHERE campaign_id = @id", campaign.CampaignId) == 1);
         Assert.True((await Send<RunSettlement, bool>(new RunSettlement("money-test", campaign.CampaignId))).Value);
-        Assert.Equal("SETTLED", await given.Scalar<string>("SELECT status FROM payments.payouts WHERE campaign_id = @id", campaign.CampaignId));
+        // The payout is opened by CampaignSettled's handler, after the settlement's commit.
+        await Scenario.Eventually(async () =>
+            await given.Scalar<string?>("SELECT status FROM payments.payouts WHERE campaign_id = @id", campaign.CampaignId) == "SETTLED");
         return (given, campaign);
     }
 
