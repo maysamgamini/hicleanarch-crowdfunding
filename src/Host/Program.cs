@@ -52,6 +52,7 @@ builder.Services.AddInProcessEvents();
 builder.Services.AddProxyHeaders(builder.Configuration);
 builder.Services.AddGracefulStop();
 builder.Services.AddQueryCache(builder.Configuration);
+builder.Services.AddHealth(builder.Configuration);
 
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
