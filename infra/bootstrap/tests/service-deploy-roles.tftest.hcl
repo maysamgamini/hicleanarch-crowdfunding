@@ -32,6 +32,11 @@ run "service_deploy_roles" {
   command = apply
 
   assert {
+    condition     = local.delivered_services == toset(["notifications", "campaigns"])
+    error_message = "Notifications (s5-l03) and Campaigns (s5-l08) each have their own repository and deploy role."
+  }
+
+  assert {
     condition = alltrue(flatten([for name, doc in data.aws_iam_policy_document.deploy_service : [
       for st in doc.statement : [
         # Tasks in the sandbox's cluster: ECS names a task by its cluster, not its family, so watching

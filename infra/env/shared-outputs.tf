@@ -51,6 +51,16 @@ locals {
     user_pool_arn                       = aws_cognito_user_pool.users.arn
     ses_identity_arns                   = [for identity in aws_sesv2_email_identity.sender : identity.arn]
 
+    # The Campaigns service (s5-l08): its network place, its secrets, its topic and queue, and the consumers'
+    # queues its subscription check looks for on its topic.
+    campaigns_security_group_id          = aws_security_group.campaigns.id
+    campaigns_connection_secret_arn      = aws_secretsmanager_secret.connection["campaigns"].arn
+    campaigns_read_connection_secret_arn = aws_secretsmanager_secret.read_connection["campaigns_read"].arn
+    campaigns_valkey_secret_arn          = aws_secretsmanager_secret.valkey["campaigns"].arn
+    campaigns_topic_arn                  = aws_sns_topic.events["campaigns"].arn
+    campaigns_queue_arn                  = aws_sqs_queue.events["campaigns"].arn
+    campaigns_queue_url                  = aws_sqs_queue.events["campaigns"].id
+
     # Each schema's migration role on the shared cluster (s5-l01), for the service that will own it.
     migrator_secret_arns = { for module, secret in aws_secretsmanager_secret.migrator : module => secret.arn }
   }

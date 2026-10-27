@@ -39,6 +39,22 @@ allowed:
       - src/Modules/Pledges/Pledges.Application/OpenFundingWindow.cs
       - src/Modules/Pledges/Pledges.Domain/PledgeErrors.cs
 
+  # s5-l08: the contract steps of s5-l05 and s5-l06, before Campaigns runs in a host of its own. The old
+  # cancel path refuses a LIVE campaign (409 funding_cancel_moved), so Campaigns sends Pledges no command;
+  # the reply loses the totals, so Campaigns asks Pledges no query (campaign-page-read).
+  - class: boundary-correction
+    id: s5-l08, CQA-1770
+    reason: the LIVE cancel's contract step; Campaigns no longer sends Pledges CancelFunding
+    paths:
+      - src/Modules/Campaigns/Campaigns.Application/CancelCampaign.cs
+      - src/Modules/Campaigns/Campaigns.Application/CampaignsApplication.cs
+      - src/Modules/Campaigns/Campaigns.Domain/CampaignErrors.cs
+  - class: boundary-correction
+    id: s5-l08
+    reason: the campaign reply's totals are removed; Campaigns no longer composes Pledges' totals into its reply
+    paths:
+      - src/Modules/Campaigns/Campaigns.Application/GetCampaign.cs
+
   # Release 1 fixes on the code track, one entry per ticket.
   - class: release-1-fix
     id: CQA-1771

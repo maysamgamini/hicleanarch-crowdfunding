@@ -11,8 +11,8 @@ namespace IntegrationTests;
 
 /// <summary>
 /// Lesson s5-l06: the campaign page puts the catalog (Campaigns) and the totals (Pledges) together
-/// itself, reading the totals from the endpoint the CDN caches. The campaign reply's totals fields
-/// are deprecated and still filled, until they are removed before Campaigns runs alone.
+/// itself, reading the totals from the endpoint the CDN caches. The campaign reply's totals fields,
+/// deprecated at s5-l06, are removed at s5-l08, before Campaigns runs alone.
 /// </summary>
 public sealed partial class CampaignPageTests(Database database)
 {
@@ -35,10 +35,20 @@ public sealed partial class CampaignPageTests(Database database)
         }
     }
 
-    /// <summary>Campaigns' in-process way to Pledges' totals, answering fixed numbers: the page must not need it.</summary>
+    /// <summary>Campaigns' old in-process way to Pledges' totals, answering fixed numbers: the page must not need it.</summary>
     private sealed class FixedTotals(long pledgedMinor, int backers) : ICampaignTotals
     {
         public Task<CampaignTotals?> Get(Guid campaignId, CancellationToken cancellationToken) => Task.FromResult<CampaignTotals?>(new CampaignTotals(pledgedMinor, backers));
+    }
+
+    /// <summary>The same way in, counting its calls: since s5-l08 nothing in Campaigns makes any.</summary>
+    private sealed class CountingTotals(Action called) : ICampaignTotals
+    {
+        public Task<CampaignTotals?> Get(Guid campaignId, CancellationToken cancellationToken)
+        {
+            called();
+            return Task.FromResult<CampaignTotals?>(null);
+        }
     }
 
     [Fact]
@@ -57,8 +67,8 @@ public sealed partial class CampaignPageTests(Database database)
         Assert.Equal(("Harbor Lights", "LIVE", 6_000L, 1), (page.Title, page.Status, page.PledgedMinor, page.Backers));
         // The CDN keeps the page's totals 2 seconds (s3-l05), never past the deadline (below).
         Assert.Equal("public, max-age=2", page.TotalsCacheControl);
-        // The reply's own totals came from Campaigns' call into Pledges, which here answers nothing.
-        Assert.Equal(0, reply.GetProperty("pledged_minor").GetInt64());
+        // The reply carries no totals of its own (s5-l08).
+        Assert.False(reply.TryGetProperty("pledged_minor", out _));
     }
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
@@ -86,34 +96,32 @@ public sealed partial class CampaignPageTests(Database database)
     }
 
     [Fact]
-    public async Task The_reply_still_fills_its_totals_fields_and_says_they_are_deprecated()
+    public async Task The_reply_has_no_totals_and_Campaigns_asks_Pledges_nothing()
     {
-        await using var host = database.StartHost(s => s.AddScoped<ICampaignTotals>(_ => new FixedTotals(1_234, 7)));
+        // s5-l08's contract step: the deprecated fields are gone, and so is Campaigns' call for them.
+        var asked = 0;
+        await using var host = database.StartHost(s => s.AddScoped<ICampaignTotals>(_ => new CountingTotals(() => Interlocked.Increment(ref asked))));
         var given = new Scenario(database, host);
         var campaign = await given.Publish();
 
         var response = await host.CreateClient().GetAsync($"/v1/campaigns/{campaign.Id}", Ct);
         var reply = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
 
-        // Filled in process, from Campaigns' call into Pledges, as before.
-        Assert.Equal((1_234L, 7), (reply.GetProperty("pledged_minor").GetInt64(), reply.GetProperty("backers").GetInt32()));
-        Assert.Equal("@" + new Campaigns.Infrastructure.ReplyTotalsOptions().DeprecatedAt.ToUnixTimeSeconds(), Assert.Single(response.Headers.GetValues("Deprecation")));
-        Assert.Equal("Mon, 01 Feb 2027 00:00:00 GMT", Assert.Single(response.Headers.GetValues("Sunset")));
-        Assert.Contains($"</v1/campaigns/{campaign.Id}/totals>; rel=\"successor-version\"", response.Headers.GetValues("Link"));
+        Assert.False(reply.TryGetProperty("pledged_minor", out _));
+        Assert.False(reply.TryGetProperty("backers", out _));
+        Assert.False(response.Headers.Contains("Deprecation"));
+        Assert.Equal(0, asked);
     }
 
     [Fact]
-    public async Task The_OpenAPI_document_marks_the_two_fields_deprecated_and_nothing_else()
+    public async Task The_OpenAPI_document_has_no_totals_in_the_campaign_reply()
     {
         await using var host = database.StartHost();
 
         var document = await host.CreateClient().GetFromJsonAsync<JsonElement>("/openapi/v1.json", Ct);
 
         var properties = document.GetProperty("components").GetProperty("schemas").GetProperty("CampaignView").GetProperty("properties");
-        var deprecated = properties.EnumerateObject()
-            .Where(p => p.Value.TryGetProperty("deprecated", out var d) && d.GetBoolean())
-            .Select(p => p.Name);
-        Assert.Equal(["backers", "pledged_minor"], deprecated.Order(StringComparer.Ordinal));
+        Assert.DoesNotContain(properties.EnumerateObject(), p => p.Name is "pledged_minor" or "backers");
     }
 
     [Fact]

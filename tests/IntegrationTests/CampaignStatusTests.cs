@@ -104,7 +104,7 @@ public sealed class CampaignStatusTests(Database database) : IDisposable
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish(5_000);
-        (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+        await given.CancelLive(campaign);
 
         await Settled(campaign.CampaignId);
 

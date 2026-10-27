@@ -1,0 +1,14 @@
+{
+  "solution": {
+    "path": "CrowdFunding.slnx",
+    "projects": [
+      "src\\Messaging\\Messaging.csproj",
+      "src\\Modules\\Campaigns\\Campaigns.Application\\Campaigns.Application.csproj",
+      "src\\Modules\\Campaigns\\Campaigns.Domain\\Campaigns.Domain.csproj",
+      "src\\Modules\\Campaigns\\Campaigns.Infrastructure\\Campaigns.Infrastructure.csproj",
+      "src\\Services\\Campaigns\\Campaigns.Host\\Campaigns.Host.csproj",
+      "src\\Services\\Campaigns\\tests\\Campaigns.Host.Tests\\Campaigns.Host.Tests.csproj",
+      "tests\\Campaigns.UnitTests\\Campaigns.UnitTests.csproj"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Moto's SNS and SQS: the service publishes its events and reads its queue as it does in AWS. -->
+    <Compile Include="..\..\..\..\..\tests\Shared\MotoBroker.cs" Link="MotoBroker.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Campaigns.Host\Campaigns.Host.csproj" />
+  </ItemGroup>
+
+</Project>

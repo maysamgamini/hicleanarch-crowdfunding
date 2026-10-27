@@ -93,7 +93,7 @@ public sealed class PledgeTests(Database database) : IDisposable
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish();
-        (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+        await given.CancelLive(campaign);
         Assert.Equal("CANCELLED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.True(await given.Scalar<bool>("SELECT deadline > now() FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
 

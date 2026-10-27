@@ -6,7 +6,7 @@
 # monolith host is retired (s5-l10); Campaigns when it gets its host (s5-l08).
 
 locals {
-  delivered_services = toset(["notifications"])
+  delivered_services = toset(["notifications", "campaigns"])
 
   service_access = {
     for name in local.delivered_services : name => {

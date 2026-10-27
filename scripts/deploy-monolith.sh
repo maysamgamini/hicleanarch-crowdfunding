@@ -28,6 +28,10 @@ case "$step" in
     ;;
   roll)
     "$(dirname "$0")/run-migration.sh" infra/env "" open-sinks --module Notifications
+    # s5-l08: the release that stops running Campaigns here starts only once nothing owes it an in-process delivery.
+    if [ "${TF_VAR_campaigns_mode:-InProcess}" = Remote ]; then
+      "$(dirname "$0")/run-migration.sh" infra/env "" open-sinks --module Campaigns
+    fi
     tf apply -input=false -auto-approve -lock-timeout=15m -var "service_image=$image"
     aws ecs wait services-stable --cluster "$(tf output -raw cluster)" --services "$(tf output -raw service)"
     ;;

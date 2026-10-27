@@ -16,6 +16,7 @@
       "src\\Modules\\Pledges\\Pledges.Domain\\Pledges.Domain.csproj",
       "src\\Modules\\Pledges\\Pledges.Infrastructure\\Pledges.Infrastructure.csproj",
       "src\\RemoteCalls\\RemoteCalls.csproj",
+      "src\\Services\\Campaigns\\Campaigns.Host\\Campaigns.Host.csproj",
       "src\\Services\\Notifications\\Notifications.Host\\Notifications.Host.csproj",
       "src\\Services\\Payments\\Payments.Host\\Payments.Host.csproj",
       "tests\\ArchitectureTests\\ArchitectureTests.csproj",

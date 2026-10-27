@@ -10,7 +10,10 @@ using Microsoft.Extensions.DependencyInjection;
 
 namespace IntegrationTests;
 
-/// <summary>Pledges hears Campaigns: publishing opens a funding window, once; a cancel asks Pledges first.</summary>
+/// <summary>
+/// Pledges hears Campaigns: publishing opens a funding window, once. A LIVE campaign's cancel is Pledges' own
+/// (s5-l05; since s5-l08 the only path): Pledges answers it, and the catalog follows its FundingCancelled.
+/// </summary>
 public sealed class FundingWindowTests(Database database) : IDisposable
 {
     private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host = database.StartHost();
@@ -56,15 +59,15 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         var given = new Scenario(database, _host);
         var campaign = await given.Publish();
 
-        var cancelled = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct);
+        var cancelled = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/funding/cancel", null, Ct);
 
         Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
         Assert.Equal("CANCELLED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
-        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
-        Assert.Equal("CANCELLED", read.GetProperty("status").GetString());
+        await Scenario.Eventually(async () =>
+            (await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString() == "CANCELLED");
     }
 
-    /// <summary>Only the creator may cancel: another creator is refused before Pledges is asked, so funding stays open.</summary>
+    /// <summary>Only the creator may cancel: Pledges refuses another creator, so funding stays open.</summary>
     [Fact]
     public async Task Another_creators_cancel_is_403_and_the_funding_window_stays_live()
     {
@@ -72,7 +75,7 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         var campaign = await given.Publish();
         var someoneElse = Database.Client(_host, Database.Token(BuildingBlocks.Infrastructure.Identity.Roles.Creator));
 
-        var refused = await someoneElse.PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct);
+        var refused = await someoneElse.PostAsync($"/v1/campaigns/{campaign.Id}/funding/cancel", null, Ct);
 
         Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
         Assert.Equal("LIVE", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
@@ -108,11 +111,11 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         var campaign = await given.Publish();
         await given.Execute("UPDATE pledges.funding_windows SET status = 'ENDED' WHERE campaign_id = @id", campaign.CampaignId);
 
-        var refused = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct);
+        var refused = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/funding/cancel", null, Ct);
 
         Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
         Assert.Equal("campaign_closed", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
-        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
+        var read = await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
         Assert.Equal("LIVE", read.GetProperty("status").GetString());
     }
 
@@ -123,7 +126,7 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         var campaign = await given.Publish();
         await given.Execute("UPDATE pledges.funding_windows SET deadline = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
 
-        var refused = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct);
+        var refused = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/funding/cancel", null, Ct);
 
         Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
     }

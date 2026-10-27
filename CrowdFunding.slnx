@@ -19,6 +19,12 @@
     <Project Path="src/Modules/Pledges/Pledges.Infrastructure/Pledges.Infrastructure.csproj" />
   </Folder>
   <Folder Name="/src/Services/" />
+  <Folder Name="/src/Services/Campaigns/">
+    <Project Path="src/Services/Campaigns/Campaigns.Host/Campaigns.Host.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Campaigns/tests/">
+    <Project Path="src/Services/Campaigns/tests/Campaigns.Host.Tests/Campaigns.Host.Tests.csproj" />
+  </Folder>
   <Folder Name="/src/Services/Notifications/">
     <Project Path="src/Services/Notifications/Notifications/Notifications.csproj" />
     <Project Path="src/Services/Notifications/Notifications.Host/Notifications.Host.csproj" />

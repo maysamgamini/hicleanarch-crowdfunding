@@ -27,6 +27,20 @@
       "type": "computed",
       "value": "(layout == \"single\")"
     },
+    "moduleIn": {
+      "type": "parameter",
+      "datatype": "choice",
+      "description": "Where the module's projects are: in the service's own folder (service), or still in src/Modules while the monolith also builds them (modules, until the module leaves the monolith).",
+      "choices": [
+        { "choice": "service", "description": "src/Services/<Module>/" },
+        { "choice": "modules", "description": "src/Modules/<Module>/" }
+      ],
+      "defaultValue": "service"
+    },
+    "inModules": {
+      "type": "computed",
+      "value": "(moduleIn == \"modules\")"
+    },
     "port": {
       "type": "parameter",
       "datatype": "integer",

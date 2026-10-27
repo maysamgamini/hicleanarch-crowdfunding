@@ -6,6 +6,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Moto's SNS and SQS: the service publishes its events and reads its queue as it does in AWS. -->
+    <Compile Include="..\..\..\..\..\tests\Shared\MotoBroker.cs" Link="MotoBroker.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Notifications.Host\Notifications.Host.csproj" />
   </ItemGroup>
 

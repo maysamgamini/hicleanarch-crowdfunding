@@ -1,6 +1,9 @@
 using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Persistence;
 
+using CrowdFunding.Messaging;
+using CrowdFunding.Testing;
+
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -15,7 +18,9 @@ namespace Notifications.Host.Tests;
 
 /// <summary>
 /// One real PostgreSQL 17 for this service's tests, prepared by the service's own migrator, so it
-/// holds the Notifications schema and nothing of the other modules.
+/// holds the Notifications schema and nothing of the other modules; and Moto's SNS and SQS, provisioned from
+/// events/subscriptions.json, so the service reads its own queue and every event it publishes for
+/// another service goes through the broker, as in AWS.
 /// </summary>
 public sealed class TestHost : IAsyncLifetime
 {
@@ -23,7 +28,13 @@ public sealed class TestHost : IAsyncLifetime
 
     public const string SigningKey = "test-only-signing-key-0123456789abcdef";
 
+    private static readonly string[] Modules = ["Campaigns", "Pledges", "Payments", "Notifications"];
+
     private readonly PostgreSqlContainer _database = new PostgreSqlBuilder("postgres:17").WithDatabase("crowdfunding").Build();
+
+    private readonly MotoBroker _broker = new();
+
+    private IReadOnlyDictionary<string, string?> _brokerSettings = new Dictionary<string, string?>();
 
     public string Owner => _database.GetConnectionString();
 
@@ -45,7 +56,19 @@ public sealed class TestHost : IAsyncLifetime
                 .UseSetting("ConnectionStrings:Owner", Owner)
                 .UseSetting("ConnectionStrings:Notifications", ModuleRole)
                 .UseSetting("Auth:ClientId", ClientId)
-                .UseSetting("Auth:LocalSigningKey", SigningKey);
+                .UseSetting("Auth:LocalSigningKey", SigningKey)
+                .UseSetting("Events:Broker:WaitSeconds", "2");
+            foreach (var (key, value) in _brokerSettings)
+            {
+                web.UseSetting(key, value);
+            }
+
+            // Every other module runs elsewhere: what this service publishes for it goes through the broker.
+            foreach (var module in Modules.Where(m => m != "Notifications"))
+            {
+                web.UseSetting($"Events:Routes:{module}", "Broker");
+            }
+
             foreach (var (key, value) in settings)
             {
                 web.UseSetting(key, value);
@@ -54,10 +77,16 @@ public sealed class TestHost : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        await _database.StartAsync();
+        await Task.WhenAll(_database.StartAsync(), _broker.Start());
+        var plan = BrokerPlan.Load(Path.Combine(AppContext.BaseDirectory, "events", "subscriptions.json"));
+        _brokerSettings = (await _broker.Provision(plan, $"t{Guid.NewGuid():N}"[..12], ["notifications"])).Settings;
         await using var host = Start();
         await host.Services.GetRequiredService<DatabaseMigrator>().Run(Owner, CancellationToken.None);
     }
 
-    public ValueTask DisposeAsync() => _database.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        await _broker.DisposeAsync();
+        await _database.DisposeAsync();
+    }
 }

@@ -8,8 +8,12 @@
 
   <!-- One module, and nothing of the others: they reach it through events and its contracts. -->
   <ItemGroup>
-<!--#if (single) -->
+<!--#if (single && inModules) -->
+    <ProjectReference Include="..\..\..\Modules\Sample\Sample.csproj" />
+<!--#elseif (single) -->
     <ProjectReference Include="..\Sample\Sample.csproj" />
+<!--#elseif (inModules) -->
+    <ProjectReference Include="..\..\..\Modules\Sample\Sample.Infrastructure\Sample.Infrastructure.csproj" />
 <!--#else -->
     <ProjectReference Include="..\Sample.Infrastructure\Sample.Infrastructure.csproj" />
 <!--#endif -->

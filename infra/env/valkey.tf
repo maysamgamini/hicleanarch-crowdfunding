@@ -61,13 +61,16 @@ locals {
     # commands (PING, ECHO, CLIENT SETNAME, sent while StackExchange.Redis connects), reads, writes and
     # scripts, no channels; the buckets' script reads Valkey's clock, and TIME is in no category but
     # @fast, so it is named alone.
-    payments = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time -@dangerous -scan -randomkey"
+    # The Campaigns service (s5-l08): the catalog cache and its refill locks, nothing else. The monolith keeps
+    # ~campaigns:* while it may still run Campaigns (campaigns_mode), until s5-l09.
+    campaigns = "on ~campaigns:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey"
+    payments  = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time -@dangerous -scan -randomkey"
   }
 
   # A user limited to its own keys may not read the client's tiebreaker key or subscribe to its
   # configuration channel, so its connection string turns both off. The gateway keeps the client's
   # defaults.
-  valkey_restricted_users   = toset(["api", "payments"])
+  valkey_restricted_users   = toset(["api", "payments", "campaigns"])
   valkey_restricted_options = ",tiebreaker=,configChannel="
 }
 

@@ -227,9 +227,11 @@ locals {
       { name = "Events__Broker__Read__0", value = "monolith" },
       { name = "Events__Broker__Queues__campaigns__Arn", value = aws_sqs_queue.events["campaigns"].arn },
       { name = "Events__Broker__Queues__campaigns__Url", value = aws_sqs_queue.events["campaigns"].id },
-      { name = "Events__Broker__Read__1", value = "campaigns" },
     ],
     local.campaigns_broker_routes,
+    # The campaigns queue while Campaigns runs here (s5-l07); with campaigns_mode = Remote (s5-l08) only the
+    # Campaigns service reads it: a host must not read a queue none of whose modules it runs.
+    local.campaigns_here ? [{ name = "Events__Broker__Read__1", value = "campaigns" }] : [],
     [for t in local.monolith_topics : { name = "Events__Broker__Topics__${t}", value = aws_sns_topic.events[t].arn }],
   )
 }

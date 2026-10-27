@@ -3,8 +3,6 @@ using BuildingBlocks.Domain;
 
 using Campaigns.Domain;
 
-using Pledges.Contracts;
-
 namespace Campaigns.Application;
 
 /// <summary>A campaign as <paramref name="CallerId"/> may see it; null for someone not signed in.</summary>
@@ -21,8 +19,6 @@ public sealed record CampaignView(
     long GoalMinor,
     string Currency,
     DateTime Deadline,
-    long PledgedMinor,
-    int Backers,
     IReadOnlyList<TierView> Tiers);
 
 public sealed record TierView(string TierId, string Title, long MinPledgeMinor, int? Limit);
@@ -78,13 +74,12 @@ public sealed class GetCampaignCatalogHandler(ICampaignRepository campaigns) : I
 }
 
 /// <summary>
-/// The catalog may come from the cache; the total never does. It comes from Pledges, through its
-/// contract, on every read, from the reader endpoint: a page may be a moment behind. A draft is its
-/// creator's alone: anyone else is told there is no such campaign, as for an id that does not exist.
+/// The catalog, which may come from the cache. The totals are not in it (lesson s5-l08): a page reads
+/// them from Pledges' <c>GET /v1/campaigns/{id}/totals</c>, behind the CDN, so Campaigns asks Pledges
+/// nothing. A draft is its creator's alone: anyone else is told there is no such campaign.
 /// </summary>
 public sealed class GetCampaignHandler(
-    IQueryHandler<GetCampaignCatalog, CampaignCatalog> catalog,
-    ICampaignTotals totals) : IQueryHandler<GetCampaign, CampaignView>
+    IQueryHandler<GetCampaignCatalog, CampaignCatalog> catalog) : IQueryHandler<GetCampaign, CampaignView>
 {
     public async Task<Result<CampaignView>> Handle(GetCampaign query, CancellationToken cancellationToken)
     {
@@ -100,11 +95,6 @@ public sealed class GetCampaignHandler(
             return Result.Failure<CampaignView>(CampaignErrors.NotFound);
         }
 
-        var raised = await totals.Get(query.Id.Value, cancellationToken);
-        return Result.Success(new CampaignView(
-            c.CampaignId, c.Status, c.Title, c.GoalMinor, c.Currency, c.Deadline,
-            raised?.PledgedMinor ?? 0,
-            raised?.Backers ?? 0,
-            c.Tiers));
+        return Result.Success(new CampaignView(c.CampaignId, c.Status, c.Title, c.GoalMinor, c.Currency, c.Deadline, c.Tiers));
     }
 }

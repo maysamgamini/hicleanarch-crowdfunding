@@ -52,6 +52,8 @@ locals {
       { name = "Modules__Payments__BaseAddress", value = "http://payments:8081" },
       # Lesson s5-l05: Pledges maps the creator's LIVE cancel only once check-creators passes.
       { name = "Pledges__FundingCancel__Open", value = tostring(var.funding_cancel_open) },
+      # Lesson s5-l08: whether Campaigns still runs here or only in its own service.
+      { name = "Modules__Campaigns__Mode", value = var.campaigns_mode },
     ], local.broker_environment, local.service_identity_environment)
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30

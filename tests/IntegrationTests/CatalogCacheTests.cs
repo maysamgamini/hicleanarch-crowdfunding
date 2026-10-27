@@ -78,7 +78,7 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         Assert.Equal("LIVE", await Status(cancelled));
 
         // FundingCancelled: the creator's cancel, accepted by Pledges.
-        (await given.Creator().PostAsync($"/v1/campaigns/{cancelled.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+        await given.CancelLive(cancelled);
         await Scenario.Eventually(async () => await Status(cancelled) == "CANCELLED");
 
         // CampaignFundingDecided, then CampaignSettled.
@@ -124,7 +124,7 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         using var connection = await ConnectionMultiplexer.ConnectAsync(valkey.Configuration);
         var db = await CachedNow(host.CreateClient(), campaign.Id, connection);
 
-        (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+        await given.CancelLive(campaign);
 
         await Scenario.Eventually(async () => !await db.KeyExistsAsync($"campaigns:catalog:{campaign.Id}"));
     }

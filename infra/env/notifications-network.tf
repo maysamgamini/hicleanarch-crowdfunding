@@ -61,7 +61,10 @@ locals {
   notifications_secret_arns = [aws_secretsmanager_secret.connection["notifications"].arn]
 
   handover_task_definitions = {
-    for name, task in { notifications = aws_ecs_task_definition.notifications_handover } : name => one(task[*].arn) if length(task) > 0
+    for name, task in {
+      notifications = aws_ecs_task_definition.notifications_handover
+      campaigns     = aws_ecs_task_definition.campaigns_handover
+    } : name => one(task[*].arn) if length(task) > 0
   }
 }
 

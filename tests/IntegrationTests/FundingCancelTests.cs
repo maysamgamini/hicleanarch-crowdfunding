@@ -59,7 +59,7 @@ public sealed class FundingCancelTests(Database database) : IDisposable
     [Fact]
     public async Task The_funding_cancel_is_not_served_until_it_is_opened()
     {
-        using var closed = database.StartHost();
+        using var closed = database.StartHost().WithWebHostBuilder(web => web.UseSetting("Pledges:FundingCancel:Open", "false"));
         var given = new Scenario(database, closed);
         var campaign = await given.Publish();
 
@@ -177,18 +177,18 @@ public sealed class FundingCancelTests(Database database) : IDisposable
     }
 
     [Fact]
-    public async Task The_old_path_still_cancels_a_live_campaign_and_says_it_is_deprecated()
+    public async Task The_old_path_refuses_a_live_cancel_and_points_to_Pledges()
     {
+        // s5-l08's contract step: the old path's LIVE branch answers 409 funding_cancel_moved, and nothing changes.
         var given = new Scenario(database, _host);
         var campaign = await given.Publish();
 
         var response = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal("@" + new LiveCancelOptions().DeprecatedAt.ToUnixTimeSeconds(), Assert.Single(response.Headers.GetValues("Deprecation")));
-        Assert.Equal("Mon, 01 Feb 2027 00:00:00 GMT", Assert.Single(response.Headers.GetValues("Sunset")));
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+        Assert.Equal("funding_cancel_moved", (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
         Assert.Contains($"</v1/campaigns/{campaign.Id}/funding/cancel>; rel=\"successor-version\"", response.Headers.GetValues("Link"));
-        Assert.Equal("CANCELLED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
-        Assert.Equal("CANCELLED", await CatalogStatus(campaign.Id));
+        Assert.Equal("LIVE", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal("LIVE", await CatalogStatus(campaign.Id));
     }
 }

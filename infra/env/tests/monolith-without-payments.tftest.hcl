@@ -367,3 +367,61 @@ run "the_rollback_keeps_campaigns_events_in_process_and_still_reads_the_queue" {
     error_message = "The rollback still drains the campaigns queue."
   }
 }
+
+# Lesson s5-l08: Campaigns' place beside the monolith, and the monolith's switch.
+run "campaigns_runs_beside_the_monolith_until_the_switch" {
+  command = apply
+
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.campaigns_from_gateway.referenced_security_group_id == aws_security_group.gateway.id
+    error_message = "Campaigns' 8080 is open to the gateway's security group only."
+  }
+
+  assert {
+    condition     = aws_elasticache_user.valkey["campaigns"].access_string == "on ~campaigns:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey"
+    error_message = "The Campaigns service's Valkey user reaches only campaigns:* keys."
+  }
+
+  assert {
+    condition = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value
+    if e.name == "Modules__Campaigns__Mode"] == ["InProcess"]
+    error_message = "By default the monolith still runs Campaigns."
+  }
+
+  assert {
+    condition     = contains([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value if startswith(e.name, "Events__Broker__Read__")], "campaigns")
+    error_message = "While it runs Campaigns, the monolith reads the campaigns queue."
+  }
+
+  assert {
+    condition = [for e in jsondecode(aws_ecs_task_definition.gateway.container_definitions)[0].environment : e.value
+    if e.name == "ReverseProxy__Clusters__campaigns__Destinations__campaigns__Address"] == ["http://${aws_lb.internal.dns_name}/"]
+    error_message = "Before the Campaigns service serves them, Campaigns' paths go to the monolith."
+  }
+}
+
+run "campaigns_remote_leaves_the_queue_and_the_routes_to_the_service" {
+  command = apply
+
+  variables {
+    campaigns_mode          = "Remote"
+    campaigns_serves_routes = true
+  }
+
+  assert {
+    condition = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value
+    if e.name == "Modules__Campaigns__Mode"] == ["Remote"]
+    error_message = "The switch reaches the monolith's container."
+  }
+
+  assert {
+    condition     = !contains([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value if startswith(e.name, "Events__Broker__Read__")], "campaigns")
+    error_message = "A monolith that runs no Campaigns must not read its queue: it would hide Campaigns' messages."
+  }
+
+  assert {
+    condition = [for e in jsondecode(aws_ecs_task_definition.gateway.container_definitions)[0].environment : e.value
+    if e.name == "ReverseProxy__Clusters__campaigns__Destinations__campaigns__Address"] == ["http://campaigns:8080/"]
+    error_message = "Once it serves them, the gateway sends Campaigns' paths to the Campaigns service."
+  }
+}

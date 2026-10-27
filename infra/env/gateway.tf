@@ -118,6 +118,8 @@ resource "aws_ecs_task_definition" "gateway" {
       # A user's notification preference: the Notifications service through Service Connect (s5-l03), once
       # it is deployed (notifications_serves_preferences); the monolith before that.
       { name = "ReverseProxy__Clusters__notifications__Destinations__notifications__Address", value = local.notifications_public_address },
+      # Campaigns' paths: the Campaigns service through Service Connect once it serves them (s5-l08); the monolith before that.
+      { name = "ReverseProxy__Clusters__campaigns__Destinations__campaigns__Address", value = local.campaigns_public_address },
       { name = "EdgeLimits__GatewayTasks", value = tostring(var.gateway_count) },
       { name = "EdgeLimits__PerSecond", value = tostring(var.edge_limit_per_second) },
       { name = "EdgeLimits__Burst", value = tostring(var.edge_limit_per_second * 2) },

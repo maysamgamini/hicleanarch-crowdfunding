@@ -19,6 +19,9 @@ internal static class GatewayHost
         new WebApplicationFactory<Program>().WithWebHostBuilder(web => web
             .UseEnvironment("Testing")
             .UseSetting("ReverseProxy:Clusters:monolith:Destinations:monolith:Address", monolith)
+            // Campaigns' routes (s5-l08) reach the monolith until the Campaigns service serves them, as in AWS
+            // (campaigns_serves_routes); CampaignsRouteTests points them elsewhere.
+            .UseSetting("ReverseProxy:Clusters:campaigns:Destinations:campaigns:Address", monolith)
             .UseSetting("EdgeLimits:Valkey", valkey)
             .UseSetting("EdgeLimits:PerSecond", perSecond.ToString(System.Globalization.CultureInfo.InvariantCulture))
             .UseSetting("EdgeLimits:Burst", burst.ToString(System.Globalization.CultureInfo.InvariantCulture))

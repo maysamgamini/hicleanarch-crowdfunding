@@ -61,6 +61,18 @@ public sealed class PaymentsBeside : IDisposable
 
         private readonly HttpMessageInvoker _notifications = new(monolith.Notifications().Host.Server.CreateHandler());
 
+        // Campaigns' paths (s5-l08) go to the Campaigns service when one runs beside the monolith.
+        private readonly HttpMessageInvoker? _campaigns = monolith.Campaigns() is { } campaigns ? new(campaigns.Host.Server.CreateHandler()) : null;
+
+        public static bool IsCampaigns(HttpMethod method, string path) =>
+            path.Trim('/').Split('/') switch
+            {
+                ["v1", "campaigns"] => method == HttpMethod.Post,
+                ["v1", "campaigns", _] => method == HttpMethod.Get,
+                ["v1", "campaigns", _, "publish" or "cancel"] => method == HttpMethod.Post,
+                _ => false,
+            };
+
         public static bool IsNotifications(HttpMethod method, string path) =>
             method == HttpMethod.Put && path.Trim('/').Split('/') is ["v1", "me", "notifications", _];
 
@@ -76,6 +88,7 @@ public sealed class PaymentsBeside : IDisposable
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             IsPayments(request.Method, request.RequestUri!.AbsolutePath) ? _payments.SendAsync(request, cancellationToken)
             : IsNotifications(request.Method, request.RequestUri!.AbsolutePath) ? _notifications.SendAsync(request, cancellationToken)
+            : _campaigns is not null && IsCampaigns(request.Method, request.RequestUri!.AbsolutePath) ? _campaigns.SendAsync(request, cancellationToken)
             : base.SendAsync(request, cancellationToken);
     }
 }

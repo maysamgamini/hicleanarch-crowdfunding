@@ -41,10 +41,6 @@ public static class CampaignsModule
         services.AddPublishedEvent<CampaignPublished>(CampaignsModuleName.Value);
         services.AddPublishedEvent<CampaignCancelled>(CampaignsModuleName.Value);
         services.AddPublishedEvent<CampaignCreatorRecorded>(CampaignsModuleName.Value);
-        services.AddOptions<LiveCancelOptions>().Bind(configuration.GetSection("Campaigns:LiveCancel"))
-            .Validate(o => o.SunsetAt > o.DeprecatedAt, "Campaigns:LiveCancel: the Sunset date must come after the deprecation.")
-            .ValidateOnStart();
-        services.AddReplyTotalsDeprecation(configuration);
         services.AddEventHandler<FundingCancelled, RecordFundingCancelled>(CampaignsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, FollowFundingDecision>(CampaignsModuleName.Value);
         services.AddEventHandler<Payments.Contracts.CampaignSettled, FollowSettlement>(CampaignsModuleName.Value);
@@ -106,39 +102,31 @@ public static class CampaignsModule
                     : Result.Failure<Reply>(result.Errors);
             })).RequireAuthorization(Policies.Creator);
 
-        // Pledges is asked first, outside Campaigns' transaction; only an accepted cancel is recorded.
-        campaigns.MapPost("/{id}/cancel", async (string id, ClaimsPrincipal user, HttpContext http,
+        // A draft's cancel. A live campaign's is Pledges' (s5-l05): since s5-l08 this path answers 409
+        // funding_cancel_moved with a Link to it, and Campaigns sends Pledges no command.
+        campaigns.MapPost("/{id}/cancel", (string id, ClaimsPrincipal user, HttpContext http,
             IDispatcher dispatcher, IdempotentRequests<CampaignsDbContext> once) =>
-        {
-            if (!CampaignId.TryParse(id, out var campaignId))
+            once.Run(http, user.UserId(), new { id }, async ct =>
             {
-                return new[] { CampaignErrors.NotFound }.ToProblem();
-            }
+                if (!CampaignId.TryParse(id, out var campaignId))
+                {
+                    return Result.Failure<Reply>(CampaignErrors.NotFound);
+                }
 
-            var asked = await dispatcher.Send<AskToCancelFunding, CampaignStatus>(new AskToCancelFunding(campaignId, user.UserId()), http.RequestAborted);
-            if (!asked.IsSuccess)
-            {
-                return asked.Errors.ToProblem();
-            }
-
-            // A LIVE cancel belongs to Pledges now (lesson s5-l05): this branch still works, deprecated and counted.
-            if (asked.Value == CampaignStatus.Live)
-            {
-                LiveCancelDeprecation.Mark(http, id);
-            }
-
-            return await once.Run(http, user.UserId(), new { id }, async ct =>
-            {
                 var result = await dispatcher.Send<CancelCampaign, CampaignStatus>(new CancelCampaign(campaignId, user.UserId()), ct);
+                if (result.Errors.Contains(CampaignErrors.FundingCancelMoved))
+                {
+                    http.Response.Headers.Link = $"</v1/campaigns/{id}/funding/cancel>; rel=\"successor-version\"";
+                }
+
                 return result.IsSuccess
                     ? Result.Success(new Reply(StatusCodes.Status200OK, new { campaign_id = id, status = "CANCELLED" }))
                     : Result.Failure<Reply>(result.Errors);
-            });
-        }).RequireAuthorization(Policies.Creator);
+            })).RequireAuthorization(Policies.Creator);
 
-        // Anyone may read a published campaign; a draft only its creator, signed in. Its totals fields are
-        // deprecated (lesson s5-l06): the page reads its totals from GET /v1/campaigns/{id}/totals, behind the CDN.
-        campaigns.MapGet("/{id}", async (string id, ClaimsPrincipal user, HttpContext http, IDispatcher dispatcher, CancellationToken ct) =>
+        // Anyone may read a published campaign; a draft only its creator, signed in. No totals (lesson s5-l08):
+        // the page reads them from GET /v1/campaigns/{id}/totals, behind the CDN.
+        campaigns.MapGet("/{id}", async (string id, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
         {
             if (!CampaignId.TryParse(id, out var campaignId))
             {
@@ -147,13 +135,7 @@ public static class CampaignsModule
 
             var caller = user.Identity?.IsAuthenticated == true ? user.UserId() : (Guid?)null;
             var result = await dispatcher.Query<GetCampaign, CampaignView>(new GetCampaign(campaignId, caller), ct);
-            if (!result.IsSuccess)
-            {
-                return result.Errors.ToProblem();
-            }
-
-            ReplyTotalsDeprecation.Mark(http, id);
-            return Results.Ok(result.Value);
+            return result.IsSuccess ? Results.Ok(result.Value) : result.Errors.ToProblem();
         }).AllowAnonymous().Produces<CampaignView>();
 
         return app;

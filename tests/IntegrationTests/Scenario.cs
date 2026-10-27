@@ -68,7 +68,8 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
         (await Creator().PostAsync($"/v1/campaigns/{id}/publish", null, Ct)).EnsureSuccessStatusCode();
         var campaignId = Guid.ParseExact(id["cmp_".Length..], "N");
         await Eventually(async () => await Scalar<long>("SELECT count(*) FROM pledges.funding_windows WHERE campaign_id = @id", campaignId) == 1);
-        var read = await host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
+        // Through the gateway's routes: Campaigns may run in its own service (s5-l08).
+        var read = await Database.Client(host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
         var byTitle = read.GetProperty("tiers").EnumerateArray()
             .ToDictionary(t => t.GetProperty("title").GetString()!, t => t.GetProperty("tier_id").GetString()!);
         return new Published(id, campaignId, [.. tiers.Select(t => byTitle[t.Title])]);
@@ -123,6 +124,19 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
             response.Dispose();
             await Task.Delay(wait, Ct);
         }
+    }
+
+    /// <summary>
+    /// The creator cancels a LIVE campaign where it belongs since s5-l05, Pledges' funding cancel, through the
+    /// publish gap; then waits for the catalog to follow Pledges' FundingCancelled (since s5-l08 the old path
+    /// answers 409 funding_cancel_moved for a LIVE campaign).
+    /// </summary>
+    public async Task CancelLive(Published campaign)
+    {
+        var (response, _) = await SendThroughPublishGap(Creator(), campaign.Id,
+            () => new HttpRequestMessage(HttpMethod.Post, $"/v1/campaigns/{campaign.Id}/funding/cancel"));
+        Assert.True(response.IsSuccessStatusCode, $"The funding cancel answered {(int)response.StatusCode}: {await response.Content.ReadAsStringAsync(Ct)} {response.Headers}");
+        await Eventually(async () => await Scalar<string>("SELECT status FROM campaigns.campaigns WHERE id = @id", campaign.CampaignId) == "CANCELLED");
     }
 
     /// <summary>How long the course's client waits before each retry in the publish gap (lesson s5-l07).</summary>

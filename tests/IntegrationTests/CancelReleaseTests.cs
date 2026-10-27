@@ -54,7 +54,7 @@ public sealed class CancelReleaseTests(Database database) : IDisposable
         Assert.Equal(1, await given.Scalar<int>("SELECT held FROM pledges.tier_counters WHERE tier_id = (SELECT tier_id FROM pledges.pledges WHERE campaign_id = @id AND status = 'PENDING_SETUP')", campaign.CampaignId));
         var sum = await LedgerSum(given, campaign.CampaignId);
 
-        (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+        await given.CancelLive(campaign);
 
         // In the cancel's own transaction, before any pass of the close job.
         Assert.Equal(1L, await Count(given, campaign.CampaignId, "RELEASED"));
@@ -75,7 +75,7 @@ public sealed class CancelReleaseTests(Database database) : IDisposable
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish();
-        (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+        await given.CancelLive(campaign);
 
         var refused = await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct);
 
@@ -94,7 +94,7 @@ public sealed class CancelReleaseTests(Database database) : IDisposable
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish();
-        (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+        await given.CancelLive(campaign);
         var late = Guid.NewGuid();
         await given.Execute($"""
             INSERT INTO pledges.pledges (id, campaign_id, backer_id, amount_minor, status, payment_method_ref)
@@ -129,7 +129,7 @@ public sealed class CancelReleaseTests(Database database) : IDisposable
             (await given.Backer(backer).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
         }
 
-        (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+        await given.CancelLive(campaign);
         Assert.Equal(2L, await Count(given, campaign.CampaignId, "RELEASED"));
         Assert.Equal(3L, await Count(given, campaign.CampaignId, "ACTIVE"));
 

@@ -5,9 +5,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# <module> <layout> <port>, as each host was created.
+# <module> <layout> <port> [<moduleIn>], as each host was created.
 services=(
   "Notifications single 5181"
+  "Campaigns layered 5182 modules"
 )
 
 scratch=$(mktemp -d)
@@ -16,9 +17,9 @@ dotnet new install ./templates/service --debug:custom-hive "$scratch/hive" >/dev
 
 status=0
 for service in "${services[@]+"${services[@]}"}"; do
-  read -r module layout port <<<"$service"
+  read -r module layout port module_in <<<"$service"
   out="$scratch/$module"
-  dotnet new crowdfunding-service -n "$module" --layout "$layout" --port "$port" -o "$out" \
+  dotnet new crowdfunding-service -n "$module" --layout "$layout" --port "$port" --moduleIn "${module_in:-service}" -o "$out" \
     --debug:custom-hive "$scratch/hive" >/dev/null
   while IFS= read -r file; do
     relative=${file#"$out"/}
