@@ -5,6 +5,8 @@
     <ProjectReference Include="..\..\src\Services\Payments\Payments.Host\Payments.Host.csproj" />
     <!-- Notifications ships only with its own service from s5-l04; the rules still check it there. -->
     <ProjectReference Include="..\..\src\Services\Notifications\Notifications.Host\Notifications.Host.csproj" />
+    <!-- Campaigns ships only with its own service from s5-l09. Its Program is the global one too: an alias tells it apart. -->
+    <ProjectReference Include="..\..\src\Services\Campaigns\Campaigns.Host\Campaigns.Host.csproj" Aliases="CampaignsService" />
   </ItemGroup>
 
 </Project>

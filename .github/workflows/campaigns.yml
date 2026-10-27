@@ -2,8 +2,8 @@ name: campaigns
 
 # The Campaigns service's pipeline (lesson s5-l08): contract tests, then Campaigns built and tested alone from
 # its solution filter, then (on main) its image pushed with its own deploy role and, if a sandbox is up,
-# Campaigns deployed into it. Until s5-l09 the monolith still compiles the Campaigns module (its InProcess
-# mode), so src/Modules/Campaigns runs both pipelines. The release job runs only where a deploy role is set:
+# Campaigns deployed into it. Since s5-l09 the monolith compiles nothing of Campaigns, so its module runs
+# this pipeline only. The release job runs only where a deploy role is set:
 # without AWS credentials nothing tries to reach AWS.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:

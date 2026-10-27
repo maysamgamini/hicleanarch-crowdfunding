@@ -36,11 +36,11 @@ public sealed class CampaignsBrokerTests(Database database) : IDisposable
 
     public void Dispose() => _hosts.ForEach(h => h.Dispose());
 
-    /// <summary>A monolith (with its Payments and Notifications services) on its own topics and queues, or on
-    /// <paramref name="broker"/>'s; <paramref name="campaignsOnBroker"/> false is s5-l07's rollback.</summary>
-    private WebApplicationFactory<Program> Host(MotoBroker.Provisioned? broker, bool campaignsOnBroker = true)
+    /// <summary>A monolith (with its Payments, Notifications and Campaigns services) on its own topics and queues, or on
+    /// <paramref name="broker"/>'s. Since s5-l09 Campaigns runs only in its own service, so s5-l07's rollback is gone.</summary>
+    private WebApplicationFactory<Program> Host(MotoBroker.Provisioned? broker)
     {
-        var host = database.StartHost((broker ?? database.Provision()).Settings, campaignsOnBroker: campaignsOnBroker)
+        var host = database.StartHost((broker ?? database.Provision()).Settings)
             .WithWebHostBuilder(web => web.UseSetting("Pledges:FundingCancel:Open", "true"));
         _hosts.Add(host);
         _ = host.Server; // started
@@ -185,45 +185,6 @@ public sealed class CampaignsBrokerTests(Database database) : IDisposable
         await Scenario.Eventually(async () => await Inbox("campaigns", "Campaigns.CatalogCacheInvalidation", eventId) == 1);
         await Scenario.Eventually(async () => await Scalar("SELECT count(*) FROM campaigns.outbox WHERE id = @value AND published_at IS NOT NULL", eventId) == 1);
         Assert.Equal(0, await Windows(CampaignIdOf(id))); // Pledges' copy is the one held back
-    }
-
-    [Fact]
-    public async Task Switching_the_routes_back_with_messages_queued_handles_each_once()
-    {
-        var provisioned = database.Provision();
-        // A LIVE campaign in the catalog, made with Campaigns' events in process.
-        var inProcess = Host(null, campaignsOnBroker: false);
-        var live = await new Scenario(database, inProcess).Publish();
-        using var sqs = database.Broker.Sqs();
-
-        // Queued while the routes were on Broker, read by nobody yet; SNS delivers at least once, so twice.
-        var published = new CampaignPublished(Guid.NewGuid(), DateTimeOffset.UtcNow, Guid.CreateVersion7(), Guid.NewGuid(), 100_000, "USD", DateTimeOffset.UtcNow.AddDays(30), []);
-        var cancelled = new FundingCancelled(Guid.NewGuid(), DateTimeOffset.UtcNow, live.CampaignId);
-        foreach (var _ in new[] { 1, 2 })
-        {
-            await sqs.SendMessageAsync(Message(provisioned.Settings["Events:Broker:Queues:monolith:Url"]!, published, "Campaigns"), Ct);
-            await sqs.SendMessageAsync(Message(provisioned.Settings["Events:Broker:Queues:campaigns:Url"]!, cancelled, "Pledges"), Ct);
-        }
-
-        // The rollback: Campaigns' routes InProcess; the host still reads the campaigns queue.
-        var rolledBack = Host(provisioned, campaignsOnBroker: false);
-
-        await Scenario.Eventually(async () => await Inbox("pledges", "Pledges.OpenFundingWindow", published.EventId) == 1);
-        await Scenario.Eventually(async () => await Inbox("campaigns", "Campaigns.RecordFundingCancelled", cancelled.EventId) == 1);
-        var after = await new Scenario(database, rolledBack).Publish(); // in process again
-        await Scenario.Eventually(async () =>
-            (await sqs.GetQueueAttributesAsync(provisioned.Settings["Events:Broker:Queues:monolith:Url"]!, ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible"], Ct))
-                .Attributes.Values.All(v => v == "0"));
-
-        Assert.Equal(1, await Windows(published.CampaignId));
-        Assert.Equal(1, await Inbox("pledges", "Pledges.OpenFundingWindow", published.EventId));
-        Assert.Equal(1, await Inbox("campaigns", "Campaigns.RecordFundingCancelled", cancelled.EventId));
-        var catalog = await rolledBack.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{live.Id}", Ct);
-        Assert.Equal("CANCELLED", catalog.GetProperty("status").GetString());
-        var afterEvent = await PublishedEventOf(after.CampaignId);
-        // Pledges gets it in process again (Notifications, a service of its own, still through the broker).
-        Assert.Contains("Pledges", (await Single<string>("SELECT array_to_string(sinks, ',') FROM campaigns.outbox WHERE id = @value", afterEvent)).Split(','));
-        Assert.Equal(1, await Windows(after.CampaignId));
     }
 
     /// <summary>A message as SNS delivers it with raw delivery: the event's body and its attributes.</summary>

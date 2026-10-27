@@ -16,7 +16,8 @@ using StackExchange.Redis;
 namespace IntegrationTests;
 
 /// <summary>
-/// Lesson s5-l01: each service signs in to Valkey as its own user, declared in infra/env/valkey.tf. The
+/// Lesson s5-l01: each service signs in to Valkey as its own user, declared in infra/env/valkey.tf (the
+/// Campaigns service's since s5-l08; the monolith's loses campaigns:* at s5-l09). The
 /// platform's connection comes up as that user, the service's real cache, flag and bucket calls work
 /// through it, and another service's key is refused with NOPERM.
 /// </summary>
@@ -24,6 +25,7 @@ public sealed class ValkeyUserTests(Database database) : IAsyncLifetime
 {
     private const string ApiPassword = "api-test-only-password";
     private const string PaymentsPassword = "payments-test-only-password";
+    private const string CampaignsPassword = "campaigns-test-only-password";
 
     private readonly IContainer _valkey = new ContainerBuilder("valkey/valkey:8")
         .WithPortBinding(6379, true)
@@ -40,6 +42,7 @@ public sealed class ValkeyUserTests(Database database) : IAsyncLifetime
         await using var admin = await ConnectionMultiplexer.ConnectAsync(Address + ",abortConnect=false");
         await ValkeyUser.Create(admin, "api", ApiPassword);
         await ValkeyUser.Create(admin, "payments", PaymentsPassword);
+        await ValkeyUser.Create(admin, "campaigns", CampaignsPassword);
     }
 
     public ValueTask DisposeAsync() => _valkey.DisposeAsync();
@@ -49,14 +52,17 @@ public sealed class ValkeyUserTests(Database database) : IAsyncLifetime
     {
         var asApi = ValkeyUser.ConnectionString(Address, "api", ApiPassword);
         var asPayments = ValkeyUser.ConnectionString(Address, "payments", PaymentsPassword);
-        await using var host = database.StartHost(payments: web => web.UseSetting("ConnectionStrings:Valkey", asPayments))
+        var asCampaigns = ValkeyUser.ConnectionString(Address, "campaigns", CampaignsPassword);
+        await using var host = database.StartHost(
+                payments: web => web.UseSetting("ConnectionStrings:Valkey", asPayments),
+                campaigns: web => web.UseSetting("ConnectionStrings:Valkey", asCampaigns))
             .WithWebHostBuilder(web => web.UseSetting("ConnectionStrings:Valkey", asApi));
         var given = new Scenario(database, host);
         var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 1));
-        var reader = host.CreateClient();
+        var reader = Database.Client(host);
         await using var admin = await ConnectionMultiplexer.ConnectAsync(Address + ",abortConnect=false");
 
-        // The monolith, as api: the catalog cache with its refill lock, the totals, a sold-out flag.
+        // Campaigns, as campaigns: the catalog cache with its refill lock. The monolith, as api: the totals, a sold-out flag.
         (await reader.GetAsync($"/v1/campaigns/{campaign.Id}", Ct)).EnsureSuccessStatusCode();
         await Scenario.Eventually(async () => await admin.GetDatabase().KeyExistsAsync($"campaigns:catalog:{campaign.Id}"));
         Assert.Equal(HttpStatusCode.Created,
@@ -73,7 +79,9 @@ public sealed class ValkeyUserTests(Database database) : IAsyncLifetime
         Assert.True((await payments.GetRequiredService<ITokenBuckets>().TryTake(budget.For(PspCall.Charge), Ct)).Granted);
         Assert.True(await admin.GetDatabase().KeyExistsAsync("buckets:psp:charges"));
 
-        await Refused(asApi, "buckets:psp:charges", "payments:pause", "gateway:limits:x");
+        // Since s5-l09 the monolith keeps no catalog: Campaigns' keys are refused to it, as Payments' are.
+        await Refused(asApi, "buckets:psp:charges", "payments:pause", "gateway:limits:x", $"campaigns:catalog:{campaign.Id}");
+        await Refused(asCampaigns, $"pledges:totals:{campaign.CampaignId:N}", "buckets:psp:charges", "payments:pause", "gateway:limits:x");
         // Nor may the monolith list or wipe what the others keep (CQA-1516's rule, now for api too).
         await using (var api = await ConnectionMultiplexer.ConnectAsync(asApi + ",allowAdmin=true"))
         {

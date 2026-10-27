@@ -9,7 +9,8 @@ namespace ArchitectureTests;
 /// Payments domain, application or infrastructure, and so no Payments endpoint, job, handler, table or
 /// migration in its image. Checked twice: on the compiled assemblies, and on the project files, where a
 /// reference would be added. Notifications left too (lesson s5-l04): nothing of it, not even its
-/// contracts' consumer code, so the monolith cannot send email or read users even by mistake.
+/// contracts' consumer code, so the monolith cannot send email or read users even by mistake. And
+/// Campaigns (lesson s5-l09): nothing of it but its contracts, whose events Pledges reads.
 /// </summary>
 public class MonolithRulesTests
 {
@@ -55,6 +56,19 @@ public class MonolithRulesTests
         Assert.Contains("Pledges.Infrastructure", loaded); // the check sees the modules it does compose
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/Notifications/", StringComparison.Ordinal));
         Assert.DoesNotContain(loaded, name => name.StartsWith("Notifications", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_monolith_references_and_loads_nothing_of_campaigns_but_its_contracts()
+    {
+        // Lesson s5-l09: Campaigns runs only in its own service; Pledges reads its events, through its contracts.
+        var graph = ProjectClosure("src/Host/Host.csproj");
+        var loaded = Closure(Assembly.Load("CrowdFunding.Host"));
+
+        Assert.Contains("Campaigns.Contracts", loaded); // the check sees Campaigns at all
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Campaigns/", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/Campaigns/", StringComparison.Ordinal));
+        Assert.All(loaded.Where(n => n.StartsWith("Campaigns.", StringComparison.Ordinal)), name => Assert.Equal("Campaigns.Contracts", name));
     }
 
     /// <summary>Every assembly of ours the program loads, directly or through another of ours.</summary>

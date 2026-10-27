@@ -47,11 +47,11 @@ resource "aws_elasticache_replication_group" "valkey" {
 # service only its own prefixes and the command categories it uses (lesson s5-l01).
 locals {
   valkey_users = {
-    # The monolith, which runs Campaigns, Pledges and Notifications (lesson s5-l01): the catalog cache and
-    # its refill locks (campaigns:*), and the display totals and sold-out flags (pledges:*). Since s4-l10
-    # it takes no PSP budget token, so buckets:* is not its own any more. Only the categories it uses, and
-    # nothing @dangerous (FLUSHALL, KEYS, CONFIG), nor SCAN or RANDOMKEY, which list keys beyond its prefixes.
-    api = "on ~campaigns:* ~pledges:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey"
+    # The monolith, which runs Pledges alone since s5-l09: the display totals and sold-out flags (pledges:*);
+    # the catalog cache (campaigns:*) is the Campaigns service's. Since s4-l10 it takes no PSP budget token.
+    # Only the categories it uses, and nothing @dangerous (FLUSHALL, KEYS, CONFIG), nor SCAN or RANDOMKEY,
+    # which list keys beyond its prefixes.
+    api = "on ~pledges:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey"
     # The services' users get nothing @dangerous (FLUSHALL, FLUSHDB, KEYS, CONFIG, DEBUG), nor SCAN or RANDOMKEY,
     # which key patterns do not limit (KEYS and SCAN list every service's keys). ValkeyUsersTests runs these
     # strings against a Valkey container (CQA-1516).
@@ -61,8 +61,7 @@ locals {
     # commands (PING, ECHO, CLIENT SETNAME, sent while StackExchange.Redis connects), reads, writes and
     # scripts, no channels; the buckets' script reads Valkey's clock, and TIME is in no category but
     # @fast, so it is named alone.
-    # The Campaigns service (s5-l08): the catalog cache and its refill locks, nothing else. The monolith keeps
-    # ~campaigns:* while it may still run Campaigns (campaigns_mode), until s5-l09.
+    # The Campaigns service (s5-l08): the catalog cache and its refill locks, nothing else.
     campaigns = "on ~campaigns:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey"
     payments  = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time -@dangerous -scan -randomkey"
   }

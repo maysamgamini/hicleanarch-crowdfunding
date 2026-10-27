@@ -84,7 +84,7 @@ public sealed class AuthorizationTests(Database database) : IDisposable
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken)).GetProperty("campaign_id").GetString();
 
         var own = await Database.Client(_host, Database.Token(creator, Roles.Creator)).GetAsync($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
-        var anonymous = await _host.CreateClient().GetAsync($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
+        var anonymous = await Database.Client(_host).GetAsync($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
         var anotherCreator = await Database.Client(_host, Database.Token(Roles.Creator)).GetAsync($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, own.StatusCode);
@@ -97,7 +97,7 @@ public sealed class AuthorizationTests(Database database) : IDisposable
     {
         var campaign = await new Scenario(database, _host).Publish();
 
-        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", TestContext.Current.CancellationToken);
+        var read = await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", TestContext.Current.CancellationToken);
 
         Assert.Equal("LIVE", read.GetProperty("status").GetString());
         Assert.False(read.TryGetProperty("creator_id", out _));

@@ -21,13 +21,11 @@ resource "aws_cloudwatch_log_group" "collector_metrics" {
 }
 
 locals {
-  # The running program gets only the connection strings of the modules it runs (Campaigns and Pledges
-  # since s5-l04); the owner's goes to the migration task alone.
+  # The running program gets only the connection strings of the modules it runs (Pledges alone since
+  # s5-l09); the owner's goes to the migration task alone.
   module_secrets = [
-    { name = "ConnectionStrings__Campaigns", valueFrom = aws_secretsmanager_secret.connection["campaigns"].arn },
     { name = "ConnectionStrings__Pledges", valueFrom = aws_secretsmanager_secret.connection["pledges"].arn },
     { name = "ConnectionStrings__PledgesJobs", valueFrom = aws_secretsmanager_secret.connection["pledges_jobs"].arn },
-    { name = "ConnectionStrings__CampaignsRead", valueFrom = aws_secretsmanager_secret.read_connection["campaigns_read"].arn },
     { name = "ConnectionStrings__PledgesRead", valueFrom = aws_secretsmanager_secret.read_connection["pledges_read"].arn },
     { name = "ConnectionStrings__Valkey", valueFrom = aws_secretsmanager_secret.valkey["api"].arn },
   ]
@@ -52,8 +50,10 @@ locals {
       { name = "Modules__Payments__BaseAddress", value = "http://payments:8081" },
       # Lesson s5-l05: Pledges maps the creator's LIVE cancel only once check-creators passes.
       { name = "Pledges__FundingCancel__Open", value = tostring(var.funding_cancel_open) },
-      # Lesson s5-l08: whether Campaigns still runs here or only in its own service.
-      { name = "Modules__Campaigns__Mode", value = var.campaigns_mode },
+      # For one release only (s5-l09): the deploy's first apply runs the previous image with this task
+      # definition, and that image still has s5-l08's mode switch. Without Remote it would run Campaigns
+      # in-process, with no connection string to do it. The next lesson removes it.
+      { name = "Modules__Campaigns__Mode", value = "Remote" },
     ], local.broker_environment, local.service_identity_environment)
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30

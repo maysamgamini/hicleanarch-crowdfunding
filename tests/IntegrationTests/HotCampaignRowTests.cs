@@ -161,7 +161,7 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
         Assert.Equal(ledger, stored!.PledgedMinor);
         Assert.Equal(3, stored.Backers);
 
-        var page = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}/totals", Ct);
+        var page = await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}/totals", Ct);
         Assert.Equal(20_800, page.GetProperty("pledged_minor").GetInt64());
     }
 

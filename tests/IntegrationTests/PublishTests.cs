@@ -52,7 +52,7 @@ public sealed class PublishTests(Database database) : IDisposable
         var published = await Creator().PostAsync($"/v1/campaigns/{id}/publish", null, Ct);
 
         Assert.Equal(HttpStatusCode.OK, published.StatusCode);
-        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
+        var read = await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
         Assert.Equal("LIVE", read.GetProperty("status").GetString());
     }
 
@@ -101,8 +101,8 @@ public sealed class PublishTests(Database database) : IDisposable
     {
         var id = await CreateDraft();
         var campaignId = Campaigns.Domain.CampaignId.TryParse(id, out var parsed) ? parsed : throw new InvalidOperationException(id);
-        await using var first = _host.Services.CreateAsyncScope();
-        await using var second = _host.Services.CreateAsyncScope();
+        await using var first = _host.Campaigns().Services.CreateAsyncScope();
+        await using var second = _host.Campaigns().Services.CreateAsyncScope();
         var firstDb = first.ServiceProvider.GetRequiredService<Campaigns.Infrastructure.Persistence.CampaignsDbContext>();
         var secondDb = second.ServiceProvider.GetRequiredService<Campaigns.Infrastructure.Persistence.CampaignsDbContext>();
         await using var firstTransaction = await firstDb.Database.BeginTransactionAsync(Ct);
@@ -148,7 +148,8 @@ public sealed class PublishTests(Database database) : IDisposable
     [Fact]
     public async Task A_change_without_an_idempotency_key_is_400()
     {
-        var client = _host.CreateClient();
+        // Straight to the Campaigns service (s5-l09), without the test client's fresh key.
+        var client = _host.Campaigns().Host.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", Database.Token(Roles.Creator));
 
         var refused = await client.PostAsJsonAsync("/v1/campaigns", Draft(), Ct);
@@ -222,7 +223,9 @@ public sealed class PublishTests(Database database) : IDisposable
         await Creator().SendAsync(Post("/v1/campaigns", Draft($"New {newKey}"), newKey), Ct);
         await database.Execute($"UPDATE campaigns.idempotency_keys SET created_at = now() - interval '8 days' WHERE key = '{oldKey}'");
 
-        foreach (var purge in _host.Services.GetServices<BuildingBlocks.Infrastructure.Persistence.IIdempotencyKeyPurge>())
+        // Every service purges its own module's keys (Campaigns in its own service since s5-l09).
+        foreach (var purge in new[] { _host.Services, _host.Payments().Services, _host.Campaigns().Services }
+                     .SelectMany(s => s.GetServices<BuildingBlocks.Infrastructure.Persistence.IIdempotencyKeyPurge>()))
         {
             await purge.PurgeOnce(Ct);
         }
@@ -245,7 +248,9 @@ public sealed class PublishTests(Database database) : IDisposable
                    (gen_random_uuid(), '{newKey}', '\x00', 200, now())
             """);
 
-        foreach (var purge in _host.Services.GetServices<BuildingBlocks.Infrastructure.Persistence.IIdempotencyKeyPurge>())
+        // Every service purges its own module's keys (Campaigns in its own service since s5-l09).
+        foreach (var purge in new[] { _host.Services, _host.Payments().Services, _host.Campaigns().Services }
+                     .SelectMany(s => s.GetServices<BuildingBlocks.Infrastructure.Persistence.IIdempotencyKeyPurge>()))
         {
             await purge.PurgeOnce(Ct);
         }

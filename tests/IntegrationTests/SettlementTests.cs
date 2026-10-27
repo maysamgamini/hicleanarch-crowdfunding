@@ -72,7 +72,7 @@ public sealed class SettlementTests(Database database) : IDisposable
         await Scenario.Eventually(async () =>
             await given.Scalar<long>("SELECT count(*) FROM pledges.pledges WHERE campaign_id = @id AND status = 'CHARGED'", campaign.CampaignId) == 2);
         await Scenario.Eventually(async () =>
-            (await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString() == "SETTLED");
+            (await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString() == "SETTLED");
     }
 
     [Fact]

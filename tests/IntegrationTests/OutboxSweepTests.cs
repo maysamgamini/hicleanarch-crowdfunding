@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.TestHost;
 using System.Collections.Concurrent;
 using System.Text.Json;
 
@@ -157,7 +158,8 @@ public sealed class OutboxSweepTests(Database database)
         public volatile bool Down = true;
     }
 
-    private WebApplicationFactory<Program> Host(Action<OutboxOptions> outbox, Action<IServiceCollection>? more = null) => database.StartHost(services =>
+    // Campaigns' outbox, in the Campaigns service, which alone runs the module since s5-l09.
+    private WebApplicationFactory<Program> Host(Action<OutboxOptions> outbox, Action<IServiceCollection>? more = null) => database.StartHost(campaigns: web => web.ConfigureTestServices(services =>
     {
         services
             .AddEventHandler<StartPing, Counts>(CampaignsModuleName.Value)
@@ -174,7 +176,7 @@ public sealed class OutboxSweepTests(Database database)
                 outbox(o);
             });
         more?.Invoke(services);
-    });
+    }));
 
     private async Task<bool> Delivered(Guid eventId)
     {
@@ -187,7 +189,7 @@ public sealed class OutboxSweepTests(Database database)
 
     private static async Task Write(WebApplicationFactory<Program> host, params IntegrationEvent[] events)
     {
-        await using var scope = host.Services.CreateAsyncScope();
+        await using var scope = host.Campaigns().Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CampaignsDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
         await scope.ServiceProvider.GetOutbox(CampaignsModuleName.Value).AddRange(events, Ct);
@@ -219,7 +221,7 @@ public sealed class OutboxSweepTests(Database database)
                 services.AddSingleton<IModuleEvents>(sp => new DownAtFirst((IModuleEvents)descriptor.ImplementationFactory!(sp), outage));
             }
         });
-        var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
+        var lifetime = host.Campaigns().Services.GetRequiredService<IHostApplicationLifetime>();
 
         await Task.Delay(500, Ct); // several start-up sweeps fail
         Assert.False(lifetime.ApplicationStopping.IsCancellationRequested);
@@ -285,7 +287,7 @@ public sealed class OutboxSweepTests(Database database)
             .AddEventSubscription<BacklogPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
             .AddEventHandler<FreshPing, Fresh>(CampaignsModuleName.Value)
             .AddEventSubscription<FreshPing>(CampaignsModuleName.Value, CampaignsModuleName.Value));
-        _ = host.Services; // start it: its first sweep finds the backlog
+        _ = host.Campaigns().Services; // start it: its first sweep finds the backlog
         await Scenario.Eventually(() => Task.FromResult(backlog.Any(p => Handled.ContainsKey(p.EventId)))); // the start-up sweep has begun
         var fresh = new FreshPing(Guid.NewGuid(), DateTimeOffset.UtcNow);
         await Write(host, fresh);

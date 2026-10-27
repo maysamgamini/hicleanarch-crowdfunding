@@ -46,7 +46,7 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("ConnectionStrings:Valkey", valkey.Configuration));
         var scenario = new Scenario(database, host);
         var published = await scenario.Publish();
-        var reader = host.CreateClient();
+        var reader = Database.Client(host);
         await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{published.Id}", Ct);
 
         // A pledge after the catalog was cached: the total follows within the aggregator's refresh
@@ -70,7 +70,7 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         var given = new Scenario(database, host);
         var funded = await given.Publish(1_000);
         var cancelled = await given.Publish(1_000);
-        var reader = host.CreateClient();
+        var reader = Database.Client(host);
         async Task<string?> Status(Scenario.Published c) =>
             (await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{c.Id}", Ct)).GetProperty("status").GetString();
 
@@ -122,7 +122,7 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         var given = new Scenario(database, host);
         var campaign = await given.Publish(1_000);
         using var connection = await ConnectionMultiplexer.ConnectAsync(valkey.Configuration);
-        var db = await CachedNow(host.CreateClient(), campaign.Id, connection);
+        var db = await CachedNow(Database.Client(host), campaign.Id, connection);
 
         await given.CancelLive(campaign);
 
@@ -137,7 +137,7 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         var campaign = await given.Publish(1_000);
         (await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
         using var connection = await ConnectionMultiplexer.ConnectAsync(valkey.Configuration);
-        var reader = host.CreateClient();
+        var reader = Database.Client(host);
         var db = await CachedNow(reader, campaign.Id, connection);
 
         await given.Execute("UPDATE pledges.funding_windows SET deadline = now() WHERE campaign_id = @id", campaign.CampaignId);

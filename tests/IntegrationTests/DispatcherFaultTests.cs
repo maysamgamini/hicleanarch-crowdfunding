@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.TestHost;
 using System.Collections.Concurrent;
 
 using BuildingBlocks.Application;
@@ -71,7 +72,8 @@ public sealed class DispatcherFaultTests(Database database)
             inner.HandleOnce(handler, eventId, handle, ct);
     }
 
-    private WebApplicationFactory<Program> Host() => database.StartHost(services =>
+    // Campaigns' outbox, in the Campaigns service, which alone runs the module since s5-l09.
+    private WebApplicationFactory<Program> Host() => database.StartHost(campaigns: web => web.ConfigureTestServices(services =>
     {
         foreach (var descriptor in services.Where(d => d.ServiceType == typeof(IModuleEvents)).ToList())
         {
@@ -85,11 +87,11 @@ public sealed class DispatcherFaultTests(Database database)
             .AddEventHandler<LaterPing, Succeeds>(CampaignsModuleName.Value)
             .AddEventSubscription<LaterPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
             .Configure<OutboxOptions>(o => o.RetryDelays = [TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20)]);
-    });
+    }));
 
     private static async Task Write(WebApplicationFactory<Program> host, IntegrationEvent e)
     {
-        await using var scope = host.Services.CreateAsyncScope();
+        await using var scope = host.Campaigns().Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CampaignsDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
         await scope.ServiceProvider.GetOutbox(CampaignsModuleName.Value).Add(e, Ct);

@@ -60,12 +60,13 @@ public sealed class HostingTests(Database database, Valkey valkey) : IClassFixtu
         var ready = await host.CreateClient().GetFromJsonAsync<JsonElement>("/health/ready", ct);
 
         Assert.Equal("ready", ready.GetProperty("status").GetString());
-        // Every service's ready checks: Payments' database is its own service's to check (s4-l10), and
-        // Notifications' its own (s5-l04).
+        // Every service's ready checks: Payments' database is its own service's to check (s4-l10),
+        // Notifications' its own (s5-l04), and Campaigns' its own (s5-l09).
         var report = await ReadyReport(host, ct);
         var payments = await host.Payments().Services.GetRequiredService<HealthCheckService>().CheckHealthAsync(c => c.Tags.Contains(HealthEndpoints.Ready), ct);
         var notifications = await host.Notifications().Services.GetRequiredService<HealthCheckService>().CheckHealthAsync(c => c.Tags.Contains(HealthEndpoints.Ready), ct);
-        report = new HealthReport(report.Entries.Concat(payments.Entries).Concat(notifications.Entries).DistinctBy(e => e.Key).ToDictionary(), report.TotalDuration);
+        var campaigns = await host.Campaigns().Services.GetRequiredService<HealthCheckService>().CheckHealthAsync(c => c.Tags.Contains(HealthEndpoints.Ready), ct);
+        report = new HealthReport(report.Entries.Concat(payments.Entries).Concat(notifications.Entries).Concat(campaigns.Entries).DistinctBy(e => e.Key).ToDictionary(), report.TotalDuration);
         Assert.Subset(report.Entries.Keys.ToHashSet(), new HashSet<string>
         {
             "database:Campaigns", "database:Pledges", "database:PledgesJobs", "database:Payments", "database:Notifications",
@@ -106,7 +107,7 @@ public sealed class HostingTests(Database database, Valkey valkey) : IClassFixtu
             .UseSetting("ConnectionStrings:Campaigns", Unreachable)
             .UseSetting("ConnectionStrings:CampaignsRead", Unreachable));
 
-        var response = await host.CreateClient().GetAsync($"/v1/campaigns/cmp_{Guid.NewGuid():N}", ct);
+        var response = await Database.Client(host).GetAsync($"/v1/campaigns/cmp_{Guid.NewGuid():N}", ct);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
         Assert.Equal(TimeSpan.FromSeconds(DatabaseUnavailableHandler.RetryAfterSeconds), response.Headers.RetryAfter?.Delta);

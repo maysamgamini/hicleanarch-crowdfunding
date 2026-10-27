@@ -29,7 +29,7 @@ public sealed class CampaignStatusTests(Database database) : IDisposable
         where TEvent : IntegrationEvent
         where THandler : IIntegrationEventHandler<TEvent>
     {
-        await using var scope = _host.Services.CreateAsyncScope();
+        await using var scope = _host.Campaigns().Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CampaignsDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
         await scope.ServiceProvider.GetRequiredService<THandler>().Handle(integrationEvent, Ct);
@@ -55,7 +55,7 @@ public sealed class CampaignStatusTests(Database database) : IDisposable
         await Decided(campaign.CampaignId, CampaignFundingDecided.Unsuccessful);
 
         Assert.Equal("RELEASED", await Stored(given, campaign));
-        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
+        var read = await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
         Assert.Equal("RELEASED", read.GetProperty("status").GetString());
     }
 

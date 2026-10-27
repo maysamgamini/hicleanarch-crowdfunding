@@ -51,7 +51,7 @@ public class PathFilterTests
         { "src/Services/Campaigns/Campaigns.Host/Program.cs", false, false, false, true },
         { "infra/services/campaigns/main.tf", false, false, false, true },
         { "Campaigns.slnf", false, false, false, true },
-        { "src/Modules/Campaigns/Campaigns.Application/GetCampaign.cs", false, true, false, true },
+        { "src/Modules/Campaigns/Campaigns.Application/GetCampaign.cs", false, false, false, true },
     };
 
     public static TheoryData<string> Pipelines() => [Workflows.Payments, Workflows.Monolith, Workflows.Notifications, Workflows.Campaigns];

@@ -27,7 +27,7 @@ public sealed class TotalsTests(Database database)
                 services.AddSingleton<TimeProvider>(new FixedClock(at));
             }
         });
-        var response = await host.CreateClient().GetAsync($"/v1/campaigns/{id}/totals", Ct);
+        var response = await Database.Client(host).GetAsync($"/v1/campaigns/{id}/totals", Ct);
         var body = response.StatusCode == HttpStatusCode.OK
             ? await response.Content.ReadFromJsonAsync<JsonElement>(Ct)
             : default;

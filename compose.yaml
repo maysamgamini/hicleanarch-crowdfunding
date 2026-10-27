@@ -17,7 +17,6 @@ x-aws-local: &aws-local
 x-module-connections: &module-connections
   # The modules' own logins, as the secrets in infra/env/secrets.tf hold them; `migrate` creates them.
   # Without TLS here, Npgsql would first offer GSS encryption, which the image has no library for.
-  ConnectionStrings__Campaigns: Host=postgres;Port=5432;Database=crowdfunding;Username=campaigns_app;Password=campaigns_dev;GSS Encryption Mode=Disable
   ConnectionStrings__Pledges: Host=postgres;Port=5432;Database=crowdfunding;Username=pledges_app;Password=pledges_dev;GSS Encryption Mode=Disable
   ConnectionStrings__PledgesJobs: Host=postgres;Port=5432;Database=crowdfunding;Username=pledges_jobs;Password=pledges_jobs_dev;GSS Encryption Mode=Disable
 
@@ -56,7 +55,7 @@ services:
     command: [
       "valkey-server",
       "--user", "default", "off",
-      "--user", "api", "on", ">api_dev", "~campaigns:*", "~pledges:*", "resetchannels", "-@all",
+      "--user", "api", "on", ">api_dev", "~pledges:*", "resetchannels", "-@all",
       "+@connection", "+@read", "+@write", "+@scripting", "-@dangerous", "-scan", "-randomkey",
       "--user", "gateway", "on", ">gateway_dev", "~gateway:*", "&*", "+@all", "-@dangerous", "-scan", "-randomkey",
       "--user", "payments", "on", ">payments_dev", "~buckets:psp:*", "~payments:*", "resetchannels", "-@all",
@@ -225,9 +224,9 @@ services:
       notifications-migrate:
         condition: service_completed_successfully
 
-  # The Campaigns service (infra/services/campaigns, lesson s5-l08), beside the monolith, which still runs
-  # Campaigns (campaigns_mode = InProcess): both read the campaigns queue, the inbox lets one handle each
-  # event, and the gateway sends Campaigns' paths here. Its schema is handed once to campaigns_migrator.
+  # The Campaigns service (infra/services/campaigns, lessons s5-l08 and s5-l09): the only program that runs
+  # Campaigns. It reads the campaigns queue, and the gateway sends Campaigns' paths here. Its schema is
+  # handed once to campaigns_migrator; from then on its migrate step runs as that role.
   campaigns-handover:
     profiles: [stack]
     build: &campaigns-image
@@ -290,8 +289,9 @@ services:
       campaigns-migrate:
         condition: service_completed_successfully
 
-  # The monolith (infra/env/ecs.tf, local.api_container): Campaigns and Pledges (s5-l04: Notifications
-  # left it); Payments' events through the broker, and StartCardSetup over HTTP to the Payments service.
+  # The monolith (infra/env/ecs.tf, local.api_container): Pledges alone since s5-l09 (Notifications left at
+  # s5-l04, Campaigns at s5-l09); Payments' events through the broker, and StartCardSetup over HTTP to the
+  # Payments service.
   api:
     profiles: [stack]
     build: .
@@ -310,13 +310,8 @@ services:
       Events__Broker__Read__0: monolith
       # s5-l04: what Notifications consumes goes to its own queue, which only the Notifications service reads.
       Events__Routes__Notifications: Broker
-      # s5-l07 (infra/env/campaigns-broker.tf): the events between Campaigns and the other modules go through
-      # the broker while Campaigns still runs here; its own stay in process. The monolith reads Campaigns' queue.
+      # s5-l09: Campaigns runs only in its own service; what Pledges publishes for it goes to the broker.
       Events__Routes__Campaigns: Broker
-      Events__Producers__Campaigns__Campaigns: InProcess
-      Events__Producers__Campaigns__Pledges: Broker
-      Events__Producers__Campaigns__Notifications: Broker
-      Events__Broker__Read__1: campaigns
       # s4-l03 and s4-l10: StartCardSetup goes over HTTP to the Payments service's internal port.
       Modules__Payments__BaseAddress: http://payments:8081
       # s4-l04: the monolith's service identity. Without a token endpoint it signs its service tokens

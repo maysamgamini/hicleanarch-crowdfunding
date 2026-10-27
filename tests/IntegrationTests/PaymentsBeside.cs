@@ -61,8 +61,8 @@ public sealed class PaymentsBeside : IDisposable
 
         private readonly HttpMessageInvoker _notifications = new(monolith.Notifications().Host.Server.CreateHandler());
 
-        // Campaigns' paths (s5-l08) go to the Campaigns service when one runs beside the monolith.
-        private readonly HttpMessageInvoker? _campaigns = monolith.Campaigns() is { } campaigns ? new(campaigns.Host.Server.CreateHandler()) : null;
+        // Campaigns' paths go to the Campaigns service (s5-l08, s5-l09).
+        private readonly HttpMessageInvoker _campaigns = new(monolith.Campaigns().Host.Server.CreateHandler());
 
         public static bool IsCampaigns(HttpMethod method, string path) =>
             path.Trim('/').Split('/') switch
@@ -88,7 +88,7 @@ public sealed class PaymentsBeside : IDisposable
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             IsPayments(request.Method, request.RequestUri!.AbsolutePath) ? _payments.SendAsync(request, cancellationToken)
             : IsNotifications(request.Method, request.RequestUri!.AbsolutePath) ? _notifications.SendAsync(request, cancellationToken)
-            : _campaigns is not null && IsCampaigns(request.Method, request.RequestUri!.AbsolutePath) ? _campaigns.SendAsync(request, cancellationToken)
+            : IsCampaigns(request.Method, request.RequestUri!.AbsolutePath) ? _campaigns.SendAsync(request, cancellationToken)
             : base.SendAsync(request, cancellationToken);
     }
 }
@@ -101,5 +101,7 @@ public static class PaymentsBesideExtensions
 
     /// <summary>The services of the host that runs <typeparamref name="TCommand"/>'s module: a command goes to its owner.</summary>
     public static IServiceProvider ServicesFor<TCommand>(this WebApplicationFactory<Program> monolith) =>
-        typeof(TCommand).Namespace!.StartsWith("Payments.", StringComparison.Ordinal) ? monolith.Payments().Services : monolith.Services;
+        typeof(TCommand).Namespace!.StartsWith("Payments.", StringComparison.Ordinal) ? monolith.Payments().Services
+        : typeof(TCommand).Namespace!.StartsWith("Campaigns.", StringComparison.Ordinal) ? monolith.Campaigns().Services
+        : monolith.Services;
 }

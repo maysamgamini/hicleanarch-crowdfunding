@@ -23,14 +23,15 @@ resource "aws_iam_role_policy_attachment" "execution" {
 
 # Payments' secrets (its connection strings, the PSP's webhook secret, its Valkey user) are read only by
 # Payments' own roles (infra/services/payments) since s4-l10; Notifications' connection string only by its
-# own (infra/services/notifications) since s5-l04.
+# own (infra/services/notifications) since s5-l04; Campaigns' (its connection strings, its Valkey user) only
+# by its own (infra/services/campaigns) since s5-l09.
 data "aws_iam_policy_document" "read_connection_strings" {
   statement {
     actions = ["secretsmanager:GetSecretValue"]
     resources = concat(
-      [for key, s in aws_secretsmanager_secret.connection : s.arn if key != "notifications"],
-      [for s in aws_secretsmanager_secret.read_connection : s.arn],
-      [for user, s in aws_secretsmanager_secret.valkey : s.arn if user != "payments"],
+      [for key, s in aws_secretsmanager_secret.connection : s.arn if !contains(["notifications", "campaigns"], key)],
+      [for key, s in aws_secretsmanager_secret.read_connection : s.arn if key != "campaigns_read"],
+      [for user, s in aws_secretsmanager_secret.valkey : s.arn if !contains(["payments", "campaigns"], user)],
     )
   }
 }

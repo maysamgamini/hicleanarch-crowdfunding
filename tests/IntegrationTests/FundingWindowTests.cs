@@ -38,7 +38,11 @@ public sealed class FundingWindowTests(Database database) : IDisposable
     [Fact]
     public async Task A_redelivered_CampaignPublished_changes_nothing_the_second_time()
     {
-        var given = new Scenario(database, _host);
+        // Pledges gets CampaignPublished from the Campaigns service through its queue (s5-l09); SQS delivers at
+        // least once, so the message is sent again as SQS would.
+        var provisioned = database.Provision();
+        await using var host = database.StartHost(provisioned.Settings);
+        var given = new Scenario(database, host);
         var campaign = await given.Publish();
         // Something Pledges did since, which a second open must not undo.
         await given.Execute("UPDATE pledges.funding_windows SET goal_minor = 777 WHERE campaign_id = @id", campaign.CampaignId);
@@ -46,8 +50,21 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         var eventId = await given.Scalar<Guid>(
             "SELECT id FROM campaigns.outbox WHERE type = 'CampaignPublished' AND payload->>'campaignId' = @id::text", campaign.CampaignId);
         var payload = await given.Scalar<string>("SELECT payload::text FROM campaigns.outbox WHERE id = @id", eventId);
-        await _host.Services.GetRequiredService<OutboxDispatcher>()
-            .Deliver(new OutboxRecord(CampaignsModuleName.Value, eventId, nameof(CampaignPublished), payload), Ct);
+        using var sqs = database.Broker.Sqs();
+        await sqs.SendMessageAsync(new Amazon.SQS.Model.SendMessageRequest
+        {
+            QueueUrl = provisioned.Settings["Events:Broker:Queues:monolith:Url"]!,
+            MessageBody = payload,
+            MessageAttributes = new()
+            {
+                [CrowdFunding.Messaging.MessageAttributes.EventType] = new() { DataType = "String", StringValue = nameof(CampaignPublished) },
+                [CrowdFunding.Messaging.MessageAttributes.EventVersion] = new() { DataType = "String", StringValue = "1" },
+                [CrowdFunding.Messaging.MessageAttributes.Producer] = new() { DataType = "String", StringValue = CampaignsModuleName.Value },
+            },
+        }, Ct);
+        await Scenario.Eventually(async () => await given.Scalar<long>(
+            "SELECT count(*) FROM pledges.inbox WHERE event_id = @id", eventId) == 1);
+        await Task.Delay(TimeSpan.FromSeconds(2), Ct); // the copy has met the inbox by now
 
         Assert.Equal(777L, await given.Scalar<long>("SELECT goal_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.inbox WHERE event_id = @id", eventId));
@@ -101,7 +118,7 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         }
 
         await Scenario.Eventually(async () =>
-            (await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString() == "CANCELLED");
+            (await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString() == "CANCELLED");
     }
 
     [Fact]
@@ -140,7 +157,7 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         var cancelled = await given.Creator().PostAsync($"/v1/campaigns/{id}/cancel", null, Ct);
 
         Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
-        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
+        var read = await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
         Assert.Equal("CANCELLED", read.GetProperty("status").GetString());
     }
 

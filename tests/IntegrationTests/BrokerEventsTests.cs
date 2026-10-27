@@ -176,7 +176,8 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
         var to = DateTimeOffset.UtcNow.AddMinutes(1).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
         var output = new StringWriter();
 
-        var exit = await EventReplay.Run(host.Services, ["--module", "Campaigns", "--type", "CampaignPublished", "--from", from, "--to", to], output, Ct);
+        // Campaigns' outbox is the Campaigns service's (s5-l09): the replay runs there.
+        var exit = await EventReplay.Run(host.Campaigns().Services, ["--module", "Campaigns", "--type", "CampaignPublished", "--from", from, "--to", to], output, Ct);
 
         Assert.Equal(0, exit);
         var replayed = int.Parse(output.ToString().Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture);
@@ -203,8 +204,9 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
         }
 
         // Two programs whose recovery passes take only rows over ten minutes old: only these claims take the young rows.
-        var a = Host(database.Provision().Settings).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
-        var b = Host(database.Provision().Settings).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
+        // Campaigns' outbox is the Campaigns service's (s5-l09): its recovery claims are that service's.
+        var a = Host(database.Provision().Settings).Campaigns().Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
+        var b = Host(database.Provision().Settings).Campaigns().Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
         var ids = events.Select(e => e.EventId).ToHashSet();
 
         // Claims until one comes back empty. A broken claim hands out the same rows again and again: each
@@ -246,21 +248,25 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
     [Fact]
     public async Task A_program_without_a_broker_refuses_to_start_while_a_row_still_owes_a_publish()
     {
-        // Written under Broker, never published; then the program is started without its Events:Broker section.
-        var published = Published(Guid.NewGuid());
-        await WriteRow(published, ["broker"], TimeSpan.FromMinutes(5));
+        // Written under Broker, never published, in the outbox of the module the monolith runs (Pledges since
+        // s5-l09); then the program is started without its Events:Broker section.
+        var id = Guid.NewGuid();
+        await database.Execute($"""
+            INSERT INTO pledges.outbox (id, type, version, occurred_at, payload, attempts, sinks, delivered_at)
+            VALUES ('{id}', 'BrokerEventsTestEvent', 1, now() - interval '5 minutes', jsonb_build_object(), 0, ARRAY['broker'], now())
+            """);
         try
         {
             using var noBroker = database.StartMonolithWithoutBroker();
 
             var refusal = Refusals.Of(noBroker);
 
-            Assert.Contains("rows still owe the broker a publish in: Campaigns", refusal, StringComparison.Ordinal);
+            Assert.Contains("rows still owe the broker a publish in: Pledges", refusal, StringComparison.Ordinal);
         }
         finally
         {
             // The row stands for the test only: published, it owes nothing to the next host on this database.
-            await database.Execute($"UPDATE campaigns.outbox SET published_at = now() WHERE id = '{published.EventId}'");
+            await database.Execute($"UPDATE pledges.outbox SET published_at = now() WHERE id = '{id}'");
         }
     }
 

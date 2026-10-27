@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.TestHost;
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -63,7 +64,8 @@ public sealed class OutboxTests(Database database)
         }
     }
 
-    private WebApplicationFactory<Program> Host() => database.StartHost(services => services
+    // Campaigns' outbox, in the Campaigns service, which alone runs the module since s5-l09.
+    private WebApplicationFactory<Program> Host() => database.StartHost(campaigns: web => web.ConfigureTestServices(services => services
         .AddEventHandler<CampaignPublished, Counter>(CampaignsModuleName.Value)
         .AddEventHandler<Ping, Counter>(CampaignsModuleName.Value)
             .AddEventSubscription<Ping>(CampaignsModuleName.Value, CampaignsModuleName.Value)
@@ -71,7 +73,7 @@ public sealed class OutboxTests(Database database)
             .AddEventSubscription<RecoveredPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
         .AddEventHandler<FlakyPing, Flaky>(CampaignsModuleName.Value)
             .AddEventSubscription<FlakyPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
-        .Configure<OutboxOptions>(o => o.RetryDelays = [TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50)]));
+        .Configure<OutboxOptions>(o => o.RetryDelays = [TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50)])));
 
     private static Task Eventually(Func<Task<bool>> condition) => Scenario.Eventually(condition);
 
@@ -96,7 +98,7 @@ public sealed class OutboxTests(Database database)
     /// <summary>Writes an event the way a use case does: in a transaction of the module, then commit or roll back.</summary>
     private static async Task Write(WebApplicationFactory<Program> host, IntegrationEvent e, bool commit)
     {
-        await using var scope = host.Services.CreateAsyncScope();
+        await using var scope = host.Campaigns().Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CampaignsDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
         await scope.ServiceProvider.GetOutbox(CampaignsModuleName.Value).Add(e, Ct);
@@ -149,7 +151,7 @@ public sealed class OutboxTests(Database database)
     {
         await using var host = Host();
         var ping = new Ping(Guid.NewGuid(), DateTimeOffset.UtcNow);
-        await using var scope = host.Services.CreateAsyncScope();
+        await using var scope = host.Campaigns().Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<CampaignsDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
         await scope.ServiceProvider.GetOutbox(CampaignsModuleName.Value).Add(ping, Ct);
@@ -182,7 +184,7 @@ public sealed class OutboxTests(Database database)
         await Eventually(async () => await DeliveredAt(ping.EventId) is not null);
 
         var record = new OutboxRecord(CampaignsModuleName.Value, ping.EventId, nameof(Ping), JsonSerializer.Serialize(ping, JsonSerializerOptions.Web));
-        await host.Services.GetRequiredService<OutboxDispatcher>().Deliver(record, Ct);
+        await host.Campaigns().Services.GetRequiredService<OutboxDispatcher>().Deliver(record, Ct);
 
         Assert.Equal(1, Handled[ping.EventId]);
     }
@@ -226,7 +228,7 @@ public sealed class OutboxTests(Database database)
         }
 
         await using var host = Host();
-        _ = host.Services; // starting the program is what recovers
+        _ = host.Campaigns().Services; // starting the program is what recovers
 
         await Eventually(async () => await DeliveredAt(ping.EventId) is not null);
         Assert.Equal(1, Handled[ping.EventId]);
@@ -236,7 +238,7 @@ public sealed class OutboxTests(Database database)
     public async Task An_event_cannot_be_written_outside_a_transaction()
     {
         await using var host = Host();
-        await using var scope = host.Services.CreateAsyncScope();
+        await using var scope = host.Campaigns().Services.CreateAsyncScope();
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             scope.ServiceProvider.GetOutbox(CampaignsModuleName.Value).Add(new Ping(Guid.NewGuid(), DateTimeOffset.UtcNow), Ct));

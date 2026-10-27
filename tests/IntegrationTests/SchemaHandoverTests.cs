@@ -49,7 +49,6 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
         await using var host = new WebApplicationFactory<Program>().WithWebHostBuilder(web => web
             .UseEnvironment("Testing")
             .UseSetting("ConnectionStrings:Owner", Owner)
-            .UseSetting("ConnectionStrings:Campaigns", As("campaigns_app", "campaigns_test"))
             .UseSetting("ConnectionStrings:Pledges", As("pledges_app", "pledges_test"))
             .UseSetting("ConnectionStrings:PledgesJobs", As("pledges_jobs", "pledges_jobs_test"))
             .UseSetting("Modules:Payments:BaseAddress", "http://payments:8081")
@@ -64,6 +63,8 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
             .UseSetting("Events:Producers:Payments:Notifications", "Broker")
             // Notifications runs only in its own service (s5-l04): what it consumes goes to its queue.
             .UseSetting("Events:Routes:Notifications", "Broker")
+            // Campaigns too, from s5-l09.
+            .UseSetting("Events:Routes:Campaigns", "Broker")
             .Configure(shared.Provision().Settings));
 
         // The monolith's migrate step, as the owner.
@@ -71,6 +72,8 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
         Assert.True(await Count("SELECT count(*) FROM pg_inherits WHERE inhparent = 'pledges.pledge_ledger'::regclass") > 0);
         Assert.True(await Count("SELECT count(*) FROM pg_proc WHERE pronamespace = 'pledges'::regnamespace") > 0);
 
+        // Another module's schema, as the owner left it (since s5-l09 the monolith migrates Pledges alone).
+        await Execute(Owner, "CREATE SCHEMA IF NOT EXISTS other; CREATE TABLE IF NOT EXISTS other.things (id int)");
         await SchemaHandover.Run(Owner, "pledges", Migrator, ct);
 
         Assert.Equal(0, await Count("""
@@ -81,7 +84,7 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
                 UNION ALL SELECT typowner FROM pg_type WHERE typnamespace = 'pledges'::regnamespace
             ) o WHERE o.owner <> 'pledges_migrator'::regrole
             """));
-        Assert.Equal(0, await Count("SELECT count(*) FROM pg_class WHERE relnamespace = 'campaigns'::regnamespace AND relowner <> 'owner'::regrole"));
+        Assert.Equal(0, await Count("SELECT count(*) FROM pg_class WHERE relnamespace = 'other'::regnamespace AND relowner <> 'owner'::regrole"));
 
         // A migration's work, as the migration role: a column on the partitioned ledger (every
         // partition with it), a new month's partitions, a replaced function.
@@ -106,7 +109,7 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, change.SqlState);
 
         // The migration role has nothing in another module's schema.
-        var foreign = await Assert.ThrowsAsync<PostgresException>(() => Execute(Migrator, "ALTER TABLE campaigns.campaigns ADD COLUMN note text"));
+        var foreign = await Assert.ThrowsAsync<PostgresException>(() => Execute(Migrator, "ALTER TABLE other.things ADD COLUMN note text"));
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, foreign.SqlState);
 
         // The monolith's migrate step, as the owner, leaves the handed-over schema to its service.
@@ -117,7 +120,7 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
         // password a role logs in with is in that log.
         var (stdout, stderr) = await _database.GetLogsAsync(ct: ct);
         Assert.Contains("CREATE ROLE", stdout + stderr, StringComparison.Ordinal);
-        foreach (var password in new[] { "pledges_migrator_test", "pledges_test", "pledges_jobs_test", "campaigns_test" })
+        foreach (var password in new[] { "pledges_migrator_test", "pledges_test", "pledges_jobs_test" })
         {
             Assert.DoesNotContain(password, stdout + stderr, StringComparison.Ordinal);
         }

@@ -23,7 +23,8 @@ public sealed class OpenSinks(IEnumerable<ModuleDatabase> databases, EventSubscr
     {
         var consumed = subscriptions.Events.Where(e => e.Value.Consumers.Contains(module)).Select(e => e.Key).ToArray();
         var open = new Dictionary<string, long>();
-        foreach (var database in databases.Where(d => d.Module != module))
+        // One outbox per schema: a module with a second login on its schema (Pledges' jobs) is counted once.
+        foreach (var database in databases.Where(d => d.Module != module).DistinctBy(d => d.Schema))
         {
             await using var connection = new NpgsqlConnection(database.ConnectionString);
             await connection.OpenAsync(cancellationToken);

@@ -58,7 +58,7 @@ public sealed partial class CampaignPageTests(Database database)
         var given = new Scenario(database, host);
         var campaign = await given.Publish();
         (await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
-        var client = host.CreateClient();
+        var client = Database.Client(host);
 
         await Scenario.Eventually(async () => (await CampaignPage.Load(client, campaign.Id)).PledgedMinor == 6_000);
         var page = await CampaignPage.Load(client, campaign.Id);
@@ -89,7 +89,7 @@ public sealed partial class CampaignPageTests(Database database)
         }
 
         await using var late = database.StartHost(s => s.AddSingleton<TimeProvider>(new FixedClock(Scenario.Deadline.AddMilliseconds(-millisecondsLeft))));
-        var page = await CampaignPage.Load(late.CreateClient(), campaign.Id);
+        var page = await CampaignPage.Load(Database.Client(late), campaign.Id);
 
         Assert.Equal("LIVE", page.Status);
         Assert.Equal(cacheControl, page.TotalsCacheControl);
@@ -104,24 +104,13 @@ public sealed partial class CampaignPageTests(Database database)
         var given = new Scenario(database, host);
         var campaign = await given.Publish();
 
-        var response = await host.CreateClient().GetAsync($"/v1/campaigns/{campaign.Id}", Ct);
+        var response = await Database.Client(host).GetAsync($"/v1/campaigns/{campaign.Id}", Ct);
         var reply = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
 
         Assert.False(reply.TryGetProperty("pledged_minor", out _));
         Assert.False(reply.TryGetProperty("backers", out _));
         Assert.False(response.Headers.Contains("Deprecation"));
         Assert.Equal(0, asked);
-    }
-
-    [Fact]
-    public async Task The_OpenAPI_document_has_no_totals_in_the_campaign_reply()
-    {
-        await using var host = database.StartHost();
-
-        var document = await host.CreateClient().GetFromJsonAsync<JsonElement>("/openapi/v1.json", Ct);
-
-        var properties = document.GetProperty("components").GetProperty("schemas").GetProperty("CampaignView").GetProperty("properties");
-        Assert.DoesNotContain(properties.EnumerateObject(), p => p.Name is "pledged_minor" or "backers");
     }
 
     [Fact]

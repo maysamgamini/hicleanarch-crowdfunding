@@ -1,6 +1,6 @@
 # The Campaigns service's place in the shared layer (lesson s5-l08): its security group and its rules to the
-# database and Valkey, its own Valkey user (valkey.tf), the one-time hand-over of its schema, the monolith's
-# switch, and where the gateway sends Campaigns' paths. Everything else of the service (roles, task
+# database and Valkey, its own Valkey user (valkey.tf), the one-time hand-over of its schema, and where the
+# gateway sends Campaigns' paths. The monolith keeps nothing of Campaigns since s5-l09. Everything else of the service (roles, task
 # definitions, ECS service, log group) is its own OpenTofu root, infra/services/campaigns, applied by its
 # own deploy role.
 
@@ -10,25 +10,13 @@ variable "campaigns_image" {
   default     = ""
 }
 
-variable "campaigns_mode" {
-  description = "Whether the monolith still runs Campaigns (InProcess) or leaves it to its own service (Remote, lesson s5-l08). Remote only after `open-sinks --module Campaigns` reports no row left; back to InProcess is the rollback."
-  type        = string
-  default     = "InProcess"
-
-  validation {
-    condition     = contains(["InProcess", "Remote"], var.campaigns_mode)
-    error_message = "campaigns_mode is InProcess or Remote."
-  }
-}
-
 variable "campaigns_serves_routes" {
-  description = "Whether the gateway sends Campaigns' paths to the Campaigns service. Set it only after infra/services/campaigns has deployed the service (scripts/deploy-service.sh), so the routes always have a target; until then they go to the monolith, which serves them while campaigns_mode is InProcess."
+  description = "Whether the gateway sends Campaigns' paths to the Campaigns service. Set it only after infra/services/campaigns has deployed the service (scripts/deploy-service.sh), so the routes always have a target; until then they go to the monolith, which since s5-l09 answers them 404."
   type        = bool
   default     = false
 }
 
 locals {
-  campaigns_here           = var.campaigns_mode == "InProcess"
   campaigns_public_address = var.campaigns_serves_routes ? "http://campaigns:8080/" : "http://${aws_lb.internal.dns_name}/"
 }
 

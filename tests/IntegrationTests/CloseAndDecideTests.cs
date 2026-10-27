@@ -37,7 +37,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         given.Execute("UPDATE pledges.funding_windows SET deadline = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
 
     private async Task<string> Shown(Scenario.Published campaign) =>
-        (await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString()!;
+        (await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString()!;
 
     [Fact]
     public async Task A_campaign_that_reached_its_goal_is_funded_and_every_pledge_is_asked_to_be_charged()

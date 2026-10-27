@@ -174,12 +174,12 @@ resource "aws_cloudwatch_metric_alarm" "topic_failures" {
 # the events of the modules it runs and reads its queues; Payments' topic and queue are Payments'
 # alone (infra/services/payments). Each producer checks its own topic's subscriptions (SubscriptionCheck).
 locals {
-  # The modules the monolith runs: its own service's, and Campaigns while it still runs in it (s5-l07).
-  monolith_modules = concat(local.broker_plan_services.monolith, local.broker_plan_services.campaigns)
+  # The modules the monolith runs: its own service's (Pledges since s5-l09).
+  monolith_modules = local.broker_plan_services.monolith
   # The plan's topics of those modules.
   monolith_topics = toset([for m in local.monolith_modules : lower(m) if contains(local.broker_plan.topics, lower(m))])
-  # The queues the monolith reads: its own, and Campaigns' (s5-l07); Notifications' left with it at s5-l04.
-  monolith_queues      = ["monolith", "campaigns"]
+  # The queue the monolith reads: its own. Notifications' left with it at s5-l04, Campaigns' at s5-l09.
+  monolith_queues      = ["monolith"]
   broker_plan_services = jsondecode(file("${path.module}/../../events/subscriptions.json")).services
 }
 
@@ -225,13 +225,11 @@ locals {
       { name = "Events__Broker__Queues__monolith__Url", value = aws_sqs_queue.events["monolith"].id },
       { name = "Events__Broker__Queues__payments__Arn", value = aws_sqs_queue.events["payments"].arn },
       { name = "Events__Broker__Read__0", value = "monolith" },
+      # Campaigns runs only in its own service (s5-l09): what Pledges publishes for it goes to the broker. The
+      # subscription check looks for the pledges topic's subscription to its queue, by ARN only.
+      { name = "Events__Routes__Campaigns", value = "Broker" },
       { name = "Events__Broker__Queues__campaigns__Arn", value = aws_sqs_queue.events["campaigns"].arn },
-      { name = "Events__Broker__Queues__campaigns__Url", value = aws_sqs_queue.events["campaigns"].id },
     ],
-    local.campaigns_broker_routes,
-    # The campaigns queue while Campaigns runs here (s5-l07); with campaigns_mode = Remote (s5-l08) only the
-    # Campaigns service reads it: a host must not read a queue none of whose modules it runs.
-    local.campaigns_here ? [{ name = "Events__Broker__Read__1", value = "campaigns" }] : [],
     [for t in local.monolith_topics : { name = "Events__Broker__Topics__${t}", value = aws_sns_topic.events[t].arn }],
   )
 }

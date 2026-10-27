@@ -104,8 +104,10 @@ public sealed class Database : IAsyncLifetime
             .Run(Owner, CancellationToken.None);
         await host.Payments().Services.GetRequiredService<BuildingBlocks.Infrastructure.Persistence.DatabaseMigrator>()
             .Run(Owner, CancellationToken.None);
-        // Notifications runs only in its own service (s5-l04): its deploy migrates its schema.
+        // Notifications (s5-l04) and Campaigns (s5-l09) run only in their own services: each deploy migrates its schema.
         await host.Notifications().Services.GetRequiredService<BuildingBlocks.Infrastructure.Persistence.DatabaseMigrator>()
+            .Run(Owner, CancellationToken.None);
+        await host.Campaigns().Services.GetRequiredService<BuildingBlocks.Infrastructure.Persistence.DatabaseMigrator>()
             .Run(Owner, CancellationToken.None);
 
         // A role's settings apply to sessions that log in after them. This host's jobs opened pooled
@@ -156,38 +158,33 @@ public sealed class Database : IAsyncLifetime
     /// A fresh monolith on this database, with a Payments service of its own beside it (lesson s4-l10:
     /// Payments runs nowhere else): a new pair is what a restart looks like. The two get topics and queues
     /// of their own (what OpenTofu builds, under a fresh prefix), so no other test's hosts read their
-    /// messages. Payments' and Campaigns' routes are on <c>Broker</c> (s4-l02, s5-l07). <see cref="PaymentsBeside"/> says how the pair is wired; <c>host.Payments()</c> is the other one.
-    /// <paramref name="payments"/> configures the Payments service (its services, or settings it alone reads).
+    /// messages. Every route to another service is on <c>Broker</c>. <see cref="PaymentsBeside"/> says how the
+    /// pair is wired; <c>host.Payments()</c>, <c>host.Notifications()</c> and <c>host.Campaigns()</c> are the services.
+    /// <paramref name="payments"/> and <paramref name="campaigns"/> configure those services (their services, or settings they alone read).
     /// </summary>
-    public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null, Action<IWebHostBuilder>? payments = null) =>
-        StartHost(Provision().Settings, services, payments: payments);
+    public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null, Action<IWebHostBuilder>? payments = null,
+        Action<IWebHostBuilder>? campaigns = null) =>
+        StartHost(Provision().Settings, services, payments: payments, campaigns: campaigns);
 
-    /// <summary>Topics and queues for one pair of hosts: each reads only its own service's queues; the monolith reads
-    /// its own and, while it still runs Campaigns, the campaigns queue (s5-l07).</summary>
+    /// <summary>Topics and queues for one monolith and its services: each reads only its own service's queue.</summary>
     public MotoBroker.Provisioned Provision() =>
-        // The monolith reads its own queue and Campaigns'; Payments.Host and Notifications.Host beside it read theirs.
-        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], ["monolith", "campaigns"]).GetAwaiter().GetResult();
+        // The monolith reads its own queue; Payments.Host, Notifications.Host and Campaigns.Host beside it read theirs.
+        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], ["monolith"]).GetAwaiter().GetResult();
 
-    /// <summary>A monolith and its Payments service on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).
-    /// <paramref name="campaignsOnBroker"/> false is s5-l07's rollback: Campaigns' events stay in process,
-    /// while the monolith still reads the campaigns queue.
-    /// <paramref name="campaigns"/> says where Campaigns runs (lesson s5-l08): in the monolith alone, also in the
-    /// Campaigns service beside it (both reading the campaigns queue), or only in that service.</summary>
+    /// <summary>A monolith and its services on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).</summary>
     public WebApplicationFactory<Program> StartHost(IReadOnlyDictionary<string, string?> broker, Action<IServiceCollection>? services = null,
-        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null, bool campaignsOnBroker = true,
-        CampaignsAt campaigns = CampaignsAt.Monolith) =>
-        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments, campaignsOnBroker, campaigns);
+        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null, Action<IWebHostBuilder>? campaigns = null) =>
+        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments, campaigns);
 
     /// <summary>
     /// One monolith started directly, with no Events:Broker section and no Payments service beside it: what
     /// a deploy that lost the broker's settings would start (CQA-1504's refusal). It is not meant to serve.
     /// </summary>
     public WebApplicationFactory<Program> StartMonolithWithoutBroker() =>
-        Configure(new WebApplicationFactory<Program>(), null, null, "00:10:00", null);
+        Configure(new WebApplicationFactory<Program>(), null, null, "00:10:00", null, null);
 
     private WebApplicationFactory<Program> Configure(WebApplicationFactory<Program> factory, Action<IServiceCollection>? services,
-        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments, bool campaignsOnBroker = true,
-        CampaignsAt campaigns = CampaignsAt.Monolith) =>
+        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments, Action<IWebHostBuilder>? campaigns) =>
         factory.WithWebHostBuilder(web =>
         {
             web.ConfigureTestServices(s =>
@@ -207,12 +204,11 @@ public sealed class Database : IAsyncLifetime
                         s.AddSingleton(new NotificationsBeside(StartNotifications(broker)));
                         s.AddHostedService(sp => sp.GetRequiredService<NotificationsBeside>());
 
-                        // And, from s5-l08, the Campaigns service, reading the campaigns queue.
-                        if (campaigns != CampaignsAt.Monolith)
-                        {
-                            s.AddSingleton(new CampaignsBeside(StartCampaigns(broker)));
-                            s.AddHostedService(sp => sp.GetRequiredService<CampaignsBeside>());
-                        }
+                        // And the Campaigns service (s5-l09: Campaigns runs nowhere else), reading the campaigns queue,
+                        // with the monolith's settings that are Campaigns' to read.
+                        s.AddSingleton(sp => new CampaignsBeside(StartCampaigns(broker, CampaignsBeside.SettingsFrom(
+                            sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()), campaigns)));
+                        s.AddHostedService(sp => sp.GetRequiredService<CampaignsBeside>());
                     }
 
                     s.AddSingleton(Mail);
@@ -223,7 +219,6 @@ public sealed class Database : IAsyncLifetime
                 .UseSetting("ServiceIdentity:ClientId", ServiceClientId)
                 // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.
                 .UseSetting("ConnectionStrings:Owner", Owner)
-                .UseSetting("ConnectionStrings:Campaigns", Campaigns)
                 .UseSetting("ConnectionStrings:Pledges", Pledges)
                 .UseSetting("ConnectionStrings:PledgesJobs", PledgesJobs)
                 .UseSetting("Pledges:CloseEvery", "01:00:00")
@@ -236,17 +231,9 @@ public sealed class Database : IAsyncLifetime
                 return;
             }
 
-            // Remote (s5-l08): the monolith runs no Campaigns, so it reads only its own queue.
-            var remote = campaigns == CampaignsAt.Service;
-            foreach (var (key, value) in broker.Where(b => !remote || !b.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase)))
+            foreach (var (key, value) in broker)
             {
                 web.UseSetting(key, value);
-            }
-
-            if (remote)
-            {
-                web.UseSetting("Events:Broker:Read:0", "monolith")
-                    .UseSetting("Modules:Campaigns:Mode", "Remote");
             }
 
             // A failed message comes back after a second, not 30: the tests wait for retries.
@@ -260,16 +247,9 @@ public sealed class Database : IAsyncLifetime
                 .UseSetting("Events:Producers:Payments:Pledges", "Broker")
                 .UseSetting("Events:Producers:Payments:Campaigns", "Broker")
                 .UseSetting("Events:Producers:Payments:Notifications", "Broker")
-                // Notifications runs only in its own service (s5-l04): its events always go through the broker.
-                .UseSetting("Events:Routes:Notifications", "Broker");
-            if (campaignsOnBroker)
-            {
-                // s5-l07: the events between Campaigns and the other modules too; Campaigns' own stay in process.
-                web.UseSetting("Events:Routes:Campaigns", "Broker")
-                    .UseSetting("Events:Producers:Campaigns:Campaigns", "InProcess")
-                    .UseSetting("Events:Producers:Campaigns:Pledges", "Broker")
-                    .UseSetting("Events:Producers:Campaigns:Notifications", "Broker");
-            }
+                // Notifications (s5-l04) and Campaigns (s5-l09) run only in their own services.
+                .UseSetting("Events:Routes:Notifications", "Broker")
+                .UseSetting("Events:Routes:Campaigns", "Broker");
         });
 
     /// <summary>
@@ -313,10 +293,11 @@ public sealed class Database : IAsyncLifetime
     /// The Campaigns service (lesson s5-l08) on this database and <paramref name="broker"/>'s topics and queues,
     /// reading only the campaigns queue; every other module's events go through the broker.
     /// </summary>
-    public WebApplicationFactory<CampaignsHost> StartCampaigns(IReadOnlyDictionary<string, string?> broker, Action<IServiceCollection>? services = null) =>
+    public WebApplicationFactory<CampaignsHost> StartCampaigns(IReadOnlyDictionary<string, string?> broker,
+        IReadOnlyDictionary<string, string?>? settings = null, Action<IWebHostBuilder>? configure = null) =>
         new WebApplicationFactory<CampaignsHost>().WithWebHostBuilder(web =>
         {
-            web.ConfigureTestServices(s => services?.Invoke(s))
+            web
                 .UseEnvironment("Testing")
                 .UseSetting("ConnectionStrings:Owner", Owner)
                 .UseSetting("ConnectionStrings:Campaigns", Campaigns)
@@ -334,6 +315,12 @@ public sealed class Database : IAsyncLifetime
                 .UseSetting("Events:Broker:Backoff:0", "00:00:01")
                 .UseSetting("Events:Broker:WaitSeconds", "2")
                 .UseSetting("Outbox:Publishing:RecoverAfter", "00:10:00");
+            foreach (var (key, value) in settings ?? new Dictionary<string, string?>())
+            {
+                web.UseSetting(key, value);
+            }
+
+            configure?.Invoke(web);
         });
 
     /// <summary>How many rows of a table have the given value in a column, read as the owner.</summary>

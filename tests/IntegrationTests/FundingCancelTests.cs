@@ -36,7 +36,7 @@ public sealed class FundingCancelTests(Database database) : IDisposable
         creator.PostAsync($"/v1/campaigns/{campaignId}/funding/cancel", null, Ct);
 
     private async Task<string> CatalogStatus(string campaignId) =>
-        (await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaignId}", Ct)).GetProperty("status").GetString()!;
+        (await Database.Client(_host).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaignId}", Ct)).GetProperty("status").GetString()!;
 
     [Fact]
     public async Task A_creators_live_cancel_is_answered_by_Pledges_and_the_catalog_follows()
@@ -148,7 +148,7 @@ public sealed class FundingCancelTests(Database database) : IDisposable
 
         var before = await CancelFunding(given.Creator(), campaign.Id);
         var missing = await _host.Services.CheckCreators(Ct);
-        await _host.Services.RecordCreators(Ct);
+        await _host.Campaigns().Services.RecordCreators(Ct); // Campaigns publishes what it knows (s5-l05), from its own service since s5-l09
         await Scenario.Eventually(async () => !await given.Scalar<bool>("SELECT creator_id IS NULL FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         await Scenario.Eventually(async () => await _host.Services.CheckCreators(Ct) == 0);
         var someoneElse = await CancelFunding(Database.Client(_host, Database.Token(Roles.Creator)), campaign.Id);

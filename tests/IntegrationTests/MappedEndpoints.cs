@@ -13,7 +13,8 @@ internal static class MappedEndpoints
     public static IReadOnlyList<(string Name, RouteEndpoint Endpoint)> Of(WebApplicationFactory<Program> host, bool payments = false)
     {
         _ = host.Server; // the endpoints are mapped when the host starts
-        IEnumerable<IServiceProvider> hosts = payments ? [host.Services, host.Payments().Services] : [host.Services];
+        // With payments: the services beside the monolith too, Payments (s4-l10) and Campaigns (s5-l09).
+        IEnumerable<IServiceProvider> hosts = payments ? [host.Services, host.Payments().Services, host.Campaigns().Services] : [host.Services];
         return
         [
             .. hosts.SelectMany(h => h.GetRequiredService<EndpointDataSource>().Endpoints.OfType<RouteEndpoint>())

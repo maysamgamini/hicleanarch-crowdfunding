@@ -250,15 +250,13 @@ run "the_monolith_holds_nothing_of_payments" {
   }
 
   assert {
-    condition     = toset(data.aws_iam_policy_document.events.statement[2].resources) == toset([aws_sqs_queue.events["monolith"].arn, aws_sqs_queue.events["campaigns"].arn])
-    error_message = "The monolith's task role reads its own queue and Campaigns' (s5-l07) and no other: not Payments' (s4-l10), not Notifications' (s5-l04)."
+    condition     = toset(data.aws_iam_policy_document.events.statement[2].resources) == toset([aws_sqs_queue.events["monolith"].arn])
+    error_message = "The monolith's task role reads its own queue and no other: not Payments' (s4-l10), Notifications' (s5-l04) or Campaigns' (s5-l09)."
   }
 
   assert {
-    condition = toset(data.aws_iam_policy_document.events.statement[0].resources) == toset([
-      aws_sns_topic.events["campaigns"].arn, aws_sns_topic.events["pledges"].arn,
-    ])
-    error_message = "The monolith's task role publishes to the topics of the modules it runs, Campaigns and Pledges."
+    condition     = toset(data.aws_iam_policy_document.events.statement[0].resources) == toset([aws_sns_topic.events["pledges"].arn])
+    error_message = "The monolith's task role publishes to the topic of the one module it runs, Pledges (s5-l09)."
   }
 
   # The task definitions: no Payments secret in either container, no Payments switch, no payments queue to read.
@@ -277,9 +275,9 @@ run "the_monolith_holds_nothing_of_payments" {
     condition = alltrue([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment :
       !contains(["Modules__Payments__Mode", "Modules__Payments__Calls", "Payments__Budget__Prefix", "Auth__ServiceClients__0",
       "Events__Broker__Topics__payments", "Events__Broker__Queues__payments__Url"], e.name)
-      && !(startswith(e.name, "Events__Broker__Read__") && !contains(["monolith", "campaigns"], e.value))
+      && !(startswith(e.name, "Events__Broker__Read__") && e.value != "monolith")
     ])
-    error_message = "The monolith has no Payments switch, budget or service client, reads only its own queue and Campaigns' (s5-l07) and publishes to no Payments topic."
+    error_message = "The monolith has no Payments switch, budget or service client, reads only its own queue and publishes to no Payments topic."
   }
 
   assert {
@@ -377,43 +375,8 @@ run "the_preference_goes_to_notifications_once_it_is_deployed" {
   }
 }
 
-# Lesson s5-l07: Campaigns' events cross the broker while Campaigns still runs in the monolith, which reads
-# the campaigns queue; campaigns_on_broker = false is the rollback, and the queue is still read.
-run "campaigns_events_cross_the_broker_and_roll_back_with_one_switch" {
-  command = apply
-
-  assert {
-    condition = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value
-    if contains(["Events__Routes__Campaigns", "Events__Producers__Campaigns__Campaigns", "Events__Producers__Campaigns__Pledges"], e.name)] == ["Broker", "InProcess", "Broker"]
-    error_message = "Campaigns' events to the other modules go through the broker; its own stay in process."
-  }
-
-  assert {
-    condition     = contains([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value if startswith(e.name, "Events__Broker__Read__")], "campaigns")
-    error_message = "The monolith reads the campaigns queue while it runs Campaigns."
-  }
-}
-
-run "the_rollback_keeps_campaigns_events_in_process_and_still_reads_the_queue" {
-  command = apply
-
-  variables {
-    campaigns_on_broker = false
-  }
-
-  assert {
-    condition     = length([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e if startswith(e.name, "Events__Routes__Campaigns") || startswith(e.name, "Events__Producers__Campaigns__")]) == 0
-    error_message = "With campaigns_on_broker = false every Campaigns route is the default, in process."
-  }
-
-  assert {
-    condition     = contains([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value if startswith(e.name, "Events__Broker__Read__")], "campaigns")
-    error_message = "The rollback still drains the campaigns queue."
-  }
-}
-
-# Lesson s5-l08: Campaigns' place beside the monolith, and the monolith's switch.
-run "campaigns_runs_beside_the_monolith_until_the_switch" {
+# Lesson s5-l08: Campaigns' place beside the monolith. Lesson s5-l09: the monolith holds nothing of Campaigns.
+run "campaigns_runs_only_in_its_own_service" {
   command = apply
 
   assert {
@@ -427,14 +390,32 @@ run "campaigns_runs_beside_the_monolith_until_the_switch" {
   }
 
   assert {
-    condition = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value
-    if e.name == "Modules__Campaigns__Mode"] == ["InProcess"]
-    error_message = "By default the monolith still runs Campaigns."
+    condition     = !strcontains(aws_elasticache_user.valkey["api"].access_string, "campaigns")
+    error_message = "The monolith's Valkey user reaches no campaigns key (s5-l09)."
   }
 
   assert {
-    condition     = contains([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value if startswith(e.name, "Events__Broker__Read__")], "campaigns")
-    error_message = "While it runs Campaigns, the monolith reads the campaigns queue."
+    condition = !anytrue([for arn in [aws_secretsmanager_secret.connection["campaigns"].arn, aws_secretsmanager_secret.read_connection["campaigns_read"].arn, aws_secretsmanager_secret.valkey["campaigns"].arn] :
+    contains(data.aws_iam_policy_document.read_connection_strings.statement[0].resources, arn)])
+    error_message = "The monolith's execution role reads no Campaigns secret."
+  }
+
+  assert {
+    condition = alltrue([for td in [aws_ecs_task_definition.api, aws_ecs_task_definition.migrate] :
+    length([for e in jsondecode(td.container_definitions)[0].secrets : e if startswith(e.name, "ConnectionStrings__Campaigns")]) == 0])
+    error_message = "Neither of the monolith's containers gets a Campaigns connection string."
+  }
+
+  assert {
+    condition = alltrue([for st in data.aws_iam_policy_document.events.statement : alltrue([for r in st.resources :
+    r != aws_sqs_queue.events["campaigns"].arn && (st.actions != toset(["sns:Publish", "sns:ListSubscriptionsByTopic"]) || r != aws_sns_topic.events["campaigns"].arn)])])
+    error_message = "The monolith's task role neither reads the campaigns queue nor publishes to the campaigns topic."
+  }
+
+  assert {
+    condition = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value
+    if e.name == "Modules__Campaigns__Mode"] == ["Remote"]
+    error_message = "For the previous image the first apply runs, the monolith's one Campaigns setting is Mode = Remote, for one release."
   }
 
   assert {
@@ -444,23 +425,11 @@ run "campaigns_runs_beside_the_monolith_until_the_switch" {
   }
 }
 
-run "campaigns_remote_leaves_the_queue_and_the_routes_to_the_service" {
+run "the_gateway_sends_campaigns_paths_to_the_service_once_it_serves_them" {
   command = apply
 
   variables {
-    campaigns_mode          = "Remote"
     campaigns_serves_routes = true
-  }
-
-  assert {
-    condition = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value
-    if e.name == "Modules__Campaigns__Mode"] == ["Remote"]
-    error_message = "The switch reaches the monolith's container."
-  }
-
-  assert {
-    condition     = !contains([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value if startswith(e.name, "Events__Broker__Read__")], "campaigns")
-    error_message = "A monolith that runs no Campaigns must not read its queue: it would hide Campaigns' messages."
   }
 
   assert {

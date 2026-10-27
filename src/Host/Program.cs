@@ -2,8 +2,6 @@
 using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Identity;
 
-using Campaigns.Infrastructure;
-
 using CrowdFunding.Messaging;
 
 using Payments.Client;
@@ -42,38 +40,14 @@ builder.Services.AddOpenSinks();
 builder.Services.AddServiceCommand(new ServiceCommand("open-sinks", (services, rest, ct) => OpenSinks.Run(services, rest, Console.Out, ct)));
 builder.Services.AddOpenSinksCheck("Notifications");
 
-// Campaigns runs here (Modules:Campaigns:Mode = InProcess) or only in its own service (Remote, lesson
-// s5-l08), once `open-sinks --module Campaigns` reports no row here owes it an in-process delivery; Remote
-// refuses to start while one does. Rollback: InProcess.
-var campaignsHere = builder.Configuration.GetValue("Modules:Campaigns:Mode", "InProcess") switch
-{
-    "InProcess" => true,
-    "Remote" => false,
-    var mode => throw new InvalidOperationException($"Modules:Campaigns:Mode is InProcess or Remote, not {mode}."),
-};
-if (!campaignsHere)
-{
-    builder.Services.AddOpenSinksCheck("Campaigns");
-}
+// Campaigns runs only in its own service (lesson s5-l09): as for Notifications, this program refuses to start
+// while a row here still owes it an in-process delivery.
+builder.Services.AddOpenSinksCheck("Campaigns");
 
-// `check-creators` (lesson s5-l05) exits 0 once no open funding window lacks its creator; `record-creators`
-// publishes every LIVE campaign's creator, from Campaigns, so only where Campaigns runs.
+// `check-creators` (lesson s5-l05) exits 0 once no open funding window lacks its creator.
 builder.Services.AddServiceCommand(new ServiceCommand("check-creators", (services, _, ct) => services.CheckCreators(ct)));
-if (campaignsHere)
-{
-    builder.Services.AddServiceCommand(new ServiceCommand("record-creators", async (services, _, ct) =>
-    {
-        await services.RecordCreators(ct);
-        return 0;
-    }));
-}
 
-// Each module brings its own services and endpoints. The host only composes them.
-if (campaignsHere)
-{
-    builder.Services.AddCampaignsModule(builder.Configuration);
-}
-
+// Each module brings its own services and endpoints. The host only composes them: Pledges, the last module here.
 builder.Services.AddPledgesModule(builder.Configuration);
 // Payments runs only in its own service (s4-l10): this program sends it StartCardSetup over HTTP and
 // exchanges events with it through the broker, and knows nothing of it but its Contracts.
@@ -82,11 +56,6 @@ builder.Services.AddPaymentsClient(builder.Configuration);
 var app = builder.Build();
 
 app.UseServiceDefaults();
-if (campaignsHere)
-{
-    app.MapCampaignsEndpoints();
-}
-
 app.MapPledgesEndpoints();
 
 // The API's description, generated from the endpoints, for a developer's tools and the tests; not published in production.
