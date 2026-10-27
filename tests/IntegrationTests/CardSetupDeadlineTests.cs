@@ -33,7 +33,7 @@ public sealed class CardSetupDeadlineTests(Database database)
         var given = new Scenario(database, host);
         var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));
         var backerId = Guid.NewGuid();
-        var slow = host.Services.GetRequiredService<FakePaymentProvider>().HoldCardSetups(); // never answers while the test runs
+        var slow = host.Payments().Services.GetRequiredService<FakePaymentProvider>().HoldCardSetups(); // never answers while the test runs
 
         var placed = await given.Backer(backerId).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges",
             new { amount_minor = 4_900, tier_id = campaign.TierIds[0], payment_method_id = (string?)null }, Ct)

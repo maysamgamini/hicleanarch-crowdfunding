@@ -100,7 +100,7 @@ public sealed class AuthorizationTests(Database database) : IDisposable
             : Public;
 
         var anonymous = new List<string>();
-        foreach (var (name, endpoint) in MappedEndpoints.Of(host))
+        foreach (var (name, endpoint) in MappedEndpoints.Of(host, payments: true))
         {
             if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
             {

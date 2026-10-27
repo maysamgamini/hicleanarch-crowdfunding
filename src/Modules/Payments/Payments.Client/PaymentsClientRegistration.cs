@@ -24,7 +24,7 @@ public static class PaymentsClientRegistration
         // Every attempt carries this program's service token for Payments' commands (s4-l04): inside the
         // resilience pipeline, so a retry after the token's expiry gets a fresh one.
         services.AddServiceIdentity(configuration);
-        services.AddRemoteServiceClient<RemoteStartCardSetup>(placement.BaseAddress).AddServiceToken(PaymentsInternalEndpoints.CommandsScope);
+        services.AddRemoteServiceClient<RemoteStartCardSetup>(placement.BaseAddress, placement.Client).AddServiceToken(PaymentsInternalEndpoints.CommandsScope);
         services.AddScoped<ICommandHandler<StartCardSetup, CardSetupStarted>>(sp => sp.GetRequiredService<RemoteStartCardSetup>());
         return services;
     }

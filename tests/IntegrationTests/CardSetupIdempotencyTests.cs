@@ -27,7 +27,7 @@ public sealed class CardSetupIdempotencyTests(Database database) : IDisposable
 
     public void Dispose() => _host.Dispose();
 
-    private FakePaymentProvider Psp => _host.Services.GetRequiredService<FakePaymentProvider>();
+    private FakePaymentProvider Psp => _host.Payments().Services.GetRequiredService<FakePaymentProvider>();
 
     private async Task<CardSetupStarted> Start(Guid pledgeId, Guid backerId)
     {
@@ -142,10 +142,11 @@ public sealed class CardSetupIdempotencyTests(Database database) : IDisposable
         await using var host = database.StartHost().WithWebHostBuilder(web => web
             .UseSetting("ConnectionStrings:Pledges", new NpgsqlConnectionStringBuilder(database.Pledges) { ApplicationName = Name }.ConnectionString)
             .UseSetting("Payments:CardSetup:PspDeadline", "00:00:10")
-            // In process: over HTTP the client's 2 s attempt would answer first (s4-l03).
-            .UseSetting("Modules:Payments:Calls", "InProcess"));
+            // The client's own 2 s attempt (s4-l03) would answer first: here it waits as long as the PSP may.
+            .UseSetting("Modules:Payments:Client:AttemptTimeout", "00:00:15")
+            .UseSetting("Modules:Payments:Client:TotalTimeout", "00:00:35"));
         var given = new Scenario(database, host);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));
         var backer = given.Backer(Guid.NewGuid());
         var placed = await (await backer.PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges",

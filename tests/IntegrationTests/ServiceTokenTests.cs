@@ -150,10 +150,11 @@ public sealed class ServiceTokenTests(Database database)
     {
         await using var host = database.StartHost();
 
-        var schemes = host.Services.GetRequiredService<IAuthenticationSchemeProvider>();
+        // The receiver of service tokens is Payments' service (s4-l10).
+        var schemes = host.Payments().Services.GetRequiredService<IAuthenticationSchemeProvider>();
         Assert.Equal("Bearer", (await schemes.GetDefaultAuthenticateSchemeAsync())!.Name);
         Assert.NotNull(await schemes.GetSchemeAsync(ServiceTokens.Scheme));
-        var policy = await host.Services.GetRequiredService<IAuthorizationPolicyProvider>().GetPolicyAsync("payments/commands");
+        var policy = await host.Payments().Services.GetRequiredService<IAuthorizationPolicyProvider>().GetPolicyAsync("payments/commands");
         Assert.Equal(new[] { ServiceTokens.Scheme }, policy!.AuthenticationSchemes);
     }
 
@@ -181,7 +182,7 @@ public sealed class ServiceTokenTests(Database database)
     public async Task Payments_internal_card_setup_endpoint_lets_in_only_the_monoliths_token_with_the_commands_scope()
     {
         await using var host = database.StartHost();
-        var client = host.CreateClient();
+        var client = host.Payments().CreateClient();
 
         async Task<HttpStatusCode> Call(string? token)
         {

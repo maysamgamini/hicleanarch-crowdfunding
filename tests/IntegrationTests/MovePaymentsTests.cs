@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.TestHost;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
@@ -175,7 +176,7 @@ public sealed class MovePaymentsTests(Valkey valkey) : IClassFixture<Valkey>, IA
 
     /// <summary>A host on the shared database, with Payments' connection where the test puts it.</summary>
     private WebApplicationFactory<Program> PaymentsOn(string payments, Action<IServiceCollection>? services = null) =>
-        _shared.StartHost(services).WithWebHostBuilder(web => web
+        _shared.StartHost(payments: web => { if (services is not null) { web.ConfigureTestServices(services); } }).WithWebHostBuilder(web => web
             .UseSetting("ConnectionStrings:Valkey", valkey.Configuration)
             .UseSetting("ConnectionStrings:Payments", payments));
 
@@ -186,7 +187,7 @@ public sealed class MovePaymentsTests(Valkey valkey) : IClassFixture<Valkey>, IA
             .UseSetting("ConnectionStrings:PaymentsOwn", OwnLogin)
             .UseSetting("Payments:Move:KeepOldFor", "00:00:00"));
 
-    private static Task<int> Step(WebApplicationFactory<Program> command, string step) => command.Services.MovePayments(step, Ct);
+    private static Task<int> Step(WebApplicationFactory<Program> command, string step) => command.Payments().Services.MovePayments(step, Ct);
 
     /// <summary>The stand-in for Aurora's clone: every role and the whole database, copied after the fence.</summary>
     private async Task Clone()
@@ -219,13 +220,13 @@ public sealed class MovePaymentsTests(Valkey valkey) : IClassFixture<Valkey>, IA
         return (Guid.ParseExact(body.GetProperty("pledge_id").GetString()!["plg_".Length..], "N"), secret[..secret.IndexOf("_secret_", StringComparison.Ordinal)]);
     }
 
-    private static FakePaymentProvider Psp(WebApplicationFactory<Program> host) => host.Services.GetRequiredService<FakePaymentProvider>();
+    private static FakePaymentProvider Psp(WebApplicationFactory<Program> host) => host.Payments().Services.GetRequiredService<FakePaymentProvider>();
 
     private static Task<HttpResponseMessage> Deliver(WebApplicationFactory<Program> host, SignedWebhook webhook)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(webhook.Body, Encoding.UTF8, "application/json") };
         request.Headers.Add(WebhookSignature.Header, webhook.Signature);
-        return host.CreateClient().SendAsync(request, Ct);
+        return Database.Client(host).SendAsync(request, Ct);
     }
 
     private static string MessageId(SignedWebhook webhook) => JsonDocument.Parse(webhook.Body).RootElement.GetProperty("id").GetString()!;

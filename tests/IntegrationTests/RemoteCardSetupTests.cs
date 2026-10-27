@@ -19,10 +19,10 @@ public sealed class RemoteCardSetupTests(Database database)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    /// <summary>A host whose calls to Payments go through <paramref name="wrap"/> on their way to its in-memory server.</summary>
+    /// <summary>A monolith whose calls to Payments go through <paramref name="wrap"/> on their way to the Payments service's in-memory server.</summary>
     private WebApplicationFactory<Program> Host(Func<HttpMessageHandler, HttpMessageHandler> wrap) =>
         database.StartHost(services => services.AddHttpClient<RemoteStartCardSetup>()
-            .ConfigurePrimaryHttpMessageHandler(sp => wrap(((TestServer)sp.GetRequiredService<IServer>()).CreateHandler())));
+            .ConfigurePrimaryHttpMessageHandler(sp => wrap(PaymentsBeside.Link(sp.GetRequiredService<TwoHosts.PaymentsLink>(), sp.GetRequiredService<PaymentsBeside>()))));
 
     private static object NewCard(long amountMinor) => new { amount_minor = amountMinor, tier_id = (string?)null, payment_method_id = (string?)null };
 
@@ -92,7 +92,7 @@ public sealed class RemoteCardSetupTests(Database database)
         await using var host = Host(server => counting = new Counting(server))
             .WithWebHostBuilder(web => web.UseSetting("Payments:CardSetup:PspDeadline", "00:00:00.300"));
         var given = new Scenario(database, host);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         var campaign = await given.Publish(1_000);
         psp.HoldCardSetups();
 
@@ -149,7 +149,7 @@ public sealed class RemoteCardSetupTests(Database database)
         request.Headers.Authorization = new("Bearer", BuildingBlocks.Infrastructure.Identity.LocalTokens.IssueService(
             Database.SigningKey, Database.ServiceClientId, DateTime.UtcNow.AddHours(1), Payments.Contracts.PaymentsInternalEndpoints.CommandsScope));
 
-        var answer = await host.CreateClient().SendAsync(request, Ct);
+        var answer = await host.Payments().CreateClient().SendAsync(request, Ct);
 
         Assert.Equal(HttpStatusCode.NotFound, answer.StatusCode);
     }

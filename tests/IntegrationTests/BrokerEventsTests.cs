@@ -15,7 +15,11 @@ using Npgsql;
 
 namespace IntegrationTests;
 
-/// <summary>Lesson s4-l02: events leave the process, through SNS and SQS (Moto), still inside the monolith.</summary>
+/// <summary>
+/// Lesson s4-l02: events leave the process, through SNS and SQS (Moto). Since s4-l10 every host here is a
+/// monolith with its Payments service beside it, so what crosses is what crosses in AWS. The s4-l02 tests
+/// of switching Payments' routes between InProcess and Broker went with the InProcess mode.
+/// </summary>
 public sealed class BrokerEventsTests(Database database) : IDisposable
 {
     private const string RecordPayee = "Payments.RecordPayee";
@@ -26,9 +30,9 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
 
     public void Dispose() => _hosts.ForEach(h => h.Dispose());
 
-    private WebApplicationFactory<Program> Host(IReadOnlyDictionary<string, string?>? broker, bool brokerRoutes = true, string? recoverAfter = null)
+    private WebApplicationFactory<Program> Host(IReadOnlyDictionary<string, string?> broker, string? recoverAfter = null)
     {
-        var host = database.StartHost(broker, brokerRoutes: brokerRoutes, recoverAfter: recoverAfter);
+        var host = database.StartHost(broker, recoverAfter: recoverAfter);
         _hosts.Add(host);
         _ = host.Services; // started
         return host;
@@ -97,10 +101,8 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
     public async Task A_new_row_stores_what_it_owes_when_it_is_written()
     {
         var broker = Host(database.Provision().Settings);
-        var inProcess = Host(null);
 
         var viaBroker = await new Scenario(database, broker).Publish(1_000);
-        var allHere = await new Scenario(database, inProcess).Publish(1_000);
 
         async Task<string> SinksOf(Guid campaignId)
         {
@@ -113,7 +115,6 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
         }
 
         Assert.Equal("Campaigns,Pledges,Notifications,broker", await SinksOf(viaBroker.CampaignId));
-        Assert.Equal("Campaigns,Pledges,Payments,Notifications", await SinksOf(allHere.CampaignId));
     }
 
     [Fact]
@@ -157,37 +158,6 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
     }
 
     [Fact]
-    public async Task A_row_written_in_process_is_delivered_in_process_after_its_consumers_route_turns_to_broker_and_never_published()
-    {
-        // Written before the switch: owed to Payments in process, nothing to the broker.
-        var published = Published(Guid.NewGuid());
-        await WriteRow(published, ["Payments"], TimeSpan.FromMinutes(5));
-        await database.Execute($"UPDATE campaigns.outbox SET delivered_at = NULL WHERE id = '{published.EventId}'");
-
-        Host(database.Provision().Settings); // Payments is on Broker now; the sweep at start finds the row
-
-        await Within(TimeSpan.FromSeconds(10), async () => await Inbox(published.EventId) == 1);
-        await Within(TimeSpan.FromSeconds(5), async () =>
-            await Scalar("SELECT count(*) FROM campaigns.outbox WHERE id = @value AND delivered_at IS NOT NULL", published.EventId) == 1);
-        await Task.Delay(TimeSpan.FromSeconds(1), Ct); // a recovery pass ran at start too
-        Assert.Equal(0, await Scalar("SELECT count(*) FROM campaigns.outbox WHERE id = @value AND published_at IS NOT NULL", published.EventId));
-    }
-
-    [Fact]
-    public async Task Rolling_back_to_in_process_still_publishes_the_rows_owed_to_the_broker_and_delivers_each_once()
-    {
-        // Written under Broker, never published (the task stopped); then the routes go back to InProcess.
-        var published = Published(Guid.NewGuid());
-        await WriteRow(published, ["broker"], TimeSpan.FromMinutes(5));
-
-        Host(database.Provision().Settings, brokerRoutes: false, recoverAfter: "00:00:30");
-
-        await Within(TimeSpan.FromSeconds(15), async () => await Inbox(published.EventId) == 1);
-        Assert.Equal(1, await Scalar("SELECT count(*) FROM campaigns.outbox WHERE id = @value AND published_at IS NOT NULL", published.EventId));
-        Assert.Equal(1, await Payees(published.CampaignId));
-    }
-
-    [Fact]
     public async Task Replay_events_publishes_a_range_again_and_the_inbox_makes_it_harmless()
     {
         var host = Host(database.Provision().Settings);
@@ -218,9 +188,9 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
             await WriteRow(published, ["broker"], TimeSpan.Zero); // young: other tests' tasks recover only rows over 30 s old
         }
 
-        // Two programs with no broker: only their claims run here, nothing publishes what they claim.
-        var a = Host(null).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
-        var b = Host(null).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
+        // Two programs whose recovery passes take only rows over ten minutes old: only these claims take the young rows.
+        var a = Host(database.Provision().Settings).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
+        var b = Host(database.Provision().Settings).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
         var ids = events.Select(e => e.EventId).ToHashSet();
 
         async Task<List<Guid>> ClaimAll(IModuleEvents module)

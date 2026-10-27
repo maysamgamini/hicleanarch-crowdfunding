@@ -83,8 +83,12 @@ public sealed class Database : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         await Task.WhenAll(_container.StartAsync(), Broker.Start());
-        await using var host = StartHost(broker: false);
+        // Two migrate steps, as two deploys run them (s4-l10): the monolith's prepares its modules, and
+        // Payments.Host's alone prepares Payments' schema (here on the same server; in AWS on its own cluster).
+        await using var host = StartHost();
         await host.Services.GetRequiredService<BuildingBlocks.Infrastructure.Persistence.DatabaseMigrator>()
+            .Run(Owner, CancellationToken.None);
+        await host.Payments().Services.GetRequiredService<BuildingBlocks.Infrastructure.Persistence.DatabaseMigrator>()
             .Run(Owner, CancellationToken.None);
     }
 
@@ -101,7 +105,8 @@ public sealed class Database : IAsyncLifetime
     /// Idempotency-Key with every change unless the test sets one.</summary>
     public static HttpClient Client(WebApplicationFactory<Program> host, string? token = null)
     {
-        var client = host.CreateDefaultClient(new FreshIdempotencyKeys());
+        // Through the gateway's routes: Payments' public paths to the Payments service, the rest to the monolith.
+        var client = new HttpClient(new FreshIdempotencyKeys { InnerHandler = new PaymentsBeside.GatewayRoutes(host) }) { BaseAddress = host.Server.BaseAddress };
         if (token is not null)
         {
             client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
@@ -124,36 +129,52 @@ public sealed class Database : IAsyncLifetime
     }
 
     /// <summary>
-    /// A fresh host process on this database: a new host is what a restart looks like. With
-    /// <paramref name="broker"/>, the host gets topics and queues of its own (what Terraform builds, under a
-    /// fresh prefix), so no other test's host reads its messages, and Payments' routes are on <c>Broker</c>.
+    /// A fresh monolith on this database, with a Payments service of its own beside it (lesson s4-l10:
+    /// Payments runs nowhere else): a new pair is what a restart looks like. The two get topics and queues
+    /// of their own (what Terraform builds, under a fresh prefix), so no other test's hosts read their
+    /// messages. <see cref="PaymentsBeside"/> says how the pair is wired; <c>host.Payments()</c> is the other one.
+    /// <paramref name="payments"/> configures the Payments service (its services, or settings it alone reads).
     /// </summary>
-    public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null, bool broker = true) =>
-        StartHost(broker ? Provision().Settings : null, services);
+    public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null, Action<IWebHostBuilder>? payments = null) =>
+        StartHost(Provision().Settings, services, payments: payments);
 
-    /// <summary>Topics and queues for one host, the monolith of s4-l02, which reads both queues.</summary>
+    /// <summary>Topics and queues for one pair of hosts: each reads only its own service's queue.</summary>
     public MotoBroker.Provisioned Provision() =>
         Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], Plan.Services.Keys).GetAwaiter().GetResult();
 
-    /// <summary>
-    /// A host on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>), or with every event
-    /// in process. With <paramref name="brokerRoutes"/> false, the broker is there but every route is
-    /// <c>InProcess</c>: a rollback, with rows and messages still owed to the broker.
-    /// </summary>
-    public WebApplicationFactory<Program> StartHost(IReadOnlyDictionary<string, string?>? broker, Action<IServiceCollection>? services = null,
-        bool brokerRoutes = true, string? recoverAfter = null) =>
-        WithBroker(Configure(new WebApplicationFactory<Program>(), services), broker, brokerRoutes, recoverAfter);
+    /// <summary>A monolith and its Payments service on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).</summary>
+    public WebApplicationFactory<Program> StartHost(IReadOnlyDictionary<string, string?> broker, Action<IServiceCollection>? services = null,
+        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null) =>
+        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments);
 
-    private static WebApplicationFactory<Program> WithBroker(WebApplicationFactory<Program> host, IReadOnlyDictionary<string, string?>? broker,
-        bool brokerRoutes, string? recoverAfter)
-    {
-        if (broker is null)
+    private WebApplicationFactory<Program> Configure(WebApplicationFactory<Program> factory, Action<IServiceCollection>? services,
+        IReadOnlyDictionary<string, string?> broker, string recoverAfter, Action<IWebHostBuilder>? payments) =>
+        factory.WithWebHostBuilder(web =>
         {
-            return host;
-        }
-
-        return host.WithWebHostBuilder(web =>
-        {
+            web.ConfigureTestServices(s =>
+                {
+                    // Payments.Host beside this monolith, started with it, and the network between the two:
+                    // StartCardSetup goes over HTTP to its internal port (s4-l03, s4-l05).
+                    s.AddSingleton(new TwoHosts.PaymentsLink());
+                    s.AddSingleton(sp => new PaymentsBeside(this, sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
+                        sp.GetRequiredService<Microsoft.Extensions.Hosting.IHostEnvironment>(), payments));
+                    s.AddHostedService(sp => new PaymentsBeside.StartWithMonolith(sp.GetRequiredService<PaymentsBeside>()));
+                    s.AddHttpClient<RemoteStartCardSetup>().ConfigurePrimaryHttpMessageHandler(sp =>
+                        PaymentsBeside.Link(sp.GetRequiredService<TwoHosts.PaymentsLink>(), sp.GetRequiredService<PaymentsBeside>()));
+                    services?.Invoke(s);
+                })
+                .UseEnvironment("Testing")
+                .UseSetting("Modules:Payments:BaseAddress", "http://payments:8081")
+                .UseSetting("ServiceIdentity:ClientId", ServiceClientId)
+                // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.
+                .UseSetting("ConnectionStrings:Owner", Owner)
+                .UseSetting("ConnectionStrings:Campaigns", Campaigns)
+                .UseSetting("ConnectionStrings:Pledges", Pledges)
+                .UseSetting("ConnectionStrings:PledgesJobs", PledgesJobs)
+                .UseSetting("ConnectionStrings:Notifications", Notifications)
+                .UseSetting("Pledges:CloseEvery", "01:00:00")
+                .UseSetting("Auth:ClientId", ClientId)
+                .UseSetting("Auth:LocalSigningKey", SigningKey);
             foreach (var (key, value) in broker)
             {
                 web.UseSetting(key, value);
@@ -164,46 +185,13 @@ public sealed class Database : IAsyncLifetime
                 .UseSetting("Events:Broker:WaitSeconds", "2")
                 // Every test's host shares the database, and many stop within seconds: a recovery pass cut
                 // short leaves its claims for two minutes. Hosts recover only what a test left for them.
-                .UseSetting("Outbox:Publishing:RecoverAfter", recoverAfter ?? "00:10:00");
-            if (brokerRoutes)
-            {
-                web.UseSetting("Events:Routes:Payments", "Broker")
-                    .UseSetting("Events:Producers:Payments:Pledges", "Broker")
-                    .UseSetting("Events:Producers:Payments:Campaigns", "Broker")
-                    .UseSetting("Events:Producers:Payments:Notifications", "Broker");
-            }
+                .UseSetting("Outbox:Publishing:RecoverAfter", recoverAfter)
+                // Payments runs elsewhere: its consumers and its events go through the broker.
+                .UseSetting("Events:Routes:Payments", "Broker")
+                .UseSetting("Events:Producers:Payments:Pledges", "Broker")
+                .UseSetting("Events:Producers:Payments:Campaigns", "Broker")
+                .UseSetting("Events:Producers:Payments:Notifications", "Broker");
         });
-    }
-
-    private WebApplicationFactory<Program> Configure(WebApplicationFactory<Program> factory, Action<IServiceCollection>? services) =>
-        factory.WithWebHostBuilder(web => web
-            .ConfigureTestServices(s =>
-            {
-                // StartCardSetup goes over HTTP (s4-l03), to this host's own in-memory server, as the
-                // monolith calls its own internal port. A test may replace the handler after this.
-                s.AddHttpClient<RemoteStartCardSetup>().ConfigurePrimaryHttpMessageHandler(sp => ((TestServer)sp.GetRequiredService<IServer>()).CreateHandler());
-                services?.Invoke(s);
-            })
-            .UseEnvironment("Testing")
-            .UseSetting("Modules:Payments:Calls", "Http")
-            .UseSetting("ServiceIdentity:ClientId", ServiceClientId)
-            .UseSetting("Auth:ServiceClients:0", ServiceClientId)
-            // The in-memory server has no ports: its connections' local port is 0.
-            .UseSetting("Payments:Internal:Port", "0")
-            // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.
-            .UseSetting("ConnectionStrings:Owner", Owner)
-            .UseSetting("ConnectionStrings:Campaigns", Campaigns)
-            .UseSetting("ConnectionStrings:Pledges", Pledges)
-            .UseSetting("ConnectionStrings:PledgesJobs", PledgesJobs)
-            .UseSetting("ConnectionStrings:Payments", Payments)
-            .UseSetting("ConnectionStrings:Notifications", Notifications)
-            .UseSetting("Payments:WebhookSecret", WebhookSecret)
-            // Tests drive settlement passes themselves; the background worker waits an hour.
-            .UseSetting("Payments:Settlement:PollEvery", "01:00:00")
-            .UseSetting("Payments:Money:PollEvery", "01:00:00")
-            .UseSetting("Pledges:CloseEvery", "01:00:00")
-            .UseSetting("Auth:ClientId", ClientId)
-            .UseSetting("Auth:LocalSigningKey", SigningKey));
 
     /// <summary>How many rows of a table have the given value in a column, read as the owner.</summary>
     public async Task<long> Count(string table, string column, string value)

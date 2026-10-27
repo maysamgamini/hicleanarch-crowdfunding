@@ -23,7 +23,7 @@ public sealed class CardSetupTests(Database database) : IDisposable
 
     public void Dispose() => _host.Dispose();
 
-    private FakePaymentProvider Psp => _host.Services.GetRequiredService<FakePaymentProvider>();
+    private FakePaymentProvider Psp => _host.Payments().Services.GetRequiredService<FakePaymentProvider>();
 
     /// <summary>A pledge without a saved card: its id, and the PSP's setup id, which starts its client secret.</summary>
     private static async Task<(Guid PledgeId, string SetupId, JsonElement Body)> PledgeWithNewCard(HttpClient backer, Scenario.Published campaign, long amount = 6_000, int tier = 0)
@@ -40,7 +40,7 @@ public sealed class CardSetupTests(Database database) : IDisposable
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(webhook.Body, Encoding.UTF8, "application/json") };
         request.Headers.Add(WebhookSignature.Header, webhook.Signature);
-        return _host.CreateClient().SendAsync(request, Ct);
+        return Database.Client(_host).SendAsync(request, Ct);
     }
 
     private async Task ExpireHolds()
@@ -227,7 +227,7 @@ public sealed class CardSetupTests(Database database) : IDisposable
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
         request.Headers.Add(WebhookSignature.Header, WebhookSignature.Sign(Previous, body, DateTimeOffset.UtcNow));
 
-        var response = await host.CreateClient().SendAsync(request, Ct);
+        var response = await Database.Client(host).SendAsync(request, Ct);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }

@@ -15,9 +15,8 @@ using Payments.Infrastructure.Psp;
 namespace IntegrationTests;
 
 /// <summary>
-/// Lesson s4-l05: Payments in a host of its own. The monolith runs with <c>Modules:Payments:Mode =
-/// Remote</c> and sends the card-setup command over HTTP; the Payments service serves Payments'
-/// endpoints, runs its handlers and answers the command.
+/// Lessons s4-l05 and s4-l10: Payments in a service of its own. The monolith sends the card-setup command
+/// over HTTP; the Payments service serves Payments' endpoints, runs its handlers and answers the command.
 /// </summary>
 public sealed class SplitTests(Database database) : IDisposable
 {
@@ -105,7 +104,7 @@ public sealed class SplitTests(Database database) : IDisposable
     }
 }
 
-/// <summary>Each sub-step of the split is undone by configuration alone.</summary>
+/// <summary>Lesson s4-l10: Payments runs only in its own service, and the split's switches are gone.</summary>
 public sealed class SplitSwitchTests(Database database)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -120,31 +119,9 @@ public sealed class SplitSwitchTests(Database database)
     }
 
     [Fact]
-    public async Task In_process_the_monolith_runs_payments_as_in_release_1()
+    public async Task The_monolith_maps_none_of_payments_endpoints_and_sends_the_command_over_http()
     {
-        using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("Modules:Payments:Calls", "InProcess"));
-
-        Assert.NotEqual("RemoteStartCardSetup", await CardSetupHandler(host));
-        Assert.Equal(HttpStatusCode.BadRequest, (await host.CreateClient().PostAsync("/v1/webhooks/psp", new StringContent("{}"), Ct)).StatusCode);
-    }
-
-    [Fact]
-    public async Task Calls_over_http_with_payments_still_here_use_the_monolith_s_own_internal_port()
-    {
-        // The harness's default since s4-l03: the client goes to this host's own in-memory server.
         using var host = database.StartHost();
-
-        Assert.Equal("RemoteStartCardSetup", await CardSetupHandler(host));
-        await using var scope = host.Services.CreateAsyncScope();
-        var started = await scope.ServiceProvider.GetRequiredService<IDispatcher>()
-            .Send<StartCardSetup, CardSetupStarted>(new StartCardSetup(Guid.NewGuid(), Guid.NewGuid()), Ct);
-        Assert.True(started.IsSuccess);
-    }
-
-    [Fact]
-    public async Task Remote_the_monolith_maps_none_of_payments_endpoints_and_sends_the_command_over_http()
-    {
-        using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("Modules:Payments:Mode", "Remote"));
 
         Assert.Equal("RemoteStartCardSetup", await CardSetupHandler(host));
         var client = host.CreateClient();
@@ -154,19 +131,20 @@ public sealed class SplitSwitchTests(Database database)
         Assert.DoesNotContain(host.Services.GetServices<BuildingBlocks.Infrastructure.Events.IModuleEvents>(), m => m.Module == PaymentsModuleName.Value);
     }
 
-    [Fact]
-    public void Remote_without_http_calls_refuses_to_start()
+    [Theory]
+    [InlineData("Mode", "InProcess")]
+    [InlineData("Mode", "Remote")]
+    [InlineData("Calls", "Http")]
+    public void A_switch_of_the_split_left_in_the_configuration_refuses_the_start(string key, string value)
     {
-        using var host = database.StartHost().WithWebHostBuilder(web => web
-            .UseSetting("Modules:Payments:Mode", "Remote")
-            .UseSetting("Modules:Payments:Calls", "InProcess"));
+        using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting($"Modules:Payments:{key}", value));
 
-        var refused = Assert.Throws<InvalidOperationException>(() => host.Services);
-        Assert.Contains("Mode = Remote needs Calls = Http", refused.Message, StringComparison.Ordinal);
+        var refused = Assert.ThrowsAny<Exception>(() => host.Services);
+        Assert.Contains($"Modules:Payments:{key} no longer exist", refused.ToString(), StringComparison.Ordinal);
     }
 }
 
-/// <summary>Both hosts run Payments' code during the first sub-step, and the PSP must still see one budget.</summary>
+/// <summary>Every task of the Payments service runs Payments' code, and the PSP must still see one budget.</summary>
 public sealed class SplitBudgetTests(Database database, Valkey valkey) : IClassFixture<Valkey>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -180,9 +158,9 @@ public sealed class SplitBudgetTests(Database database, Valkey valkey) : IClassF
             .UseSetting("ConnectionStrings:Valkey", valkey.Configuration)
             .UseSetting("Payments:Budget:Prefix", prefix)
             .UseSetting("Payments:Budget:CardSetupsPerSecond", "0.1");
-        using var monolith = database.StartHost().WithWebHostBuilder(Shared);
-        using var payments = TwoHosts.PaymentsService(database, database.Provision().Settings, Shared);
-        IServiceProvider[] hosts = [monolith.Services, payments.Services];
+        using var first = TwoHosts.PaymentsService(database, database.Provision().Settings, Shared);
+        using var second = TwoHosts.PaymentsService(database, database.Provision().Settings, Shared);
+        IServiceProvider[] hosts = [first.Services, second.Services];
 
         var replies = new List<Result<CardSetupStarted>>();
         for (var i = 0; i < 6; i++)

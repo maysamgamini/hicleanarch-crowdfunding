@@ -13,11 +13,11 @@ using Pledges.Application;
 
 namespace IntegrationTests;
 
-/// <summary>Lesson s1-a02's rules with the monolith alone, as in Release 1.</summary>
-public sealed class RuleTests(Database database) : RuleChecks(database, RuleHosts.One(database));
-
-/// <summary>The same rules, assertions unchanged, with Payments in a host of its own (lesson s4-l05).</summary>
-public sealed class RuleTestsWithTwoHosts(Database database) : RuleChecks(database, RuleHosts.Two(database));
+/// <summary>
+/// Lesson s1-a02's rules, assertions unchanged since Release 1, against two services: Payments runs only
+/// in its own (lesson s4-l10; s4-l05 ran them both ways).
+/// </summary>
+public sealed class RuleTests(Database database) : RuleChecks(database, RuleHosts.Two(database));
 
 /// <summary>
 /// Where the rule tests send their requests (the monolith) and their Payments commands and PSP checks
@@ -29,12 +29,6 @@ public sealed record RuleHosts(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFa
     // machine some would wait longer than the 300 ms a pledge waits for a tier row in production and
     // be told to try again. The rules, not that wait, are under test here.
     private static void TierWait(IWebHostBuilder web) => web.UseSetting("Pledges:TierWait", "00:00:10");
-
-    public static RuleHosts One(Database database)
-    {
-        var host = database.StartHost().WithWebHostBuilder(TierWait);
-        return new RuleHosts(host, () => host.Services, host);
-    }
 
     public static RuleHosts Two(Database database)
     {
