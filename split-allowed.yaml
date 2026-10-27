@@ -39,3 +39,135 @@ allowed:
       - src/Modules/Payments/Payments.Application/Money.cs
       - src/Modules/Payments/Payments.Application/Settlement.cs
       - src/Modules/Payments/Payments.Application/StartCardSetup.cs
+
+  # Release 1 fixes of the review track (a782fa7..03f6c18, before s5-l02), one entry per ticket.
+  - class: release-1-fix
+    id: CQA-014
+    reason: a campaign is published only with a deadline at most 60 days away
+    paths:
+      - src/Modules/Campaigns/Campaigns.Domain/Campaign.cs
+      - src/Modules/Campaigns/Campaigns.Domain/CampaignErrors.cs
+
+  - class: release-1-fix
+    id: CQA-103
+    reason: remove the dead TierCounter.LooksSoldOut
+    paths:
+      - src/Modules/Pledges/Pledges.Domain/FundingWindow.cs
+
+  - class: release-1-fix
+    id: CQA-210
+    reason: the backer list holds whichever way round each pair of events arrives
+    paths:
+      - src/Modules/Notifications/Handlers.cs
+      - src/Modules/Notifications/Notifier.cs
+
+  - class: release-1-fix
+    id: CQA-211
+    reason: GET /dev/emails is a public Development endpoint under deny by default
+    paths:
+      - src/Modules/Notifications/Email.cs
+
+  - class: release-1-fix
+    id: CQA-212
+    reason: the attempt limit and the database's check read one constant
+    paths:
+      - src/Modules/Payments/Payments.Domain/Charge.cs
+
+  - class: release-1-fix
+    id: CQA-367
+    reason: the recheck alarm reads the gauge; each task knows the fleet's size for Valkey's degraded mode
+    paths:
+      - src/Modules/Pledges/Pledges.Application/CloseAndDecide.cs
+
+  - class: release-1-fix
+    id: CQA-380
+    reason: workers share a campaign by claiming its charges, at the budget's pace
+    paths:
+      - src/Modules/Payments/Payments.Application/BackerPayments.cs
+      - src/Modules/Payments/Payments.Application/HandlePspWebhook.cs
+      - src/Modules/Payments/Payments.Application/PaymentsApplication.cs
+      - src/Modules/Payments/Payments.Application/Settlement.cs
+      - src/Modules/Payments/Payments.Domain/Charge.cs
+
+  - class: release-1-fix
+    id: CQA-381
+    reason: the card-setup lane is a line: waiting pledges are served in order, each told its own wait
+    paths:
+      - src/Modules/Payments/Payments.Application/PspBudget.cs
+      - src/Modules/Payments/Payments.Application/StartCardSetup.cs
+
+  - class: release-1-fix
+    id: CQA-382
+    reason: workers share a campaign by claiming its charges, at the budget's pace
+    paths:
+      - src/Modules/Payments/Payments.Application/BackerPayments.cs
+      - src/Modules/Payments/Payments.Application/HandlePspWebhook.cs
+      - src/Modules/Payments/Payments.Application/PaymentsApplication.cs
+      - src/Modules/Payments/Payments.Application/Settlement.cs
+      - src/Modules/Payments/Payments.Domain/Charge.cs
+
+  - class: release-1-fix
+    id: CQA-400
+    reason: the creator hears the decision at once and gets a daily digest of pledges
+    paths:
+      - src/Modules/Notifications/Handlers.cs
+      - src/Modules/Notifications/PledgeDigest.cs
+
+  - class: release-1-fix
+    id: CQA-502
+    reason: workers share a campaign by claiming its charges, at the budget's pace
+    paths:
+      - src/Modules/Payments/Payments.Application/BackerPayments.cs
+      - src/Modules/Payments/Payments.Application/HandlePspWebhook.cs
+      - src/Modules/Payments/Payments.Application/PaymentsApplication.cs
+      - src/Modules/Payments/Payments.Application/Settlement.cs
+      - src/Modules/Payments/Payments.Domain/Charge.cs
+
+  - class: release-1-fix
+    id: CQA-505
+    reason: a draft is shown only to its creator, and the public view leaves out creator_id
+    paths:
+      - src/Modules/Campaigns/Campaigns.Application/GetCampaign.cs
+
+  - class: release-1-fix
+    id: CQA-506
+    reason: remove the Round 1 leftovers nothing reaches; the snapshot columns stay frozen
+    paths:
+      - src/Modules/Pledges/Pledges.Application/ActivatePledge.cs
+      - src/Modules/Pledges/Pledges.Application/ChangePledge.cs
+      - src/Modules/Pledges/Pledges.Application/CloseAndDecide.cs
+      - src/Modules/Pledges/Pledges.Application/FollowCharges.cs
+      - src/Modules/Pledges/Pledges.Application/IFundingWindows.cs
+      - src/Modules/Pledges/Pledges.Application/PlacePledge.cs
+      - src/Modules/Pledges/Pledges.Domain/FundingWindow.cs
+
+  - class: release-1-fix
+    id: CQA-710
+    reason: an account-wide cap on PSP calls in flight beside the rate buckets
+    paths:
+      - src/Modules/Payments/Payments.Application/PspBudget.cs
+
+  - class: release-1-fix
+    id: CQA-907
+    reason: Notifications records one email per recipient and a paced worker sends them
+    paths:
+      - src/Modules/Notifications/Email.cs
+      - src/Modules/Notifications/EmailQueue.cs
+      - src/Modules/Notifications/EmailWorker.cs
+      - src/Modules/Notifications/Handlers.cs
+      - src/Modules/Notifications/Notifier.cs
+
+  - class: release-1-fix
+    id: CQA-1201
+    reason: a new card for a decline that wants the cardholder's confirmation is a 409 charge_needs_confirmation
+    paths:
+      - src/Modules/Payments/Payments.Application/BackerPayments.cs
+
+  - class: release-1-fix
+    id: CQA-1625
+    reason: each backer is told the decision by their own pledge's PledgeDecided, with no payment data
+    paths:
+      - src/Modules/Notifications/Handlers.cs
+      - src/Modules/Notifications/Notifier.cs
+      - src/Modules/Pledges/Pledges.Application/CloseAndDecide.cs
+      - src/Modules/Pledges/Pledges.Domain/FundingWindow.cs
