@@ -4,11 +4,14 @@ using System.Text.Json;
 
 using BuildingBlocks.Application;
 
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 using Payments.Contracts;
 using Payments.Infrastructure.Psp;
+
+using Npgsql;
 
 namespace IntegrationTests;
 
@@ -128,5 +131,55 @@ public sealed class CardSetupIdempotencyTests(Database database) : IDisposable
             (await first.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetRawText(),
             (await retry.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetRawText());
         Assert.Single(Psp.Calls, c => c.Call == "card-setup");
+    }
+
+    [Fact]
+    public async Task Asking_again_for_the_card_form_holds_no_pledges_transaction_while_a_slow_psp_answers()
+    {
+        // This host's Pledges sessions carry their own name, so the test sees only its own.
+        const string Name = "card-setup-resume-test";
+        await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting(
+            "ConnectionStrings:Pledges", new NpgsqlConnectionStringBuilder(database.Pledges) { ApplicationName = Name }.ConnectionString));
+        var given = new Scenario(database, host);
+        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));
+        var backer = given.Backer(Guid.NewGuid());
+        var placed = await (await backer.PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges",
+            new { amount_minor = 4_900, tier_id = campaign.TierIds[0], payment_method_id = (string?)null }, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+        var pledgeId = placed.GetProperty("pledge_id").GetString();
+        var secret = placed.GetProperty("setup").GetProperty("client_secret").GetString();
+        var key = Guid.NewGuid().ToString();
+
+        Task<HttpResponseMessage> Resume()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, $"/v1/pledges/{pledgeId}/card-setup");
+            request.Headers.Add("Idempotency-Key", key);
+            return backer.SendAsync(request, Ct);
+        }
+
+        var slow = psp.HoldCardSetups();
+        var resumed = Resume();
+        await slow.Reached.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        await using (var owner = new NpgsqlConnection(database.Owner))
+        {
+            await owner.OpenAsync(Ct);
+            await using var open = new NpgsqlCommand(
+                "SELECT count(*) FROM pg_stat_activity WHERE application_name = @name AND state LIKE 'idle in transaction%'", owner);
+            open.Parameters.AddWithValue("name", Name);
+            Assert.Equal(0L, (long)(await open.ExecuteScalarAsync(Ct))!);
+        }
+
+        await Task.Delay(TimeSpan.FromSeconds(2.5), Ct); // longer than the Pledges role's 2 s transaction_timeout
+        slow.Release();
+        var answer = await resumed;
+        var retry = await Resume();
+
+        Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
+        Assert.Equal(secret, (await answer.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("setup").GetProperty("client_secret").GetString());
+        Assert.Equal(HttpStatusCode.OK, retry.StatusCode);
+        Assert.Equal("true", retry.Headers.GetValues("Idempotent-Replayed").Single());
+        Assert.Equal(secret, (await retry.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("setup").GetProperty("client_secret").GetString());
+        Assert.Equal(2, psp.Calls.Count(c => c.Call == "card-setup")); // the pledge's and the first resume's; the retry was a replay
+        Assert.Equal(1, psp.CardSetupsMade);
     }
 }

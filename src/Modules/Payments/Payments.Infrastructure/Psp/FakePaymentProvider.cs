@@ -43,6 +43,7 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     private int _unreachable;
     private int _rateLimitNext;
     private string? _rateLimitCall;
+    private Hold? _cardSetupHold;
 
     /// <summary>How many charge calls the PSP has actually carried out (a stored replay is not one).</summary>
     public int ChargesMade => _payments.Count;
@@ -66,6 +67,17 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
         Interlocked.Exchange(ref _rateLimitNext, count);
     }
 
+    /// <summary>
+    /// Card setups that reach the PSP from now on wait until the hold is released, as a slow PSP does;
+    /// <see cref="Hold.Reached"/> completes when the first one is waiting.
+    /// </summary>
+    public Hold HoldCardSetups()
+    {
+        var hold = new Hold();
+        Volatile.Write(ref _cardSetupHold, hold);
+        return hold;
+    }
+
     /// <summary>Each call that reached the PSP, by kind and time: a refused call counts, one that never left us does not.</summary>
     public IReadOnlyList<(string Call, DateTimeOffset At)> Calls => [.. _calls];
 
@@ -78,9 +90,15 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
         return Task.FromResult(_customersByKey.GetOrAdd(idempotencyKey, _ => $"cus_{Guid.NewGuid():N}"));
     }
 
-    public Task<CardSetupIntent> StartCardSetup(string pspCustomerId, string idempotencyKey, CancellationToken ct)
+    public async Task<CardSetupIntent> StartCardSetup(string pspCustomerId, string idempotencyKey, CancellationToken ct)
     {
         Reach("card-setup");
+        if (Volatile.Read(ref _cardSetupHold) is { } hold)
+        {
+            hold.Arrive();
+            await hold.Released.WaitAsync(ct);
+        }
+
         var (customer, intent) = _setupsByKey.GetOrAdd(idempotencyKey, _ =>
         {
             var id = $"seti_{Guid.NewGuid():N}";
@@ -89,7 +107,7 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
 
         // As at Stripe, a key sent again with other parameters is an error, not a new setup.
         return customer == pspCustomerId
-            ? Task.FromResult(intent)
+            ? intent
             : throw new InvalidOperationException($"Idempotency key {idempotencyKey} was used with another customer.");
     }
 
@@ -265,3 +283,19 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
 }
 
 public sealed record SignedWebhook(string Body, string Signature);
+
+/// <summary>Calls that wait at the fake PSP until the test lets them go.</summary>
+public sealed class Hold
+{
+    private readonly TaskCompletionSource _reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _released = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    /// <summary>Completes when a call is waiting.</summary>
+    public Task Reached => _reached.Task;
+
+    internal Task Released => _released.Task;
+
+    public void Release() => _released.TrySetResult();
+
+    internal void Arrive() => _reached.TrySetResult();
+}

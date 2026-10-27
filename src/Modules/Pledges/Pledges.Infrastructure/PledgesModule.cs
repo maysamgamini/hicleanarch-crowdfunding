@@ -278,20 +278,31 @@ public static class PledgesModule
         }).WithTags("Pledges");
 
         // The card form, asked for again by a pledge that waited in the card-setup lane (lesson s3-a04).
-        app.MapPost("/v1/pledges/{id}/card-setup", (string id, ClaimsPrincipal user, HttpContext http,
+        // Like the pledge endpoint, it checks the pledge and starts the setup before the key's
+        // transaction opens, so no PSP call runs while a Pledges transaction is open; the setup is
+        // idempotent per pledge, so a retry gets the same form. The key's transaction only stores the reply.
+        app.MapPost("/v1/pledges/{id}/card-setup", async (string id, ClaimsPrincipal user, HttpContext http,
             IDispatcher dispatcher, IdempotentRequests<PledgesDbContext> once) =>
-            once.Run(http, user.UserId(), new { id }, async ct =>
+        {
+            if (await once.TryReplay(http, user.UserId(), new { id }) is { } replayed)
             {
-                if (!PublicId.TryParse(Pledge.IdPrefix, id, out var pledgeId))
-                {
-                    return Result.Failure<Reply>(PledgeErrors.PledgeNotFound);
-                }
+                return replayed;
+            }
 
-                var result = await dispatcher.Send<ResumeCardSetup, PledgePlaced>(new ResumeCardSetup(pledgeId, user.UserId()), ct);
-                return result.IsSuccess
-                    ? Result.Success(new Reply(StatusCodes.Status200OK, Body(result.Value)))
-                    : Result.Failure<Reply>(result.Errors);
-            })).RequireAuthorization(Policies.Backer).WithTags("Pledges");
+            if (!PublicId.TryParse(Pledge.IdPrefix, id, out var pledgeId))
+            {
+                return new[] { PledgeErrors.PledgeNotFound }.ToProblem();
+            }
+
+            var result = await dispatcher.Send<ResumeCardSetup, PledgePlaced>(new ResumeCardSetup(pledgeId, user.UserId()), http.RequestAborted);
+            if (!result.IsSuccess)
+            {
+                return result.Errors.ToProblem();
+            }
+
+            return await once.Run(http, user.UserId(), new { id },
+                _ => Task.FromResult(Result.Success(new Reply(StatusCodes.Status200OK, Body(result.Value)))));
+        }).RequireAuthorization(Policies.Backer).WithTags("Pledges");
 
         app.MapGet("/v1/pledges/{id}", async (string id, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
         {

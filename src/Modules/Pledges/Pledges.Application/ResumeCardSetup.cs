@@ -9,7 +9,9 @@ namespace Pledges.Application;
 
 /// <summary>
 /// The card form for a pledge that is still waiting for its card: asked for again when the
-/// card-setup lane was full at pledge time. The lane's 429 reaches the backer with its wait.
+/// card-setup lane was full at pledge time. The lane's 429 reaches the backer with its wait. It only
+/// reads the pledge and asks Payments, so it is sent outside any Pledges transaction: a slow PSP
+/// holds no connection's transaction or lock.
 /// </summary>
 public sealed record ResumeCardSetup(Guid PledgeId, Guid BackerId) : ICommand<PledgePlaced>;
 
