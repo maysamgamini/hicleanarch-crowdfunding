@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using Pledges.Application;
+using Pledges.Infrastructure.Persistence;
 
 namespace Pledges.Infrastructure;
 
@@ -14,7 +15,7 @@ namespace Pledges.Infrastructure;
 /// The deadline only says when; the fence and the conditional updates make it correct, so a pass
 /// that runs twice, or late, decides each campaign once.
 /// </summary>
-internal sealed partial class CloseJob(IServiceScopeFactory scopes, IConfiguration configuration, ILogger<CloseJob> logger) : BackgroundService
+internal sealed partial class CloseJob(IServiceScopeFactory scopes, IConfiguration configuration, PledgesJobsConnection jobs, ILogger<CloseJob> logger) : BackgroundService
 {
     public static readonly TimeSpan Every = TimeSpan.FromSeconds(30);
 
@@ -26,6 +27,9 @@ internal sealed partial class CloseJob(IServiceScopeFactory scopes, IConfigurati
             try
             {
                 await using var scope = scopes.CreateAsyncScope(); // a fresh DbContext per pass
+                // The decision can move many pledges in one transaction: it runs as the jobs role,
+                // which the request path's two-second limit does not apply to.
+                jobs.Use(scope.ServiceProvider.GetRequiredService<PledgesDbContext>());
                 var decided = await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<CloseDueCampaigns, int>(new CloseDueCampaigns(), stoppingToken);
                 if (decided.Value > 0)
                 {

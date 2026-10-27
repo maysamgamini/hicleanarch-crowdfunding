@@ -61,7 +61,7 @@ public sealed class CardSetupTests(Database database) : IDisposable
         var expires = body.GetProperty("hold_expires_at").GetDateTimeOffset();
         Assert.InRange(expires - DateTimeOffset.UtcNow, TimeSpan.FromMinutes(14), TimeSpan.FromMinutes(16));
         Assert.Equal(1, await given.Scalar<int>("SELECT held FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
-        Assert.Equal(0L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(0L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal("STARTED", await given.Scalar<string>("SELECT status FROM payments.card_setups WHERE pledge_id = @id", pledgeId));
         Assert.StartsWith("seti_", setupId, StringComparison.Ordinal);
     }
@@ -78,7 +78,7 @@ public sealed class CardSetupTests(Database database) : IDisposable
 
         Assert.Equal(HttpStatusCode.OK, received.StatusCode);
         await Scenario.Eventually(async () => await given.Scalar<string>("SELECT status FROM pledges.pledges WHERE id = @id", pledgeId) == "ACTIVE");
-        Assert.Equal(6_000L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(6_000L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(1, await given.Scalar<int>("SELECT claimed FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(0, await given.Scalar<int>("SELECT held FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
         var messageId = JsonDocument.Parse(webhook.Body).RootElement.GetProperty("id").GetString();
@@ -120,7 +120,7 @@ public sealed class CardSetupTests(Database database) : IDisposable
         Assert.Equal("duplicate", (await second.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("received").GetString());
         await Scenario.Eventually(async () => await given.Scalar<string>("SELECT status FROM pledges.pledges WHERE id = @id", pledgeId) == "ACTIVE");
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledge_ledger WHERE pledge_id = @id", pledgeId));
-        Assert.Equal(6_000L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(6_000L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
     }
 
     [Fact]
@@ -160,7 +160,7 @@ public sealed class CardSetupTests(Database database) : IDisposable
             WHERE o.type = 'PaymentMethodSaved' AND o.payload ->> 'pledgeId' = @id::text
             """, pledgeId) == 1);
         Assert.Equal("EXPIRED", await given.Scalar<string>("SELECT status FROM pledges.pledges WHERE id = @id", pledgeId));
-        Assert.Equal(0L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(0L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(0, await given.Scalar<int>("SELECT claimed + held FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
     }
 
@@ -175,7 +175,7 @@ public sealed class CardSetupTests(Database database) : IDisposable
         await Deliver(Psp.CompleteSetup(setupId));
 
         await Scenario.Eventually(async () => await given.Scalar<string>("SELECT status FROM pledges.pledges WHERE id = @id", pledgeId) == "EXPIRED");
-        Assert.Equal(0L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(0L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(0, await given.Scalar<int>("SELECT claimed + held FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(0L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledge_ledger WHERE pledge_id = @id", pledgeId));
     }

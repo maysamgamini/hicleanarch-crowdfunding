@@ -35,6 +35,12 @@ public sealed class Database : IAsyncLifetime
         Password = "pledges_test",
     }.ConnectionString;
 
+    public string PledgesJobs => new Npgsql.NpgsqlConnectionStringBuilder(Owner)
+    {
+        Username = "pledges_jobs",
+        Password = "pledges_jobs_test",
+    }.ConnectionString;
+
     public string Payments => new Npgsql.NpgsqlConnectionStringBuilder(Owner)
     {
         Username = "payments_app",
@@ -103,6 +109,7 @@ public sealed class Database : IAsyncLifetime
             .UseSetting("ConnectionStrings:Owner", Owner)
             .UseSetting("ConnectionStrings:Campaigns", Campaigns)
             .UseSetting("ConnectionStrings:Pledges", Pledges)
+            .UseSetting("ConnectionStrings:PledgesJobs", PledgesJobs)
             .UseSetting("ConnectionStrings:Payments", Payments)
             .UseSetting("ConnectionStrings:Notifications", Notifications)
             .UseSetting("Payments:WebhookSecret", WebhookSecret)

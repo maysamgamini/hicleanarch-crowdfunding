@@ -1,3 +1,5 @@
+using BuildingBlocks.Infrastructure.Persistence;
+
 using Microsoft.EntityFrameworkCore;
 
 using Pledges.Application;
@@ -100,19 +102,29 @@ internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, 
     Task<TierCounter?> ITierSlots.Find(Guid tierId, CancellationToken cancellationToken) =>
         db.TierCounters.AsNoTracking().SingleOrDefaultAsync(t => t.TierId == tierId, cancellationToken);
 
+    /// <summary>
+    /// How long a pledge may wait for a tier row before it answers "try again" (lesson s3-l05). With
+    /// no window lock in front of it, the tier row is where a launch's pledges meet; a wait that runs
+    /// out ends one statement and keeps the session, well inside the request path's two-second limit.
+    /// </summary>
+    public static readonly TimeSpan TierWait = TimeSpan.FromMilliseconds(300);
+
     // Lesson 6: the rule is in the WHERE. A second transaction waits for the row lock, then re-checks
     // the row as the first left it (Read Committed); 0 rows changed means sold out.
-    public async Task<bool> TryClaim(Guid tierId, CancellationToken cancellationToken) =>
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
+    public Task<bool> TryClaim(Guid tierId, CancellationToken cancellationToken) =>
+        WaitForTier(async () => await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE pledges.tier_counters SET claimed = claimed + 1
             WHERE tier_id = {tierId} AND limit_qty IS NOT NULL AND claimed + held + 1 <= limit_qty
-            """, cancellationToken) == 1;
+            """, cancellationToken) == 1, cancellationToken);
 
-    public async Task<bool> TryHold(Guid tierId, CancellationToken cancellationToken) =>
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
+    public Task<bool> TryHold(Guid tierId, CancellationToken cancellationToken) =>
+        WaitForTier(async () => await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE pledges.tier_counters SET held = held + 1
             WHERE tier_id = {tierId} AND limit_qty IS NOT NULL AND claimed + held + 1 <= limit_qty
-            """, cancellationToken) == 1;
+            """, cancellationToken) == 1, cancellationToken);
+
+    private Task<T> WaitForTier<T>(Func<Task<T>> statement, CancellationToken cancellationToken) =>
+        DatabaseBusy.WithLockTimeout(sql => db.Database.ExecuteSqlRawAsync(sql, cancellationToken), TierWait, "tier_busy", statement);
 
     public Task HoldToClaim(Guid tierId, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""
@@ -133,9 +145,9 @@ internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, 
         }
 
         Guid[] ids = [.. new[] { fromTierId, toTierId }.OfType<Guid>().Order()];
-        await db.Database.ExecuteSqlInterpolatedAsync($"""
+        await WaitForTier(() => db.Database.ExecuteSqlInterpolatedAsync($"""
             SELECT 1 FROM pledges.tier_counters WHERE tier_id = ANY({ids}) ORDER BY tier_id FOR UPDATE
-            """, cancellationToken);
+            """, cancellationToken), cancellationToken);
         if (fromTierId is { } from)
         {
             await db.Database.ExecuteSqlInterpolatedAsync($"""

@@ -26,9 +26,11 @@ public interface IFundingWindows
     Task<bool> IsOpen(Guid campaignId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// The fence's pledge side: adds to the snapshot total only while the window is LIVE and before
-    /// the deadline by the database's clock, and holds the window's row lock until this transaction
-    /// ends, so the close waits for it. False: pledging has closed.
+    /// The fence's pledge side: accepts only while the window is LIVE and before the deadline by the
+    /// database's clock, and makes sure the close does not sum the ledger before this transaction
+    /// has either committed or ended. False: pledging has closed. Round 1's adapter adds to the
+    /// snapshot under the window's row lock, which the close waits for; Round 2's only reads the
+    /// window, and the close waits out the transactions' time limit instead (lesson s3-l05).
     /// </summary>
     Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken);
 }

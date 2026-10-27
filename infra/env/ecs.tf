@@ -20,6 +20,7 @@ locals {
   module_secrets = [
     { name = "ConnectionStrings__Campaigns", valueFrom = aws_secretsmanager_secret.connection["campaigns"].arn },
     { name = "ConnectionStrings__Pledges", valueFrom = aws_secretsmanager_secret.connection["pledges"].arn },
+    { name = "ConnectionStrings__PledgesJobs", valueFrom = aws_secretsmanager_secret.connection["pledges_jobs"].arn },
     { name = "ConnectionStrings__Payments", valueFrom = aws_secretsmanager_secret.connection["payments"].arn },
     { name = "Payments__WebhookSecret", valueFrom = aws_secretsmanager_secret.webhook.arn },
     { name = "ConnectionStrings__Notifications", valueFrom = aws_secretsmanager_secret.connection["notifications"].arn },

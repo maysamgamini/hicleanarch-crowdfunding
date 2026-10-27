@@ -12,6 +12,11 @@ resource "random_password" "pledges" {
   special = false
 }
 
+resource "random_password" "pledges_jobs" {
+  length  = 32
+  special = false
+}
+
 resource "random_password" "payments" {
   length  = 32
   special = false
@@ -43,9 +48,11 @@ locals {
   # Every task keeps a pool per module role; Aurora at its smallest capacity allows few connections.
   pool = "Maximum Pool Size=10"
   connection_strings = {
-    owner         = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=owner;Password=${random_password.owner.result};Timeout=60"
-    campaigns     = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=campaigns_app;Password=${random_password.campaigns.result};Timeout=60;${local.pool}"
-    pledges       = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=pledges_app;Password=${random_password.pledges.result};Timeout=60;${local.pool}"
+    owner     = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=owner;Password=${random_password.owner.result};Timeout=60"
+    campaigns = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=campaigns_app;Password=${random_password.campaigns.result};Timeout=60;${local.pool}"
+    pledges   = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=pledges_app;Password=${random_password.pledges.result};Timeout=60;${local.pool}"
+    # Pledges' jobs (the close, the totals aggregator): the module's rights without its two-second transaction limit.
+    pledges_jobs  = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=pledges_jobs;Password=${random_password.pledges_jobs.result};Timeout=60;${local.pool}"
     payments      = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=payments_app;Password=${random_password.payments.result};Timeout=60;${local.pool}"
     notifications = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=notifications_app;Password=${random_password.notifications.result};Timeout=60;${local.pool}"
   }

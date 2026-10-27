@@ -8,7 +8,10 @@ namespace Pledges.Application;
 /// <summary>The small reply every campaign page polls: the total, the backers, the places left.</summary>
 public sealed record GetPublicTotals(Guid CampaignId) : IQuery<PublicTotalsReply>;
 
-/// <summary>What the read port returns: the funding window and its tier counters, as stored.</summary>
+/// <summary>
+/// What the read port returns: the funding window's status, deadline and final sum, with the display
+/// totals the aggregator last computed (lesson s3-l05) and when it computed them.
+/// </summary>
 public sealed record FundingSnapshot(
     Guid CampaignId,
     FundingStatus Status,
@@ -18,9 +21,11 @@ public sealed record FundingSnapshot(
     long PledgedMinor,
     int Backers,
     long? FinalMinor,
-    IReadOnlyList<TierPlaces> Tiers);
+    IReadOnlyList<TierPlaces> Tiers,
+    DateTimeOffset AsOf);
 
-public sealed record TierPlaces(Guid TierId, int? LimitQty, int Claimed, int Held);
+/// <summary><c>Remaining</c> is null for a tier with no limit.</summary>
+public sealed record TierPlaces(Guid TierId, int? LimitQty, int? Remaining);
 
 /// <summary>Reads a funding window for display. Nothing read here decides anything.</summary>
 public interface IPublicTotalsReads
@@ -80,12 +85,9 @@ public sealed class GetPublicTotalsHandler(IPublicTotalsReads totals, TimeProvid
             window.GoalMinor,
             window.Currency,
             window.Deadline.UtcDateTime,
-            [.. window.Tiers.Select(t => new TierRemaining(
-                PublicId.Format("tir", t.TierId),
-                t.LimitQty,
-                t.LimitQty is { } limit ? Math.Max(0, limit - t.Claimed - t.Held) : null))],
+            [.. window.Tiers.Select(t => new TierRemaining(PublicId.Format("tir", t.TierId), t.LimitQty, t.Remaining))],
             window.FinalMinor is not null,
-            now.UtcDateTime);
+            (window.FinalMinor is not null ? now : window.AsOf).UtcDateTime);
         return Result.Success(new PublicTotalsReply(view, maxAge));
     }
 }

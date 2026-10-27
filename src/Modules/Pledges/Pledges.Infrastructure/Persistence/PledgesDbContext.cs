@@ -37,6 +37,11 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
             window.Property(w => w.Currency).HasMaxLength(3).IsFixedLength();
             // The close job finds due windows on this index (lesson s2-l12).
             window.HasIndex(w => w.Deadline).HasFilter("status IN ('LIVE', 'ENDED')").HasDatabaseName("funding_windows_due");
+            // Written only by the close's SQL: when the decision was made, and the check a minute later (lesson s3-l05).
+            window.Property<DateTimeOffset?>("DecidedAt");
+            window.Property<DateTimeOffset?>("RecheckedAt");
+            window.Property<long?>("RecheckMinor");
+            window.HasIndex("DecidedAt").HasFilter("rechecked_at IS NULL").HasDatabaseName("funding_windows_to_recheck");
         });
 
         modelBuilder.Entity<TierCounter>(tier =>

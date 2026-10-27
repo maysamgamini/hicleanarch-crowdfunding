@@ -18,10 +18,23 @@ public interface IClosing
 
     /// <summary>
     /// The fence's close side: LIVE to ENDED once the deadline has passed by the database's clock.
-    /// It waits for every pledge that holds the window's lock. False: it was not LIVE (already ended,
-    /// or cancelled).
+    /// False: it was not LIVE (already ended, or cancelled).
     /// </summary>
     Task<bool> TryEnd(Guid campaignId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// How long to wait after an ENDED commit is acknowledged before the exact sum. Zero when the
+    /// close itself waited for every pledge in flight (a row lock); the transactions' time limit plus
+    /// a margin when pledges take no lock. <see cref="TryDecide"/> refuses to decide sooner.
+    /// </summary>
+    TimeSpan WaitAfterEnd { get; }
+
+    /// <summary>
+    /// The check behind the fence: for campaigns decided at least a minute ago and not yet checked,
+    /// sums the ledger again and compares it with the recorded sum. Returns how many differed; each
+    /// is logged and counted for an alarm.
+    /// </summary>
+    Task<int> RecheckDecided(int batchSize, CancellationToken cancellationToken);
 
     /// <summary>The exact sum of the ledger and the number of active pledges, read after the close.</summary>
     Task<(long SumMinor, int Backers, long GoalMinor, string Currency)> ExactSum(Guid campaignId, CancellationToken cancellationToken);
@@ -45,9 +58,9 @@ public sealed record ChargeablePledge(Guid PledgeId, Guid BackerId, long AmountM
 public sealed record CloseDueCampaigns(Guid? CampaignId = null) : ICommand<int>;
 
 /// <summary>
-/// One pass of the close job. For each due campaign, two transactions: the close, which waits for
-/// every pledge in flight, and then the decision from the exact sum, which moves every pledge in
-/// the same transaction. A campaign left ENDED by a pass that died between the two is picked up by
+/// One pass of the close job. For each due campaign, two transactions: the close, and then, once
+/// every pledge that saw the campaign LIVE has committed or ended, the decision from the exact sum,
+/// which moves every pledge in the same transaction. A campaign left ENDED by a pass that died between the two is picked up by
 /// the next pass, and both steps are conditional, so two passes at once decide a campaign once.
 /// </summary>
 public sealed class CloseDueCampaignsHandler(
@@ -58,10 +71,24 @@ public sealed class CloseDueCampaignsHandler(
 {
     public async Task<Result<int>> Handle(CloseDueCampaigns command, CancellationToken cancellationToken)
     {
-        var decided = 0;
-        foreach (var campaignId in await closing.Due(50, command.CampaignId, cancellationToken))
+        // First end every due campaign, then wait once, from the moment the last ENDED commit was
+        // acknowledged, then decide each. A campaign left ENDED by an earlier pass is decided too.
+        var due = await closing.Due(50, command.CampaignId, cancellationToken);
+        var ended = false;
+        foreach (var campaignId in due)
         {
-            await transaction.Run(async ct => Result.Success(await closing.TryEnd(campaignId, ct)), cancellationToken);
+            var end = await transaction.Run(async ct => Result.Success(await closing.TryEnd(campaignId, ct)), cancellationToken);
+            ended |= end.Value;
+        }
+
+        if (ended && closing.WaitAfterEnd > TimeSpan.Zero)
+        {
+            await Task.Delay(closing.WaitAfterEnd, clock, cancellationToken);
+        }
+
+        var decided = 0;
+        foreach (var campaignId in due)
+        {
             var outcome = await transaction.Run(ct => Decide(campaignId, ct), cancellationToken);
             if (outcome.IsSuccess && outcome.Value)
             {
@@ -69,6 +96,7 @@ public sealed class CloseDueCampaignsHandler(
             }
         }
 
+        await closing.RecheckDecided(50, cancellationToken);
         return Result.Success(decided);
     }
 

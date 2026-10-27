@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
+using Pledges.Application;
 using Pledges.Infrastructure.Persistence;
 
 namespace Pledges.Infrastructure;
@@ -34,31 +35,67 @@ internal sealed partial class PledgesMonitor(IServiceScopeFactory scopes, ILogge
 }
 
 /// <summary>
-/// Lesson 5's nightly check: every funding window's snapshot total against its ledger's sum. Any
-/// difference is logged with its campaign and counted, and the count raises an alarm.
+/// The nightly check of lesson 5, as Round 2 needs it (lesson s3-l05): pledges no longer write a
+/// snapshot, so what a page shows is the aggregator's display total. Each campaign's display total is
+/// compared with its ledger's sum; a difference is looked at again after a few seconds, longer than
+/// the aggregator takes to refresh a changed campaign, and only one that persists is logged with its
+/// campaign and counted. The count raises an alarm. It runs as the jobs role: summing every ledger
+/// may take longer than the request path's two seconds.
 /// </summary>
-internal sealed partial class SnapshotCheck(IServiceScopeFactory scopes, IConfiguration configuration, ILogger<SnapshotCheck> logger) : ModuleMonitor(scopes, logger)
+internal sealed partial class TotalsCheck(IServiceScopeFactory scopes, IConfiguration configuration, ILogger<TotalsCheck> logger) : ModuleMonitor(scopes, logger)
 {
     public static readonly Operations.Measured Mismatches = new Operations.Measured(
-        "ledger.snapshot_mismatches", "{campaign}", "Funding windows whose snapshot total differs from their ledger's sum, at the last check").Register();
+        "totals.display_mismatches", "{campaign}", "Campaigns whose display total differs from their ledger's sum, at the last check").Register();
 
-    protected override TimeSpan Every => configuration.GetValue("Pledges:CheckSnapshotsEvery", TimeSpan.FromHours(24));
+    /// <summary>How long a difference must last to count: more than the aggregator's two seconds.</summary>
+    public static readonly TimeSpan LookAgainAfter = TimeSpan.FromSeconds(5);
+
+    protected override TimeSpan Every => configuration.GetValue("Pledges:CheckTotalsEvery", TimeSpan.FromHours(24));
 
     protected override async Task Measure(IServiceProvider services, CancellationToken cancellationToken)
     {
         var db = services.GetRequiredService<PledgesDbContext>();
-        var different = await db.Database.SqlQuery<Guid>($"""
-            SELECT w.campaign_id AS "Value" FROM pledges.funding_windows w
-            WHERE w.pledged_minor <> (SELECT coalesce(sum(l.delta_minor), 0) FROM pledges.pledge_ledger l WHERE l.campaign_id = w.campaign_id)
-            """).ToListAsync(cancellationToken);
-        foreach (var campaignId in different)
+        services.GetRequiredService<PledgesJobsConnection>().Use(db);
+        var store = services.GetRequiredService<ITotalsStore>();
+        var campaigns = await db.FundingWindows.AsNoTracking().Select(w => w.CampaignId).ToListAsync(cancellationToken);
+
+        var suspects = new List<Guid>();
+        foreach (var campaignId in campaigns)
         {
-            LogMismatch(logger, campaignId);
+            if (await Differs(db, store, campaignId, cancellationToken))
+            {
+                suspects.Add(campaignId);
+            }
+        }
+
+        var different = new List<Guid>();
+        if (suspects.Count > 0)
+        {
+            await Task.Delay(LookAgainAfter, cancellationToken);
+            foreach (var campaignId in suspects)
+            {
+                if (await Differs(db, store, campaignId, cancellationToken))
+                {
+                    LogMismatch(logger, campaignId);
+                    different.Add(campaignId);
+                }
+            }
         }
 
         Mismatches.Set(different.Count);
     }
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Campaign {CampaignId}: the snapshot total differs from the ledger's sum")]
+    private static async Task<bool> Differs(PledgesDbContext db, ITotalsStore store, Guid campaignId, CancellationToken cancellationToken)
+    {
+        if (await store.Get(campaignId, cancellationToken) is not { } shown)
+        {
+            return false; // not computed yet: the page computes it from the ledger on its first read
+        }
+
+        var sum = await db.Ledger.Where(e => e.CampaignId == campaignId).SumAsync(e => (long?)e.DeltaMinor, cancellationToken) ?? 0;
+        return shown.PledgedMinor != sum;
+    }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Campaign {CampaignId}: the display total differs from the ledger's sum")]
     private static partial void LogMismatch(ILogger logger, Guid campaignId);
 }

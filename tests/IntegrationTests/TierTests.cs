@@ -21,26 +21,46 @@ public sealed class TierTests(Database database) : IDisposable
 
     public void Dispose() => _host.Dispose();
 
+    /// <summary>
+    /// One backer's pledge, sent again with the same key while the tier row is busy (409 tier_busy,
+    /// lesson s3-l05), as a client does, until it gets a real answer: its status and reason.
+    /// </summary>
+    private static async Task<(HttpStatusCode Status, string? Reason)> PledgeUntilAnswered(Scenario given, Scenario.Published campaign)
+    {
+        var backer = given.Backer(Guid.NewGuid());
+        var key = Guid.NewGuid().ToString();
+        while (true)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"/v1/campaigns/{campaign.Id}/pledges")
+            {
+                Content = JsonContent.Create(Scenario.Pledge(4_900, campaign.TierIds[0])),
+            };
+            request.Headers.Add("Idempotency-Key", key);
+            using var response = await backer.SendAsync(request, Ct);
+            using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+            var reason = body.RootElement.TryGetProperty("reason", out var r) ? r.GetString() : null;
+            if (reason != "tier_busy")
+            {
+                return (response.StatusCode, reason);
+            }
+
+            await Task.Delay(100, Ct);
+        }
+    }
+
     [Fact]
     public async Task Fifty_parallel_pledges_for_ten_places_give_exactly_ten()
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));
 
-        var responses = await Task.WhenAll(Enumerable.Range(0, 50).Select(_ =>
-            given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(4_900, campaign.TierIds[0]), Ct)));
+        var responses = await Task.WhenAll(Enumerable.Range(0, 50).Select(_ => PledgeUntilAnswered(given, campaign)));
 
-        var unexpected = responses.Where(r => r.StatusCode is not HttpStatusCode.Created and not HttpStatusCode.Conflict).ToList();
-        Assert.True(unexpected.Count == 0, string.Join("\n", await Task.WhenAll(unexpected.Select(async r => $"{(int)r.StatusCode} {await r.Content.ReadAsStringAsync(Ct)}"))));
-        Assert.Equal(10, responses.Count(r => r.StatusCode == HttpStatusCode.Created));
-        Assert.Equal(40, responses.Count(r => r.StatusCode == HttpStatusCode.Conflict));
-        foreach (var refused in responses.Where(r => r.StatusCode == HttpStatusCode.Conflict))
-        {
-            Assert.Equal("tier_sold_out", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
-        }
+        Assert.Equal(10, responses.Count(r => r.Status == HttpStatusCode.Created));
+        Assert.Equal(40, responses.Count(r => r.Status == HttpStatusCode.Conflict && r.Reason == "tier_sold_out"));
 
         Assert.Equal(10, await given.Scalar<int>("SELECT claimed FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
-        Assert.Equal(49_000L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(49_000L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(10L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
     }
 
@@ -90,7 +110,7 @@ public sealed class TierTests(Database database) : IDisposable
         var db2 = scope2.ServiceProvider.GetRequiredService<PledgesDbContext>();
         await using var t2 = await db2.Database.BeginTransactionAsync(Ct);
         var second = scope2.ServiceProvider.GetRequiredService<ITierSlots>().TryClaim(tier, Ct);
-        await Task.Delay(200, Ct);
+        await Task.Delay(100, Ct);
         Assert.False(second.IsCompleted); // it waits for the row lock
 
         await t1.CommitAsync(Ct);
@@ -151,7 +171,7 @@ public sealed class TierTests(Database database) : IDisposable
         var db2 = scope2.ServiceProvider.GetRequiredService<PledgesDbContext>();
         await using var t2 = await db2.Database.BeginTransactionAsync(Ct);
         var opposite = scope2.ServiceProvider.GetRequiredService<ITierSlots>().TryMove(founder, early, Ct);
-        await Task.Delay(200, Ct);
+        await Task.Delay(100, Ct);
         Assert.False(opposite.IsCompleted); // it waits for the first, on the same row first, instead of deadlocking
 
         await t1.CommitAsync(Ct);

@@ -1,0 +1,60 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+
+using Pledges.Application;
+using Pledges.Infrastructure.Persistence;
+
+namespace Pledges.Infrastructure.Totals;
+
+/// <summary>
+/// Recomputes each changed campaign's display totals from the ledger, at most every two seconds per
+/// campaign, and stores the absolute values. Every minute it also marks every live campaign, so a
+/// signal lost in a crash costs at most a minute of staleness. It runs as the uncapped jobs role.
+/// </summary>
+internal sealed partial class TotalsAggregator(
+    IServiceScopeFactory scopes,
+    DirtyCampaigns dirty,
+    PledgesJobsConnection jobs,
+    ILogger<TotalsAggregator> logger) : BackgroundService
+{
+    private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan DriftCheckEvery = TimeSpan.FromMinutes(1);
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(Tick);
+        var nextDriftCheck = DateTimeOffset.MinValue;
+        while (await timer.WaitForNextTickAsync(stoppingToken))
+        {
+            try
+            {
+                await using var scope = scopes.CreateAsyncScope();
+                jobs.Use(scope.ServiceProvider.GetRequiredService<PledgesDbContext>());
+                var source = scope.ServiceProvider.GetRequiredService<ITotalsSource>();
+                if (DateTimeOffset.UtcNow >= nextDriftCheck)
+                {
+                    foreach (var campaignId in await source.Live(stoppingToken))
+                    {
+                        dirty.Mark(campaignId);
+                    }
+
+                    nextDriftCheck = DateTimeOffset.UtcNow + DriftCheckEvery;
+                }
+
+                var store = scope.ServiceProvider.GetRequiredService<ITotalsStore>();
+                foreach (var campaignId in dirty.TakeDue())
+                {
+                    await store.Set(campaignId, await source.Compute(campaignId, stoppingToken), stoppingToken);
+                }
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                LogFailed(logger, e);
+            }
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The totals aggregator's pass failed; the next pass tries again")]
+    private static partial void LogFailed(ILogger logger, Exception exception);
+}

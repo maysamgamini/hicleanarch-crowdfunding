@@ -24,11 +24,11 @@ locals {
       threshold   = 0
       description = "A charge has had an attempt in flight for more than 10 minutes: the PSP may be down, or no settlement worker is running."
     }
-    snapshot_mismatch = {
-      metric      = "ledger.snapshot_mismatches"
+    display_total_mismatch = {
+      metric      = "totals.display_mismatches"
       meter       = "CrowdFunding.Operations"
       threshold   = 0
-      description = "A funding window's snapshot total differs from its ledger's sum at the last nightly check: see the error log for the campaign."
+      description = "A campaign's display total differs from its ledger's sum at the last nightly check, for longer than the aggregator takes to refresh it: see the error log for the campaign."
     }
     undelivered_events = {
       metric      = "outbox.oldest_undelivered_age"

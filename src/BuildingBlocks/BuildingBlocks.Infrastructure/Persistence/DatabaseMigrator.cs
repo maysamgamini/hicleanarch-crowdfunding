@@ -18,14 +18,22 @@ public sealed partial class DatabaseMigrator(
     {
         foreach (var migrator in migrators)
         {
-            var module = databases.Single(d => d.Module == migrator.Module);
-            await PrepareRoleAndSchema(ownerConnectionString, module, cancellationToken);
-            await migrator.Migrate(ownerConnectionString, cancellationToken);
-            // The grants and the module's own revokes commit together, so the role never holds, even
-            // for a moment, a right the module takes away (such as changing its ledger).
-            await Execute(ownerConnectionString, GrantTables(module) + migrator.AfterGrants(Quote(module.Role)), cancellationToken);
+            // Every role that logs in to this module's schema: the module's own, and any other it uses.
+            var roles = databases.Where(d => d.Schema == migrator.Schema).ToList();
+            foreach (var role in roles)
+            {
+                await PrepareRoleAndSchema(ownerConnectionString, role, cancellationToken);
+            }
 
-            LogMigrated(logger, module.Module, module.Schema);
+            await migrator.Migrate(ownerConnectionString, cancellationToken);
+            // The grants, the module's own revokes and the roles' settings commit together, so a role
+            // never holds, even for a moment, a right the module takes away (such as changing its ledger).
+            await Execute(ownerConnectionString,
+                string.Concat(roles.Select(r => GrantTables(r) + migrator.AfterGrants(Quote(r.Role)) + Settings(r))),
+                cancellationToken);
+            await migrator.Verify(roles, cancellationToken);
+
+            LogMigrated(logger, migrator.Module, migrator.Schema);
         }
     }
 
@@ -59,6 +67,11 @@ public sealed partial class DatabaseMigrator(
 
             """;
     }
+
+    // A setting on a role applies to every session that logs in as it afterwards. The owner sets it
+    // here, in the deploy step: a module's own role may not change its own limits.
+    private static string Settings(ModuleDatabase module) =>
+        string.Concat(module.RoleSettings.Select(setting => $"ALTER ROLE {Quote(module.Role)} SET {setting};\n"));
 
     private static async Task Execute(string connectionString, string sql, CancellationToken ct)
     {

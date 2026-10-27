@@ -26,16 +26,12 @@ public sealed class ChangeAndCancelTests(Database database) : IDisposable
     private static async Task<string> Reason(HttpResponseMessage response) =>
         (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString()!;
 
+    // Round 2 (lesson s3-l05): the ledger is the total, and every live pledge is in it.
     private static async Task AssertTotalIsTheLedger(Scenario given, Guid campaignId)
     {
-        var snapshot = await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaignId);
         var ledger = await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaignId);
         var active = await given.Scalar<long>("SELECT coalesce(sum(amount_minor), 0)::bigint FROM pledges.pledges WHERE campaign_id = @id AND status = 'ACTIVE'", campaignId);
-        var backers = await given.Scalar<int>("SELECT backers FROM pledges.funding_windows WHERE campaign_id = @id", campaignId);
-        var live = await given.Scalar<long>("SELECT count(*) FROM pledges.pledges WHERE campaign_id = @id AND status = 'ACTIVE'", campaignId);
-        Assert.Equal(ledger, snapshot);
-        Assert.Equal(active, snapshot);
-        Assert.Equal(live, backers);
+        Assert.Equal(active, ledger);
     }
 
     [Fact]
@@ -54,7 +50,7 @@ public sealed class ChangeAndCancelTests(Database database) : IDisposable
         Assert.Equal(HttpStatusCode.OK, (await Change(cleo, c, 4_900, campaign.TierIds[0])).StatusCode);   // into the place Anna and Ben freed
 
         await AssertTotalIsTheLedger(given, campaign.CampaignId);
-        Assert.Equal(14_900L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(14_900L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(1, await given.Scalar<int>("SELECT claimed FROM pledges.tier_counters WHERE campaign_id = @id AND limit_qty = 2", campaign.CampaignId));
         Assert.Equal(7L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId)); // 3 activations, 3 changes, 1 cancel
     }

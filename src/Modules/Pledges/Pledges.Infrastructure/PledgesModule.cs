@@ -15,6 +15,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 using Payments.Contracts;
 
@@ -22,6 +23,9 @@ using Pledges.Application;
 using Pledges.Contracts;
 using Pledges.Domain;
 using Pledges.Infrastructure.Persistence;
+using Pledges.Infrastructure.Totals;
+
+using StackExchange.Redis;
 
 namespace Pledges.Infrastructure;
 
@@ -36,6 +40,12 @@ public static class PledgesModule
     {
         var connectionString = configuration.GetConnectionString("Pledges")
             ?? throw new InvalidOperationException("ConnectionStrings:Pledges is not set.");
+        var jobsConnection = configuration.GetConnectionString("PledgesJobs")
+            ?? throw new InvalidOperationException("ConnectionStrings:PledgesJobs is not set.");
+        var fence = TimeFence.Default with
+        {
+            WaitAfterEnd = configuration.GetValue("Pledges:Close:WaitAfterEnd", TimeFence.Default.WaitAfterEnd),
+        };
         services.AddDbContext<PledgesDbContext>((sp, db) => PledgesDbOptions
             .Configure((DbContextOptionsBuilder<PledgesDbContext>)db, connectionString)
             .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor<PledgesDbContext>>()));
@@ -47,7 +57,8 @@ public static class PledgesModule
         services.AddHostedService<HoldSweeper>();
         services.AddHostedService<CloseJob>();
         services.AddHostedService<PledgesMonitor>();
-        services.AddHostedService<SnapshotCheck>();
+        services.AddHostedService<TotalsCheck>();
+        AddDisplayTotals(services, configuration);
         services.AddPublishedEvent<PledgeActivated>();
         services.AddPublishedEvent<PledgeChanged>();
         services.AddPublishedEvent<PledgeCancelled>();
@@ -56,21 +67,54 @@ public static class PledgesModule
         services.AddPublishedEvent<PledgeChargeRequested>();
         services.AddKeyedScoped<ITransactionScope>(PledgesModuleName.Value, (sp, _) => new ModuleTransaction<PledgesDbContext>(sp.GetRequiredService<PledgesDbContext>()));
         services.AddSingleton<IModuleMigrator, PledgesMigrator>();
-        services.AddSingleton(new ModuleDatabase(PledgesModuleName.Value, PledgesDbContext.Schema, connectionString));
+        // The request path's role: every transaction that can add a ledger entry after reading LIVE is
+        // ended by the database after two seconds (lesson s3-l05). The jobs role has the same rights, no limit.
+        services.AddSingleton(new ModuleDatabase(PledgesModuleName.Value, PledgesDbContext.Schema, connectionString)
+        {
+            RoleSettings = [$"transaction_timeout = '{(int)fence.TransactionLimit.TotalMilliseconds}ms'"],
+        });
+        services.AddSingleton(new ModuleDatabase(PledgesModuleName.Value + "Jobs", PledgesDbContext.Schema, jobsConnection));
+        services.AddSingleton(new PledgesJobsConnection(jobsConnection));
+        services.AddSingleton(fence);
+        services.AddExceptionHandler<DatabaseBusyHandler>();
         services.AddReadSide<PledgesDbContext>(
             configuration.GetConnectionString("PledgesRead") ?? connectionString, PledgesDbOptions.Configure);
         services.AddScoped<EfPledges>();
         return services
             .AddPledgesApplication()
-            .AddScoped<IFundingWindows, EfFundingWindows>()
+            .AddScoped<EfFundingWindows>()
+            .AddScoped<IFundingWindows, TimeFencedFundingWindows>()
             .AddScoped<IPledges>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IPledgeLedger>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<ITierSlots>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IHolds>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IClosing, EfClosing>()
-            .AddScoped<ICampaignTotals, EfCampaignTotals>()
+            .AddScoped<ICampaignTotals, CachedCampaignTotals>()
             .AddScoped<IPublicTotalsReads, EfPublicTotals>()
             .AddScoped<IdempotentRequests<PledgesDbContext>>();
+    }
+
+    /// <summary>
+    /// The aggregator and where it keeps display totals: Valkey when ConnectionStrings:Valkey is set
+    /// (every task shares it), otherwise this process's memory (one task: development and tests).
+    /// </summary>
+    private static void AddDisplayTotals(IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddSingleton<DirtyCampaigns>();
+        services.AddEventHandler<PledgeActivated, MarkCampaignDirty>(PledgesModuleName.Value);
+        services.AddEventHandler<PledgeChanged, MarkCampaignDirty>(PledgesModuleName.Value);
+        services.AddEventHandler<PledgeCancelled, MarkCampaignDirty>(PledgesModuleName.Value);
+        services.AddHostedService<TotalsAggregator>();
+        services.AddScoped<ITotalsSource, EfTotalsSource>();
+        if (configuration.GetConnectionString("Valkey") is { } valkey)
+        {
+            services.TryAddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(valkey)); // one connection, shared with the query cache
+            services.AddSingleton<ITotalsStore, ValkeyTotalsStore>();
+        }
+        else
+        {
+            services.AddSingleton<ITotalsStore, InMemoryTotalsStore>();
+        }
     }
 
     public static IEndpointRouteBuilder MapPledgesEndpoints(this IEndpointRouteBuilder app)

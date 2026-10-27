@@ -161,6 +161,10 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deadline");
 
+                    b.Property<DateTimeOffset?>("DecidedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("decided_at");
+
                     b.Property<DateTimeOffset?>("EndedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("ended_at");
@@ -177,6 +181,14 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("pledged_minor");
 
+                    b.Property<long?>("RecheckMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("recheck_minor");
+
+                    b.Property<DateTimeOffset?>("RecheckedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("rechecked_at");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -189,6 +201,10 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                     b.HasIndex("Deadline")
                         .HasDatabaseName("funding_windows_due")
                         .HasFilter("status IN ('LIVE', 'ENDED')");
+
+                    b.HasIndex("DecidedAt")
+                        .HasDatabaseName("funding_windows_to_recheck")
+                        .HasFilter("rechecked_at IS NULL");
 
                     b.ToTable("funding_windows", "pledges");
                 });

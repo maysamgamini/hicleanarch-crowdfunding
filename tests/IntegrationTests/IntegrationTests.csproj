@@ -3,6 +3,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Testcontainers" />
+    <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="Testcontainers.PostgreSql" />
   </ItemGroup>
 

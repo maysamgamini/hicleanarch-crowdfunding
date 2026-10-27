@@ -3,6 +3,10 @@ using System.Diagnostics;
 
 using BuildingBlocks.Infrastructure.Events;
 
+using Microsoft.Extensions.DependencyInjection;
+
+using Pledges.Application;
+
 namespace IntegrationTests;
 
 /// <summary>What an operator sees: traces that cross modules, and one number per Round 1 failure mode.</summary>
@@ -52,16 +56,29 @@ public sealed class OperationsTests(Database database) : IDisposable
     }
 
     [Fact]
-    public async Task A_snapshot_that_differs_from_its_ledger_is_counted()
+    public async Task A_display_total_that_keeps_differing_from_its_ledger_is_counted()
     {
         var given = new Scenario(database, _host);
-        var campaign = await given.Publish();
-        await given.Execute("UPDATE pledges.funding_windows SET pledged_minor = pledged_minor + 1 WHERE campaign_id = @id", campaign.CampaignId);
+        var campaign = await given.Publish(); // no pledges: its ledger sums to 0
 
-        using var restarted = database.StartHost();
+        // A store whose total for this campaign is wrong, whatever the aggregator writes.
+        using var restarted = database.StartHost(services => services.AddSingleton<ITotalsStore>(new WrongFor(campaign.CampaignId)));
         _ = restarted.Server;
 
-        await Scenario.Eventually(() => Task.FromResult(Pledges.Infrastructure.SnapshotCheck.Mismatches.Value >= 1));
-        await given.Execute("UPDATE pledges.funding_windows SET pledged_minor = pledged_minor - 1 WHERE campaign_id = @id", campaign.CampaignId);
+        // The check looks again after 5 seconds before it counts a difference.
+        for (var i = 0; i < 100 && Pledges.Infrastructure.TotalsCheck.Mismatches.Value < 1; i++)
+        {
+            await Task.Delay(200, TestContext.Current.CancellationToken);
+        }
+
+        Assert.True(Pledges.Infrastructure.TotalsCheck.Mismatches.Value >= 1);
+    }
+
+    private sealed class WrongFor(Guid campaignId) : ITotalsStore
+    {
+        public Task Set(Guid campaign, DisplayTotals totals, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<DisplayTotals?> Get(Guid campaign, CancellationToken cancellationToken) =>
+            Task.FromResult(campaign == campaignId ? new DisplayTotals(1, 0, new Dictionary<Guid, int>(), DateTimeOffset.UtcNow) : null);
     }
 }

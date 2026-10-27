@@ -93,7 +93,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         var given = new Scenario(database, _host);
         var campaign = await given.Publish(5_000);
         await Pledge(given, campaign, 6_000);
-        await given.Execute("UPDATE pledges.funding_windows SET status = 'ENDED', ended_at = now(), deadline = now() - interval '1 minute' WHERE campaign_id = @id", campaign.CampaignId);
+        await given.Execute("UPDATE pledges.funding_windows SET status = 'ENDED', ended_at = now() - interval '1 minute', deadline = now() - interval '1 minute' WHERE campaign_id = @id", campaign.CampaignId);
 
         await ClosePass(campaign);
 
@@ -118,7 +118,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish(50_000);
-        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() + interval '1500 milliseconds' WHERE campaign_id = @id", campaign.CampaignId);
+        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() + interval '400 milliseconds' WHERE campaign_id = @id", campaign.CampaignId);
 
         // Pledge A, through the real handler, inside a transaction it keeps open past the deadline.
         await using var scopeA = _host.Services.CreateAsyncScope();
@@ -128,10 +128,11 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
             new PlacePledge(campaign.CampaignId, Guid.NewGuid(), null, 6_000, "pm_card_visa", $"test:{Guid.NewGuid():N}"), Ct);
         Assert.True(placedA.IsSuccess);
 
-        await Task.Delay(1_800, Ct); // the deadline passes while A is still open
+        await Task.Delay(500, Ct); // the deadline passes while A is still open
+        // The close ends the campaign at once and waits out the request path's time limit before it
+        // sums (lesson s3-l05).
         var close = Task.Run(() => ClosePass(campaign), Ct);
         await Task.Delay(300, Ct);
-        Assert.False(close.IsCompleted); // the close waits for A's lock on the funding window
 
         var late = await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(4_000), Ct);
         Assert.Equal(HttpStatusCode.Conflict, late.StatusCode);
@@ -139,6 +140,11 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
 
         await transactionA.CommitAsync(Ct);
         await close;
+        await Scenario.Eventually(async () =>
+        {
+            await ClosePass(campaign);
+            return await given.Scalar<bool>("SELECT final_minor IS NOT NULL FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId);
+        });
 
         Assert.Equal(6_000L, await given.Scalar<long>("SELECT final_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal("UNSUCCESSFUL", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));

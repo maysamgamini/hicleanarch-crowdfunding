@@ -39,9 +39,12 @@ public sealed class PledgeTests(Database database) : IDisposable
         var body = await placed.Content.ReadFromJsonAsync<JsonElement>(Ct);
         Assert.Equal("ACTIVE", body.GetProperty("status").GetString());
         Assert.Equal($"/v1/pledges/{body.GetProperty("pledge_id").GetString()}", placed.Headers.Location?.ToString());
-        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
-        Assert.Equal(6_000, read.GetProperty("pledged_minor").GetInt64());
-        Assert.Equal(1, read.GetProperty("backers").GetInt32());
+        // The page's total is the aggregator's, a moment behind the ledger (lesson s3-l05).
+        await Scenario.Eventually(async () =>
+        {
+            var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
+            return read.GetProperty("pledged_minor").GetInt64() == 6_000 && read.GetProperty("backers").GetInt32() == 1;
+        });
         Assert.Equal(6_000L, await given.Scalar<long>("SELECT sum(delta_minor)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
     }
 
@@ -66,7 +69,7 @@ public sealed class PledgeTests(Database database) : IDisposable
         Assert.True(second.Headers.Contains("Idempotent-Replayed"));
         Assert.Equal(await first.Content.ReadAsStringAsync(Ct), await second.Content.ReadAsStringAsync(Ct));
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledges WHERE campaign_id = @id", campaign.CampaignId));
-        Assert.Equal(6_000L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(6_000L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
     }
 
     [Fact]
@@ -81,7 +84,7 @@ public sealed class PledgeTests(Database database) : IDisposable
 
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
         Assert.Equal("already_backing", await Reason(second));
-        Assert.Equal(6_000L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(6_000L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
     }
 
@@ -112,7 +115,7 @@ public sealed class PledgeTests(Database database) : IDisposable
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         Assert.Equal(reason, await Reason(refused));
-        Assert.Equal(0L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(0L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
     }
 
     [Fact]
@@ -166,50 +169,5 @@ public sealed class PledgeTests(Database database) : IDisposable
             var refused = await Assert.ThrowsAsync<PostgresException>(() => change.ExecuteNonQueryAsync(ct));
             Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, refused.SqlState);
         }
-    }
-
-    [Fact]
-    public async Task The_close_waits_for_a_pledge_in_flight_and_a_late_pledge_is_refused()
-    {
-        var given = new Scenario(database, _host);
-        var campaign = await given.Publish();
-        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() + interval '1500 milliseconds' WHERE campaign_id = @id", campaign.CampaignId);
-
-        // Pledge A updates the window before the deadline, and keeps its row lock open.
-        await using var scopeA = _host.Services.CreateAsyncScope();
-        var dbA = scopeA.ServiceProvider.GetRequiredService<PledgesDbContext>();
-        await using var a = await dbA.Database.BeginTransactionAsync(Ct);
-        Assert.True(await scopeA.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, 6_000, 1, Ct));
-
-        // Pledge B's transaction also starts before the deadline, so its now() is before it too.
-        await using var scopeB = _host.Services.CreateAsyncScope();
-        var dbB = scopeB.ServiceProvider.GetRequiredService<PledgesDbContext>();
-        await using var b = await dbB.Database.BeginTransactionAsync(Ct);
-        await dbB.Database.ExecuteSqlRawAsync("SELECT 1", Ct);
-
-        await Task.Delay(1_600, Ct);
-
-        // The close, once the deadline has passed: it must wait for pledge A.
-        await using var owner = new NpgsqlConnection(database.Owner);
-        await owner.OpenAsync(Ct);
-        await using var close = new NpgsqlCommand(
-            "UPDATE pledges.funding_windows SET status = 'ENDED', ended_at = now() WHERE campaign_id = @id AND status = 'LIVE' AND deadline <= now()", owner);
-        close.Parameters.AddWithValue("id", campaign.CampaignId);
-        var closing = close.ExecuteNonQueryAsync(Ct);
-        await Task.Delay(300, Ct);
-        Assert.False(closing.IsCompleted);
-
-        // Pledge B reaches the row now, behind the close.
-        var late = scopeB.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, 6_000, 1, Ct);
-        await Task.Delay(300, Ct);
-        Assert.False(late.IsCompleted);
-
-        await a.CommitAsync(Ct);
-
-        Assert.Equal(1, await closing);
-        Assert.False(await late);
-        await b.RollbackAsync(Ct);
-        Assert.Equal(6_000L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
-        Assert.Equal("ENDED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
     }
 }

@@ -49,10 +49,14 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         var reader = host.CreateClient();
         await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{published.Id}", Ct);
 
-        await scenario.Execute("UPDATE pledges.funding_windows SET pledged_minor = 6000, backers = 1 WHERE campaign_id = @id", published.CampaignId);
-        var after = await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{published.Id}", Ct);
+        // A pledge after the catalog was cached: the total follows within the aggregator's refresh
+        // (lesson s3-l05), while the catalog entry stays cached.
+        (await scenario.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{published.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
 
-        Assert.Equal(6000, after.GetProperty("pledged_minor").GetInt64());
+        await Scenario.Eventually(async () =>
+            (await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{published.Id}", Ct)).GetProperty("pledged_minor").GetInt64() == 6_000);
+        using var connection = await ConnectionMultiplexer.ConnectAsync(valkey.Configuration);
+        Assert.True(await connection.GetDatabase().KeyExistsAsync($"campaigns:catalog:{published.Id}"));
     }
 
     [Fact]
