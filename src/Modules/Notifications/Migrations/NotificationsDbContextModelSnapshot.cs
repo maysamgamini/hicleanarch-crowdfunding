@@ -119,22 +119,6 @@ namespace Notifications.Migrations
                     b.ToTable("outbox", "notifications");
                 });
 
-            modelBuilder.Entity("Notifications.CampaignBacker", b =>
-                {
-                    b.Property<Guid>("CampaignId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("campaign_id");
-
-                    b.Property<Guid>("BackerId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("backer_id");
-
-                    b.HasKey("CampaignId", "BackerId")
-                        .HasName("pk_campaign_backers");
-
-                    b.ToTable("campaign_backers", "notifications");
-                });
-
             modelBuilder.Entity("Notifications.CampaignCreator", b =>
                 {
                     b.Property<Guid>("CampaignId")
@@ -149,6 +133,42 @@ namespace Notifications.Migrations
                         .HasName("pk_campaign_creators");
 
                     b.ToTable("campaign_creators", "notifications");
+                });
+
+            modelBuilder.Entity("Notifications.CampaignPledge", b =>
+                {
+                    b.Property<Guid>("PledgeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pledge_id");
+
+                    b.Property<DateTimeOffset?>("ActivatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("activated_at");
+
+                    b.Property<Guid>("BackerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("backer_id");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<DateTimeOffset?>("CancelledAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("cancelled_at");
+
+                    b.Property<DateTimeOffset?>("ReleasedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("released_at");
+
+                    b.HasKey("PledgeId")
+                        .HasName("pk_campaign_pledges");
+
+                    b.HasIndex("CampaignId")
+                        .HasDatabaseName("campaign_pledges_live")
+                        .HasFilter("activated_at IS NOT NULL AND cancelled_at IS NULL AND released_at IS NULL");
+
+                    b.ToTable("campaign_pledges", "notifications");
                 });
 
             modelBuilder.Entity("Notifications.NotificationPreference", b =>

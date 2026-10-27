@@ -39,12 +39,12 @@ internal sealed class Handlers(Notifier notifier) :
 
     public async Task Handle(PledgeActivated e, CancellationToken ct)
     {
-        await notifier.Remember(e.CampaignId, e.BackerId, ct);
+        await notifier.Activated(e.PledgeId, e.CampaignId, e.BackerId, e.OccurredAt, ct);
         await notifier.Tell(e.EventId, e.BackerId, "pledge_confirmed", "You're a backer",
             $"Your pledge of {Money(e.AmountMinor, e.Currency)} counts. You will be charged only if the campaign is funded, at its deadline.", ct);
     }
 
-    public Task Handle(PledgeCancelled e, CancellationToken ct) => notifier.Forget(e.CampaignId, e.BackerId, ct);
+    public Task Handle(PledgeCancelled e, CancellationToken ct) => notifier.Cancelled(e.PledgeId, e.CampaignId, e.BackerId, e.OccurredAt, ct);
 
     public async Task Handle(CampaignFundingDecided e, CancellationToken ct)
     {
@@ -67,7 +67,7 @@ internal sealed class Handlers(Notifier notifier) :
     /// </summary>
     public async Task Handle(PledgeReleased e, CancellationToken ct)
     {
-        await notifier.Forget(e.CampaignId, e.BackerId, ct);
+        await notifier.Released(e.PledgeId, e.CampaignId, e.BackerId, e.OccurredAt, ct);
         await notifier.Tell(e.EventId, e.BackerId, "campaign_cancelled", "A campaign you back was cancelled",
             "Its creator cancelled it, so your pledge was released. You were not charged, and you will not be.", ct);
     }

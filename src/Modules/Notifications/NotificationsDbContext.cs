@@ -31,10 +31,14 @@ internal sealed class NotificationsDbContext(DbContextOptions<NotificationsDbCon
             preference.Property(p => p.Kind).HasMaxLength(40);
         });
 
-        modelBuilder.Entity<CampaignBacker>(backer =>
+        modelBuilder.Entity<CampaignPledge>(pledge =>
         {
-            backer.ToTable("campaign_backers");
-            backer.HasKey(b => new { b.CampaignId, b.BackerId });
+            pledge.ToTable("campaign_pledges");
+            pledge.HasKey(p => p.PledgeId);
+            pledge.Property(p => p.PledgeId).ValueGeneratedNever();
+            // A campaign's backers are read on this index: its pledges that counted and have not left.
+            pledge.HasIndex(p => p.CampaignId).HasFilter("activated_at IS NOT NULL AND cancelled_at IS NULL AND released_at IS NULL")
+                .HasDatabaseName("campaign_pledges_live");
         });
 
         modelBuilder.Entity<CampaignCreator>(creator =>
@@ -66,12 +70,28 @@ internal sealed class NotificationPreference
     public bool Enabled { get; set; }
 }
 
-/// <summary>Who backs a campaign, as Notifications has heard it: its own copy, built from Pledges' events.</summary>
-internal sealed class CampaignBacker
+/// <summary>
+/// One pledge, as Notifications has heard of it from Pledges' events: its own copy. Each event only
+/// sets its own timestamp, once, so a late or repeated event never undoes a newer one: a cancel heard
+/// before its activation leaves a row that the activation cannot bring back. A campaign's backers are
+/// the backers of its live rows.
+/// </summary>
+internal sealed class CampaignPledge
 {
+    public Guid PledgeId { get; init; }
+
     public Guid CampaignId { get; init; }
 
     public Guid BackerId { get; init; }
+
+    /// <summary>When the pledge counted, as <c>PledgeActivated</c> says.</summary>
+    public DateTimeOffset? ActivatedAt { get; init; }
+
+    /// <summary>When the backer cancelled it, as <c>PledgeCancelled</c> says.</summary>
+    public DateTimeOffset? CancelledAt { get; init; }
+
+    /// <summary>When it was released because the campaign was cancelled, as <c>PledgeReleased</c> says.</summary>
+    public DateTimeOffset? ReleasedAt { get; init; }
 }
 
 /// <summary>Who created a campaign, as Notifications heard it when the campaign was published.</summary>

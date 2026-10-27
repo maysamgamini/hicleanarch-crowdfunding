@@ -46,10 +46,25 @@ internal sealed class Notifier(NotificationsDbContext db, IServiceScopeFactory s
         }
     }
 
-    /// <summary>Who backs what: kept in the handler's own transaction, with its inbox row.</summary>
-    public Task Remember(Guid campaignId, Guid backerId, CancellationToken cancellationToken) =>
+    /// <summary>Who backs what, per pledge: kept in the handler's own transaction, with its inbox row.</summary>
+    public Task Activated(Guid pledgeId, Guid campaignId, Guid backerId, DateTimeOffset at, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO notifications.campaign_backers (campaign_id, backer_id) VALUES ({campaignId}, {backerId}) ON CONFLICT DO NOTHING
+            INSERT INTO notifications.campaign_pledges (pledge_id, campaign_id, backer_id, activated_at) VALUES ({pledgeId}, {campaignId}, {backerId}, {at})
+            ON CONFLICT (pledge_id) DO UPDATE SET activated_at = coalesce(campaign_pledges.activated_at, EXCLUDED.activated_at)
+            """, cancellationToken);
+
+    /// <summary>The backer cancelled the pledge. Heard before its activation, it leaves a row the activation cannot revive.</summary>
+    public Task Cancelled(Guid pledgeId, Guid campaignId, Guid backerId, DateTimeOffset at, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO notifications.campaign_pledges (pledge_id, campaign_id, backer_id, cancelled_at) VALUES ({pledgeId}, {campaignId}, {backerId}, {at})
+            ON CONFLICT (pledge_id) DO UPDATE SET cancelled_at = coalesce(campaign_pledges.cancelled_at, EXCLUDED.cancelled_at)
+            """, cancellationToken);
+
+    /// <summary>The campaign was cancelled and the pledge released.</summary>
+    public Task Released(Guid pledgeId, Guid campaignId, Guid backerId, DateTimeOffset at, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO notifications.campaign_pledges (pledge_id, campaign_id, backer_id, released_at) VALUES ({pledgeId}, {campaignId}, {backerId}, {at})
+            ON CONFLICT (pledge_id) DO UPDATE SET released_at = coalesce(campaign_pledges.released_at, EXCLUDED.released_at)
             """, cancellationToken);
 
     public Task RememberCreator(Guid campaignId, Guid creatorId, CancellationToken cancellationToken) =>
@@ -60,11 +75,9 @@ internal sealed class Notifier(NotificationsDbContext db, IServiceScopeFactory s
     public async Task<Guid?> CreatorOf(Guid campaignId, CancellationToken cancellationToken) =>
         await db.Set<CampaignCreator>().AsNoTracking().Where(c => c.CampaignId == campaignId).Select(c => (Guid?)c.CreatorId).SingleOrDefaultAsync(cancellationToken);
 
-    public Task Forget(Guid campaignId, Guid backerId, CancellationToken cancellationToken) =>
-        db.Database.ExecuteSqlInterpolatedAsync($"""
-            DELETE FROM notifications.campaign_backers WHERE campaign_id = {campaignId} AND backer_id = {backerId}
-            """, cancellationToken);
-
+    /// <summary>The distinct backers of the campaign's live pledges: a backer who cancelled and pledged again is one of them.</summary>
     public async Task<IReadOnlyList<Guid>> BackersOf(Guid campaignId, CancellationToken cancellationToken) =>
-        await db.Set<CampaignBacker>().AsNoTracking().Where(b => b.CampaignId == campaignId).Select(b => b.BackerId).ToListAsync(cancellationToken);
+        await db.Set<CampaignPledge>().AsNoTracking()
+            .Where(p => p.CampaignId == campaignId && p.ActivatedAt != null && p.CancelledAt == null && p.ReleasedAt == null)
+            .Select(p => p.BackerId).Distinct().ToListAsync(cancellationToken);
 }
