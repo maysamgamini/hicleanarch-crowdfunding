@@ -47,6 +47,10 @@ jobs:
           docker build -t "$image" .
           docker push "$image"
           echo "image=$image" >> "$GITHUB_OUTPUT"
+          gateway="${{ steps.ecr.outputs.registry }}/hicleanarch/crowdfunding-gateway:${GITHUB_SHA}"
+          docker build -f src/Gateway/Dockerfile -t "$gateway" .
+          docker push "$gateway"
+          echo "gateway=$gateway" >> "$GITHUB_OUTPUT"
 
       # The database must be migrated before any task runs the new image. So the first apply creates
       # only what the migration task needs (Terraform adds their dependencies: network, database,
@@ -55,11 +59,12 @@ jobs:
         id: apply
         env:
           IMAGE: ${{ steps.image.outputs.image }}
+          GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
         run: |
           start=$(date +%s)
           terraform -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
-          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE" \
+          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE" -var "gateway_image=$GATEWAY_IMAGE" \
             -target=aws_ecs_cluster.main -target=aws_ecs_task_definition.migrate \
             -target=aws_security_group.tasks -target=aws_subnet.public
           echo "First apply took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
@@ -78,9 +83,10 @@ jobs:
       - name: Apply the rest and roll the service onto the new image
         env:
           IMAGE: ${{ steps.image.outputs.image }}
+          GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
         run: |
           start=$(date +%s)
-          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE"
+          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE" -var "gateway_image=$GATEWAY_IMAGE"
           aws ecs wait services-stable --cluster "$(terraform -chdir=infra/env output -raw cluster)" \
             --services "$(terraform -chdir=infra/env output -raw service)"
           echo "Second apply and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"

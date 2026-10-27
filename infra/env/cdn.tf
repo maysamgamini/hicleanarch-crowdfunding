@@ -29,8 +29,43 @@ data "aws_cloudfront_cache_policy" "disabled" {
   name = "Managed-CachingDisabled"
 }
 
-data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
-  name = "Managed-AllViewerExceptHostHeader"
+# What reaches the origin: every viewer header, and CloudFront's own header with the viewer's
+# address, which the gateway's per-client limits read (lesson s3-l11). Viewer headers alone would
+# not include it. The load balancer routes without host rules, so the forwarded Host does not matter.
+resource "aws_cloudfront_origin_request_policy" "viewer_and_address" {
+  name    = "${var.project}-viewer-and-address"
+  comment = "All viewer headers, with CloudFront-Viewer-Address"
+
+  cookies_config {
+    cookie_behavior = "all"
+  }
+  headers_config {
+    header_behavior = "allViewerAndWhitelistCloudFront"
+    headers {
+      items = ["CloudFront-Viewer-Address"]
+    }
+  }
+  query_strings_config {
+    query_string_behavior = "all"
+  }
+}
+
+resource "aws_cloudfront_origin_request_policy" "viewer_address" {
+  name    = "${var.project}-viewer-address"
+  comment = "CloudFront-Viewer-Address only, for the cached totals"
+
+  cookies_config {
+    cookie_behavior = "none"
+  }
+  headers_config {
+    header_behavior = "whitelist"
+    headers {
+      items = ["CloudFront-Viewer-Address"]
+    }
+  }
+  query_strings_config {
+    query_string_behavior = "none"
+  }
 }
 
 resource "aws_cloudfront_distribution" "public" {
@@ -57,19 +92,20 @@ resource "aws_cloudfront_distribution" "public" {
     allowed_methods          = ["GET", "HEAD", "OPTIONS"]
     cached_methods           = ["GET", "HEAD"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
-    origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
+    origin_request_policy_id = aws_cloudfront_origin_request_policy.viewer_and_address.id
   }
 
   # The totals reply: cached by URL alone. When it expires, concurrent requests at one edge
   # location are collapsed into one request to the origin.
   ordered_cache_behavior {
-    path_pattern           = "/v1/campaigns/*/totals"
-    target_origin_id       = "api"
-    viewer_protocol_policy = "redirect-to-https"
-    allowed_methods        = ["GET", "HEAD"]
-    cached_methods         = ["GET", "HEAD"]
-    cache_policy_id        = aws_cloudfront_cache_policy.totals.id
-    compress               = true
+    path_pattern             = "/v1/campaigns/*/totals"
+    target_origin_id         = "api"
+    viewer_protocol_policy   = "redirect-to-https"
+    allowed_methods          = ["GET", "HEAD"]
+    cached_methods           = ["GET", "HEAD"]
+    cache_policy_id          = aws_cloudfront_cache_policy.totals.id
+    origin_request_policy_id = aws_cloudfront_origin_request_policy.viewer_address.id
+    compress                 = true
   }
 
   restrictions {

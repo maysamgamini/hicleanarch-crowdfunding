@@ -18,6 +18,8 @@ jobs:
       - run: dotnet test CrowdFunding.slnx --no-build
       - name: The image builds
         run: docker build -q -t crowdfunding-api:ci .
+      - name: The gateway image builds
+        run: docker build -q -f src/Gateway/Dockerfile -t crowdfunding-gateway:ci .
 
   terraform:
     runs-on: ubuntu-latest

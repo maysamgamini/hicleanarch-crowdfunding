@@ -58,6 +58,8 @@ if (args.FirstOrDefault() == "token" && app.Environment.IsDevelopment())
 }
 
 app.UseForwardedHeaders();
+// Behind the gateway, the client is the address the gateway decided (after the forwarded headers, when present).
+app.UseGatewayClientAddress();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseAuthentication();

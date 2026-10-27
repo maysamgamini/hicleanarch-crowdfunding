@@ -1,5 +1,5 @@
-# Valkey on ElastiCache: one small node for the read cache (and, from the gateway lesson, the
-# per-client buckets). Reachable only from the tasks; nothing to keep on destroy.
+# Valkey on ElastiCache: one small node for the read cache, the display totals, the shared token
+# buckets and the gateway's per-client limits. Reachable only from the tasks; nothing to keep on destroy.
 resource "aws_elasticache_subnet_group" "valkey" {
   name       = "${var.project}-valkey"
   subnet_ids = aws_subnet.private[*].id
@@ -21,7 +21,7 @@ resource "aws_vpc_security_group_ingress_rule" "valkey_from_tasks" {
 
 resource "aws_elasticache_replication_group" "valkey" {
   replication_group_id       = "${var.project}-valkey"
-  description                = "The read cache and, later, the gateway rate limits"
+  description                = "Read cache, display totals, token buckets and gateway rate limits"
   engine                     = "valkey"
   engine_version             = "8.0"
   node_type                  = "cache.t4g.micro"

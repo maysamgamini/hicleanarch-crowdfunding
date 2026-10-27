@@ -151,6 +151,7 @@ resource "aws_ecs_service" "api" {
     ignore_changes = [desired_count]
   }
 
-  # The workflow applies everything else, including this service's new image, only after `migrate`.
-  depends_on = [aws_lb_listener.http]
+  # The workflow applies everything else, including this service's new image, only after `migrate`;
+  # the service waits for the internal listener the gateway sends it requests through.
+  depends_on = [aws_lb_listener.internal]
 }
