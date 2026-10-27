@@ -48,6 +48,18 @@ locals {
     ], local.broker_environment)
     secrets     = local.payments_secrets
     stopTimeout = 30
+    # No load balancer asks Payments whether it is ready, so the container does (CQA-1518): the program's
+    # own probe calls /health/ready on port 8080 (the image has no curl). Three failures 30 s apart mark
+    # the task unhealthy; the 60 s start period covers start-up and migrations' locks. A deployment whose
+    # tasks never become healthy is rolled back by the circuit breaker, and Service Connect stops
+    # sending to an unhealthy task.
+    healthCheck = {
+      command     = ["CMD", "dotnet", "CrowdFunding.Payments.Host.dll", "health"]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 60
+    }
     logConfiguration = {
       logDriver = "awslogs"
       options = {

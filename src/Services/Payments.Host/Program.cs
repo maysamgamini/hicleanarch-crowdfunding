@@ -29,6 +29,13 @@ public static class PaymentsProgram
 {
     public static async Task Main(string[] args)
     {
+        // The container's health check: ask the running program's readiness, and exit (CQA-1518).
+        if (args.FirstOrDefault() == HealthProbe.Command)
+        {
+            Environment.ExitCode = await HealthProbe.Run(HealthProbe.Ready());
+            return;
+        }
+
         var builder = WebApplication.CreateBuilder(args);
         // One JSON object per line, each carrying its trace's ids, as the monolith logs.
         builder.Logging.Configure(o => o.ActivityTrackingOptions = ActivityTrackingOptions.TraceId | ActivityTrackingOptions.SpanId);
