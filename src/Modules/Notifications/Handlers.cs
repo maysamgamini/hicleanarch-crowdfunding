@@ -75,7 +75,9 @@ internal sealed class Handlers(Notifier notifier) :
             : notifier.Tell(e.EventId, e.BackerId, "charge_declined", "Your card was declined",
                 e.DeclineCode == "authentication_required"
                     ? "Your bank wants you to confirm this payment. Open your pledge to confirm it within 7 days."
-                    : "We will try again. You can also give another card from your pledge within 7 days.", ct);
+                    : e.RetriedOnItsOwn
+                        ? "We will try again. You can also give another card from your pledge within 7 days."
+                        : "Your bank will not accept this card, so we will not try it again. Give another card from your pledge within 7 days, or the pledge is dropped.", ct);
 
     private static string Money(long minor, string currency) =>
         $"{(minor / 100m).ToString("0.00", CultureInfo.InvariantCulture)} {currency}";

@@ -23,8 +23,13 @@ public class DunningPolicyTests
     [InlineData("expired_card")]
     [InlineData("stolen_card")]
     [InlineData("authentication_required")]
-    public void A_decline_only_the_backer_can_fix_waits_for_the_final_attempt_at_the_end(string code) =>
+    [InlineData("fraudulent")]
+    [InlineData("stop_payment_order")]
+    public void A_decline_only_the_backer_can_fix_waits_for_the_backer_until_the_end_and_is_not_retried(string code)
+    {
         Assert.Equal((false, FailedAt.AddDays(7)), Policy.AfterDecline(1, code, FailedAt, FailedAt));
+        Assert.False(DunningPolicy.RetriesOnItsOwn(code, null));
+    }
 
     [Fact]
     public void A_decline_after_the_window_drops_the_charge_whatever_the_attempt() =>
@@ -36,9 +41,25 @@ public class DunningPolicyTests
 
     [Theory]
     [InlineData("insufficient_funds", DeclineKind.Soft)]
+    [InlineData("processing_error", DeclineKind.Soft)]
     [InlineData("try_again_later", DeclineKind.Soft)]
     [InlineData("expired_card", DeclineKind.Hard)]
+    [InlineData("fraudulent", DeclineKind.Hard)]
+    [InlineData("stop_payment_order", DeclineKind.Hard)]
+    [InlineData("do_not_honor", DeclineKind.Hard)]
+    [InlineData("a_code_we_have_never_seen", DeclineKind.Hard)]
     [InlineData("authentication_required", DeclineKind.AuthenticationRequired)]
     public void Declines_are_read_by_what_they_ask_for(string code, DeclineKind kind) =>
         Assert.Equal(kind, DunningPolicy.Classify(code));
+
+    [Theory]
+    [InlineData("insufficient_funds", "do_not_try_again", DeclineKind.Hard)]
+    [InlineData("generic_decline", "try_again_later", DeclineKind.Soft)]
+    [InlineData("incorrect_cvc", "confirm_card_data", DeclineKind.AuthenticationRequired)]
+    public void The_PSPs_advice_code_decides_when_it_gives_one(string code, string advice, DeclineKind kind) =>
+        Assert.Equal(kind, DunningPolicy.Classify(code, advice));
+
+    [Fact]
+    public void Advice_never_to_try_again_waits_for_the_backer_whatever_the_code() =>
+        Assert.Equal((false, FailedAt.AddDays(7)), Policy.AfterDecline(1, "insufficient_funds", "do_not_try_again", FailedAt, FailedAt));
 }

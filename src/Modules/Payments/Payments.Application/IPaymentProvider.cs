@@ -67,7 +67,11 @@ public abstract record ChargeOutcome
     /// <summary>FeeMinor is null when the message did not carry the fee (a webhook without it); the journal is then booked before payout.</summary>
     public sealed record Succeeded(string PspPaymentId, long? FeeMinor = null) : ChargeOutcome;
 
-    public sealed record Declined(string Code, string? PspPaymentId) : ChargeOutcome;
+    /// <summary>
+    /// Declined by the bank. <see cref="AdviceCode"/> is the PSP's advice on trying again
+    /// (Stripe's <c>advice_code</c>: <c>do_not_try_again</c>, <c>try_again_later</c>, <c>confirm_card_data</c>), when it gives one.
+    /// </summary>
+    public sealed record Declined(string Code, string? PspPaymentId, string? AdviceCode = null) : ChargeOutcome;
 
     public sealed record Unknown(string Reason) : ChargeOutcome;
 

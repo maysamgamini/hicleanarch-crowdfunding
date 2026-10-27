@@ -22,6 +22,12 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     public const string CardNeedsAuthentication = "pm_card_authentication_required";
     public const string CardExpired = "pm_card_expired";
 
+    /// <summary>Declined as fraudulent, with the advice never to try it again.</summary>
+    public const string CardFraudulent = "pm_card_fraudulent";
+
+    /// <summary>A generic decline whose advice is to try again later.</summary>
+    public const string CardTryAgainLater = "pm_card_try_again_later";
+
     private readonly ConcurrentDictionary<string, string> _setups = new();
     private readonly ConcurrentDictionary<string, ChargeOutcome> _byKey = new();
     private readonly ConcurrentDictionary<string, (ChargeRequest Request, ChargeOutcome Outcome)> _payments = new();
@@ -84,6 +90,8 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
                 CardDeclined => new ChargeOutcome.Declined("insufficient_funds", paymentId),
                 CardExpired => new ChargeOutcome.Declined("expired_card", paymentId),
                 CardNeedsAuthentication => new ChargeOutcome.Declined("authentication_required", paymentId),
+                CardFraudulent => new ChargeOutcome.Declined("fraudulent", paymentId, "do_not_try_again"),
+                CardTryAgainLater => new ChargeOutcome.Declined("generic_decline", paymentId, "try_again_later"),
                 _ => new ChargeOutcome.Succeeded(paymentId, FeeFor(request.AmountMinor)),
             };
             if (result is ChargeOutcome.Succeeded)

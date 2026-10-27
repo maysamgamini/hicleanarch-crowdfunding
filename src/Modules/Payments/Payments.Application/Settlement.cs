@@ -26,7 +26,8 @@ public sealed record ChargeWork(
     Guid CampaignId = default,
     DateTimeOffset? PaymentFailedAt = null,
     string? LastDeclineCode = null,
-    bool OnSession = false)
+    bool OnSession = false,
+    string? LastAdviceCode = null)
 {
     public string PledgePublicId => PublicId.Format("plg", PledgeId);
 }
@@ -103,7 +104,13 @@ public interface ISettlements
     /// Records a decline: PAYMENT_FAILED until <paramref name="nextAttemptAt"/>, the window opening at
     /// the first decline; or DROPPED.
     /// </summary>
-    Task<bool> TryRecordDecline(Guid pledgeId, int attemptNo, string code, string? pspPaymentId, bool drop, DateTimeOffset? nextAttemptAt, CancellationToken cancellationToken);
+    Task<bool> TryRecordDecline(Guid pledgeId, int attemptNo, string code, string? adviceCode, string? pspPaymentId, bool drop, DateTimeOffset? nextAttemptAt, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// PAYMENT_FAILED to DROPPED with no new attempt, if its latest attempt is still <paramref name="attemptNo"/>:
+    /// the window ended and the backer never acted on a decline that waits for them.
+    /// </summary>
+    Task<bool> TryDropWaiting(Guid pledgeId, int attemptNo, CancellationToken cancellationToken);
 
     /// <summary>A backer's own charge. Null: no charge for this pledge and backer.</summary>
     Task<ChargeWork?> FindForBacker(Guid pledgeId, Guid backerId, CancellationToken cancellationToken);
@@ -113,7 +120,8 @@ public interface ISettlements
 
     /// <summary>
     /// A new saved card for a charge in its recovery window, tried at once: the charge is due now,
-    /// and so is its settlement job. False: it is not waiting in PAYMENT_FAILED.
+    /// and so is its settlement job. The last decline was about the old card, so it is forgotten.
+    /// False: it is not waiting in PAYMENT_FAILED.
     /// </summary>
     Task<bool> TryUseNewCard(Guid pledgeId, string paymentMethodRef, CancellationToken cancellationToken);
 
@@ -189,18 +197,32 @@ public sealed class ChargeOutcomes(
                 return true;
 
             case ChargeOutcome.Declined d:
-                var (drop, next) = dunning.AfterDecline(n, d.Code, charge.PaymentFailedAt ?? now, now);
-                if (!await settlements.TryRecordDecline(charge.PledgeId, n, d.Code, d.PspPaymentId, drop, next, ct))
+                var (drop, next) = dunning.AfterDecline(n, d.Code, d.AdviceCode, charge.PaymentFailedAt ?? now, now);
+                if (!await settlements.TryRecordDecline(charge.PledgeId, n, d.Code, d.AdviceCode, d.PspPaymentId, drop, next, ct))
                 {
                     return false;
                 }
 
-                await outbox.Add(new PledgeChargeFailed(Guid.CreateVersion7(), now, charge.PledgeId, charge.CampaignId, n, d.Code, drop, charge.BackerId), ct);
+                await outbox.Add(new PledgeChargeFailed(Guid.CreateVersion7(), now, charge.PledgeId, charge.CampaignId, n, d.Code, drop, charge.BackerId,
+                    !drop && DunningPolicy.RetriesOnItsOwn(d.Code, d.AdviceCode)), ct);
                 return true;
 
             default:
                 return false; // Unknown: the attempt stays IN_FLIGHT, and the next pass asks about it
         }
+    }
+
+    /// <summary>The window of a decline that waited for the backer has ended with nothing from them: dropped, with no new attempt.</summary>
+    public async Task<bool> DropWaiting(ChargeWork charge, CancellationToken ct)
+    {
+        if (!await settlements.TryDropWaiting(charge.PledgeId, charge.AttemptNo, ct))
+        {
+            return false;
+        }
+
+        await outbox.Add(new PledgeChargeFailed(Guid.CreateVersion7(), clock.GetUtcNow(), charge.PledgeId, charge.CampaignId, charge.AttemptNo,
+            charge.LastDeclineCode ?? "", Final: true, charge.BackerId), ct);
+        return true;
     }
 }
 
@@ -332,6 +354,15 @@ public sealed class RunSettlementHandler(
 
     private async Task ChargeOnce(Guid campaignId, ChargeWork charge, string customer, CancellationToken ct)
     {
+        // A decline that waits for the backer is due again only when its window ends. With no new card
+        // (which forgets the decline) and no confirmation, the card is not tried again: the issuer said
+        // it will not pass, and the card networks count every retry against the merchant.
+        if (charge.Status == ChargeStatus.PaymentFailed && charge.LastDeclineCode is { } code && !DunningPolicy.RetriesOnItsOwn(code, charge.LastAdviceCode))
+        {
+            await transaction.Run(async c => Result.Success(await outcomes.DropWaiting(charge with { CampaignId = campaignId }, c)), ct);
+            return;
+        }
+
         var attemptNo = await settlements.TryStartAttempt(charge.PledgeId, charge.PledgePublicId, onSession: false, ct);
         if (attemptNo is not { } n)
         {

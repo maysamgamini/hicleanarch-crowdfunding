@@ -92,6 +92,34 @@ public sealed class DunningTests(Database database) : IDisposable
     }
 
     [Fact]
+    public async Task A_card_the_issuer_says_never_to_try_again_waits_for_the_backer_then_is_dropped_without_another_attempt()
+    {
+        var (given, campaign, _, _) = await FailedOnce(FakePaymentProvider.CardFraudulent);
+        Assert.Equal("do_not_try_again", await given.Scalar<string>("SELECT last_advice_code FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.True(await given.Scalar<bool>("SELECT next_attempt_at > now() + interval '6 days' FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
+        var charges = Psp.ChargesMade;
+
+        // The window ends, and the backer never gave another card.
+        await given.Execute("UPDATE payments.charges SET payment_failed_at = now() - interval '7 days', next_attempt_at = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
+        await Settle(campaign);
+
+        Assert.Equal("DROPPED", await ChargeStatus(given, campaign));
+        Assert.Equal(charges, Psp.ChargesMade);
+        Assert.Equal(1L, await given.Scalar<long>(
+            "SELECT count(*) FROM payments.charge_attempts a JOIN payments.charges c USING (pledge_id) WHERE c.campaign_id = @id", campaign.CampaignId));
+        await Scenario.Eventually(async () => await PledgeStatus(given, campaign) == "DROPPED");
+    }
+
+    [Fact]
+    public async Task A_decline_the_PSP_advises_to_try_again_later_is_retried_on_its_own_the_next_day()
+    {
+        var (given, campaign, _, _) = await FailedOnce(FakePaymentProvider.CardTryAgainLater);
+
+        Assert.True(await given.Scalar<bool>(
+            "SELECT next_attempt_at BETWEEN now() + interval '23 hours' AND now() + interval '25 hours' FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
+    }
+
+    [Fact]
     public async Task After_a_hard_decline_a_new_card_from_the_backer_is_tried_at_once()
     {
         var (given, campaign, backerId, pledgeId) = await FailedOnce(FakePaymentProvider.CardExpired);

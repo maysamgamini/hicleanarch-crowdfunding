@@ -56,7 +56,7 @@ public sealed class ConfirmPaymentHandler(ISettlements settlements, IPaymentProv
             return Result.Failure<PaymentToConfirm>(PaymentErrors.ChargeNotFound);
         }
 
-        if (charge.Status != ChargeStatus.PaymentFailed || DunningPolicy.Classify(charge.LastDeclineCode ?? "") != DeclineKind.AuthenticationRequired)
+        if (charge.Status != ChargeStatus.PaymentFailed || DunningPolicy.Classify(charge.LastDeclineCode ?? "", charge.LastAdviceCode) != DeclineKind.AuthenticationRequired)
         {
             return Result.Failure<PaymentToConfirm>(PaymentErrors.NotAwaitingBacker);
         }

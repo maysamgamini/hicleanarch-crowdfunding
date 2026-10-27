@@ -74,6 +74,7 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             charge.Property(c => c.Status).HasConversion(s => Names.Of(s), s => Names.Parse<ChargeStatus>(s)).HasMaxLength(20);
             charge.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
             charge.Property(c => c.LastDeclineCode).HasMaxLength(100);
+            charge.Property(c => c.LastAdviceCode).HasMaxLength(100);
             charge.HasIndex(c => c.CampaignId).HasFilter("status IN ('TO_CHARGE', 'CHARGING', 'PAYMENT_FAILED')").HasDatabaseName("charges_open");
         });
 
@@ -91,6 +92,7 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             attempt.Property(a => a.Status).HasConversion(s => Names.Of(s), s => Names.Parse<AttemptStatus>(s)).HasMaxLength(20);
             attempt.Property(a => a.PspPaymentId).HasMaxLength(100);
             attempt.Property(a => a.DeclineCode).HasMaxLength(100);
+            attempt.Property(a => a.AdviceCode).HasMaxLength(100);
             attempt.Property(a => a.CreatedAt).HasDefaultValueSql("now()");
             // Lesson 8: at most one successful attempt per pledge, whatever any worker does.
             attempt.HasIndex(a => a.PledgeId).IsUnique().HasFilter("status = 'SUCCEEDED'").HasDatabaseName("one_success_per_pledge");

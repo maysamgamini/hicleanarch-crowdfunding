@@ -225,6 +225,11 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnName("currency")
                         .IsFixedLength();
 
+                    b.Property<string>("LastAdviceCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_advice_code");
+
                     b.Property<string>("LastDeclineCode")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -282,6 +287,11 @@ namespace Payments.Infrastructure.Persistence.Migrations
                     b.Property<int>("AttemptNo")
                         .HasColumnType("integer")
                         .HasColumnName("attempt_no");
+
+                    b.Property<string>("AdviceCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("advice_code");
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()

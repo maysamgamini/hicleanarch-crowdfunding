@@ -131,7 +131,7 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
     public async Task<bool> TryUseNewCard(Guid pledgeId, string paymentMethodRef, CancellationToken cancellationToken)
     {
         var changed = await db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE payments.charges SET payment_method_ref = {paymentMethodRef}, next_attempt_at = now()
+            UPDATE payments.charges SET payment_method_ref = {paymentMethodRef}, next_attempt_at = now(), last_decline_code = NULL, last_advice_code = NULL
             WHERE pledge_id = {pledgeId} AND status = 'PAYMENT_FAILED'
             """, cancellationToken);
         if (changed == 1)
@@ -223,21 +223,27 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
         return attempt == 1 && charge == 1;
     }
 
-    public async Task<bool> TryRecordDecline(Guid pledgeId, int attemptNo, string code, string? pspPaymentId, bool drop, DateTimeOffset? nextAttemptAt, CancellationToken cancellationToken)
+    public async Task<bool> TryRecordDecline(Guid pledgeId, int attemptNo, string code, string? adviceCode, string? pspPaymentId, bool drop, DateTimeOffset? nextAttemptAt, CancellationToken cancellationToken)
     {
         var attempt = await db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE payments.charge_attempts SET status = 'FAILED', decline_code = {code}, psp_payment_id = {pspPaymentId}
+            UPDATE payments.charge_attempts SET status = 'FAILED', decline_code = {code}, advice_code = {adviceCode}, psp_payment_id = {pspPaymentId}
             WHERE pledge_id = {pledgeId} AND attempt_no = {attemptNo} AND status = 'IN_FLIGHT'
             """, cancellationToken);
         var status = drop ? "DROPPED" : "PAYMENT_FAILED";
         var charge = await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE payments.charges
-            SET status = {status}, next_attempt_at = {nextAttemptAt}, last_decline_code = {code},
+            SET status = {status}, next_attempt_at = {nextAttemptAt}, last_decline_code = {code}, last_advice_code = {adviceCode},
                 payment_failed_at = coalesce(payment_failed_at, now())
             WHERE pledge_id = {pledgeId} AND status = 'CHARGING' AND attempt_no = {attemptNo}
             """, cancellationToken);
         return attempt == 1 && charge == 1;
     }
+
+    public async Task<bool> TryDropWaiting(Guid pledgeId, int attemptNo, CancellationToken cancellationToken) =>
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE payments.charges SET status = 'DROPPED', next_attempt_at = NULL
+            WHERE pledge_id = {pledgeId} AND status = 'PAYMENT_FAILED' AND attempt_no = {attemptNo}
+            """, cancellationToken) == 1;
 
     public async Task<string> CustomerOf(Guid backerId, CancellationToken cancellationToken) =>
         await customers.Find(backerId, cancellationToken)
@@ -258,10 +264,11 @@ internal sealed record ChargeRow(
     DateTimeOffset? NextAttemptAt,
     DateTimeOffset? PaymentFailedAt,
     string? LastDeclineCode,
+    string? LastAdviceCode,
     DateTimeOffset CreatedAt,
     bool OnSession)
 {
     public ChargeWork ToWork() => new(
         PledgeId, BackerId, AmountMinor, Currency, PaymentMethodRef, Names.Parse<ChargeStatus>(Status), AttemptNo, PspPaymentId,
-        CampaignId, PaymentFailedAt, LastDeclineCode, OnSession);
+        CampaignId, PaymentFailedAt, LastDeclineCode, OnSession, LastAdviceCode);
 }
