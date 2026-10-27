@@ -16,6 +16,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 using Payments.Contracts;
@@ -96,6 +97,16 @@ public static class NotificationsModule
                 """, ct);
             return Results.NoContent();
         }).RequireAuthorization().WithTags(Name);
+
+        // On a laptop no email leaves the process: this lists the ones kept, newest first, optionally for one user.
+        if (app.ServiceProvider.GetRequiredService<IHostEnvironment>().IsDevelopment() && app.ServiceProvider.GetService<InMemoryEmailSender>() is { } kept)
+        {
+            app.MapGet("/dev/emails", (Guid? to) => Results.Ok(kept.Sent.Reverse()
+                .Where(e => to is null || e.RecipientId == to)
+                .Select(e => new { e.RecipientId, e.Address, e.Subject, e.Body })))
+                .AllowAnonymous().WithTags("Development");
+        }
+
         return app;
     }
 }

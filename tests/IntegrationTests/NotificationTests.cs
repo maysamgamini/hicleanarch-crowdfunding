@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 
 using BuildingBlocks.Application;
 
 using Campaigns.Contracts;
 
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 using Notifications;
@@ -183,6 +185,30 @@ public sealed class NotificationTests(Database database) : IDisposable
     public void A_days_digest_is_due_once_its_events_have_had_time_to_arrive(string now, string due) =>
         Assert.Equal(DateOnly.Parse(due, System.Globalization.CultureInfo.InvariantCulture),
             PledgeDigests.DueDay(DateTimeOffset.Parse(now, System.Globalization.CultureInfo.InvariantCulture), TimeSpan.FromHours(1)));
+
+    [Fact]
+    public async Task On_a_laptop_the_kept_emails_are_listed_at_dev_emails()
+    {
+        await using var laptop = database.StartHost().WithWebHostBuilder(web => web.UseEnvironment("Development"));
+        var user = Guid.NewGuid();
+        var someoneElse = Guid.NewGuid();
+        await Database.Mail.Send(new Email(someoneElse, $"{someoneElse:N}@example.invalid", "The campaign is funded", "It reached its goal."), Ct);
+        await Database.Mail.Send(new Email(user, $"{user:N}@example.invalid", "You're a backer", "Your pledge counts."), Ct);
+
+        var listed = await laptop.CreateClient().GetFromJsonAsync<JsonElement>($"/dev/emails?to={user}", Ct);
+
+        var email = Assert.Single(listed.EnumerateArray());
+        Assert.Equal("You're a backer", email.GetProperty("subject").GetString());
+        Assert.Equal(user, email.GetProperty("recipient_id").GetGuid());
+    }
+
+    [Fact]
+    public async Task Outside_Development_there_is_no_dev_emails()
+    {
+        var response = await _host.CreateClient().GetAsync("/dev/emails", Ct);
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
 
     [Fact]
     public async Task A_kind_turned_off_is_not_sent()
