@@ -20,18 +20,6 @@ internal sealed class Notifier(NotificationsDbContext db)
             ON CONFLICT DO NOTHING
             """, cancellationToken);
 
-    /// <summary>One row per distinct backer of the campaign's live pledges, in one statement.</summary>
-    public Task<int> TellBackers(Guid eventId, Guid campaignId, string kind, string subject, string body, CancellationToken cancellationToken) =>
-        db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO notifications.outgoing_emails (event_id, recipient_id, kind, subject, body, attempts)
-            SELECT DISTINCT {eventId}, p.backer_id, {kind}, {subject}, {body}, 0
-            FROM notifications.campaign_pledges p
-            WHERE p.campaign_id = {campaignId} AND p.activated_at IS NOT NULL AND p.cancelled_at IS NULL AND p.released_at IS NULL
-              AND NOT EXISTS (SELECT 1 FROM notifications.notification_preferences n
-                              WHERE n.user_id = p.backer_id AND n.kind = {kind} AND NOT n.enabled)
-            ON CONFLICT DO NOTHING
-            """, cancellationToken);
-
     /// <summary>Who backs what, per pledge: kept in the handler's own transaction, with its inbox row.</summary>
     public Task Activated(Guid pledgeId, Guid campaignId, Guid backerId, DateTimeOffset at, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""

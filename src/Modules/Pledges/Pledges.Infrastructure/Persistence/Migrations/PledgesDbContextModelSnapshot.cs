@@ -209,6 +209,14 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("status");
 
+                    b.Property<DateTimeOffset?>("ToldFinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("told_finished_at");
+
+                    b.Property<Guid?>("ToldThrough")
+                        .HasColumnType("uuid")
+                        .HasColumnName("told_through");
+
                     b.HasKey("CampaignId")
                         .HasName("pk_funding_windows");
 
@@ -223,6 +231,10 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                     b.HasIndex(new[] { "Deadline" }, "funding_windows_marking")
                         .HasDatabaseName("funding_windows_marking")
                         .HasFilter("status = 'FUNDED' AND marking_finished_at IS NULL");
+
+                    b.HasIndex(new[] { "Deadline" }, "funding_windows_telling")
+                        .HasDatabaseName("funding_windows_telling")
+                        .HasFilter("status = 'UNSUCCESSFUL' AND told_finished_at IS NULL");
 
                     b.HasIndex(new[] { "Deadline" }, "funding_windows_to_release")
                         .HasDatabaseName("funding_windows_to_release")

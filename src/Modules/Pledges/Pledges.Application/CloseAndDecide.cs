@@ -11,8 +11,9 @@ namespace Pledges.Application;
 public interface IClosing
 {
     /// <summary>
-    /// Campaigns whose deadline has passed and that are still LIVE, or ENDED and undecided, and funded
-    /// campaigns whose marking is unfinished. With <paramref name="campaignId"/>, only that one.
+    /// Campaigns whose deadline has passed and that are still LIVE, or ENDED and undecided, funded
+    /// campaigns whose marking is unfinished, and unsuccessful ones whose backers are not all told.
+    /// With <paramref name="campaignId"/>, only that one.
     /// </summary>
     Task<IReadOnlyList<Guid>> Due(int batchSize, Guid? campaignId, CancellationToken cancellationToken);
 
@@ -53,6 +54,14 @@ public interface IClosing
     /// </summary>
     Task<IReadOnlyList<ChargeablePledge>> MarkNextBatch(Guid campaignId, int batchSize, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// The next batch of an unsuccessful campaign's RELEASED pledges to tell, in pledge id order after
+    /// the window's <c>told_through</c> cursor, which moves to the batch's last pledge; a batch smaller
+    /// than <paramref name="batchSize"/> finishes the telling. Empty: nothing left, or not an
+    /// unsuccessful campaign with its telling unfinished.
+    /// </summary>
+    Task<IReadOnlyList<DecidedPledge>> TellNextBatch(Guid campaignId, int batchSize, CancellationToken cancellationToken);
+
     /// <summary>Every ACTIVE pledge to RELEASED. Nothing was charged, so nothing is undone at the PSP.</summary>
     Task<int> Release(Guid campaignId, CancellationToken cancellationToken);
 
@@ -79,6 +88,9 @@ public interface IClosing
 }
 
 public sealed record ChargeablePledge(Guid PledgeId, Guid BackerId, long AmountMinor, string PaymentMethodRef, string Currency);
+
+/// <summary>A released pledge of an unsuccessful campaign, as its backer is told.</summary>
+public sealed record DecidedPledge(Guid PledgeId, Guid BackerId, long AmountMinor, string Currency);
 
 /// <summary>A pledge let go because its campaign was cancelled.</summary>
 public sealed record ReleasedPledge(Guid PledgeId, Guid BackerId);
@@ -147,6 +159,7 @@ public sealed class CloseDueCampaignsHandler(
             }
 
             await MarkToCharge(campaignId, cancellationToken);
+            await TellUnsuccessful(campaignId, cancellationToken);
         }
 
         foreach (var campaignId in await closing.CancelledToRelease(50, command.CampaignId, cancellationToken))
@@ -180,6 +193,30 @@ public sealed class CloseDueCampaignsHandler(
         }
     }
 
+    /// <summary>
+    /// Writes a <see cref="PledgeDecided"/> for each released pledge of an unsuccessful campaign, batch
+    /// by batch from its cursor, each batch its own transaction, until done or this pass's share is
+    /// spent; a pass that died is resumed by the next from the cursor.
+    /// </summary>
+    private async Task TellUnsuccessful(Guid campaignId, CancellationToken cancellationToken)
+    {
+        for (var batch = 0; batch < marking.MarkBatchesPerPass; batch++)
+        {
+            var told = await transaction.Run(async ct =>
+            {
+                var pledges = await closing.TellNextBatch(campaignId, marking.MarkBatchSize, ct);
+                var now = clock.GetUtcNow();
+                await outbox.AddRange([.. pledges.Select(pledge => new PledgeDecided(
+                    Guid.CreateVersion7(), now, pledge.PledgeId, campaignId, pledge.BackerId, CampaignFundingDecided.Unsuccessful, pledge.AmountMinor, pledge.Currency))], ct);
+                return Result.Success(pledges.Count);
+            }, cancellationToken);
+            if (!told.IsSuccess || told.Value < marking.MarkBatchSize)
+            {
+                return;
+            }
+        }
+    }
+
     /// <summary>Marks a funded campaign's pledges batch by batch, from its cursor, until done or this pass's share is spent.</summary>
     private async Task MarkToCharge(Guid campaignId, CancellationToken cancellationToken)
     {
@@ -189,8 +226,12 @@ public sealed class CloseDueCampaignsHandler(
             {
                 var pledges = await closing.MarkNextBatch(campaignId, marking.MarkBatchSize, ct);
                 var now = clock.GetUtcNow();
-                await outbox.AddRange([.. pledges.Select(pledge => new PledgeChargeRequested(
-                    Guid.CreateVersion7(), now, pledge.PledgeId, campaignId, pledge.BackerId, pledge.AmountMinor, pledge.Currency, pledge.PaymentMethodRef))], ct);
+                await outbox.AddRange([
+                    .. pledges.Select(pledge => new PledgeChargeRequested(
+                        Guid.CreateVersion7(), now, pledge.PledgeId, campaignId, pledge.BackerId, pledge.AmountMinor, pledge.Currency, pledge.PaymentMethodRef)),
+                    .. pledges.Select(pledge => new PledgeDecided(
+                        Guid.CreateVersion7(), now, pledge.PledgeId, campaignId, pledge.BackerId, CampaignFundingDecided.Funded, pledge.AmountMinor, pledge.Currency)),
+                ], ct);
 
                 return Result.Success(pledges.Count);
             }, cancellationToken);

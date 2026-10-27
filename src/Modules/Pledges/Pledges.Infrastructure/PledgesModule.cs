@@ -69,6 +69,7 @@ public static class PledgesModule
         services.AddPublishedEvent<PledgeReleased>();
         services.AddPublishedEvent<CampaignFundingDecided>();
         services.AddPublishedEvent<PledgeChargeRequested>();
+        services.AddPublishedEvent<PledgeDecided>();
         services.AddKeyedScoped<ITransactionScope>(PledgesModuleName.Value, (sp, _) => new ModuleTransaction<PledgesDbContext>(sp.GetRequiredService<PledgesDbContext>()));
         services.AddSingleton<IModuleMigrator, PledgesMigrator>();
         // The request path's role: every transaction that can add a ledger entry after reading LIVE is

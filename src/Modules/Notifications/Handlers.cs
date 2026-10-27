@@ -22,6 +22,7 @@ internal sealed class Handlers(Notifier notifier) :
     IIntegrationEventHandler<CampaignFundingDecided>,
     IIntegrationEventHandler<CampaignCancelled>,
     IIntegrationEventHandler<PledgeReleased>,
+    IIntegrationEventHandler<PledgeDecided>,
     IIntegrationEventHandler<PledgeChargeSucceeded>,
     IIntegrationEventHandler<PledgeChargeFailed>
 {
@@ -47,8 +48,9 @@ internal sealed class Handlers(Notifier notifier) :
     public Task Handle(PledgeCancelled e, CancellationToken ct) => notifier.Cancelled(e.PledgeId, e.CampaignId, e.BackerId, e.OccurredAt, ct);
 
     /// <summary>
-    /// Every backer, in one statement: a row each, sent later by the worker; and the creator, who
-    /// hears the outcome at once rather than only when the last charge has ended.
+    /// The creator, who hears the outcome at once rather than only when the last charge has ended.
+    /// Each backer is told by their own pledge's <see cref="PledgeDecided"/>, so no backer's email
+    /// depends on the list of backers or on the order events arrive in.
     /// </summary>
     public async Task Handle(CampaignFundingDecided e, CancellationToken ct)
     {
@@ -62,11 +64,15 @@ internal sealed class Handlers(Notifier notifier) :
                     ? $"{raised} The backers' cards are being charged; you get a summary once every charge has ended."
                     : $"{raised} It did not reach its goal, so nobody is charged and every pledge is released.", ct);
         }
-
-        await notifier.TellBackers(e.EventId, e.CampaignId, funded ? "campaign_funded" : "campaign_unsuccessful",
-            funded ? "The campaign is funded" : "The campaign was not funded",
-            funded ? "It reached its goal. Your saved card will be charged in the next few minutes." : "It did not reach its goal. You were not charged, and you will not be.", ct);
     }
+
+    /// <summary>One pledge's outcome, told to its backer once (the inbox drops a redelivery).</summary>
+    public Task Handle(PledgeDecided e, CancellationToken ct) =>
+        e.Outcome == CampaignFundingDecided.Funded
+            ? notifier.Tell(e.EventId, e.BackerId, "campaign_funded", "The campaign is funded",
+                $"It reached its goal. Your saved card will be charged {Money(e.AmountMinor, e.Currency)} in the next few minutes.", ct)
+            : notifier.Tell(e.EventId, e.BackerId, "campaign_unsuccessful", "The campaign was not funded",
+                "It did not reach its goal. You were not charged, and you will not be.", ct);
 
     /// <summary>The creator only: each backer is told by their own pledge's <see cref="PledgeReleased"/>.</summary>
     public Task Handle(CampaignCancelled e, CancellationToken ct) =>

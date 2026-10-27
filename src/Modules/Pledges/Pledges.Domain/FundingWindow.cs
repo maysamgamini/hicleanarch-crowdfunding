@@ -59,6 +59,12 @@ public sealed class FundingWindow
     /// </summary>
     public DateTimeOffset? MarkingFinishedAt { get; private set; }
 
+    /// <summary>The last released pledge of an unsuccessful campaign told so far: the cursor a resumed pass starts after.</summary>
+    public Guid? ToldThrough { get; private set; }
+
+    /// <summary>When every released pledge of an unsuccessful campaign had its <c>PledgeDecided</c>; null until then.</summary>
+    public DateTimeOffset? ToldFinishedAt { get; private set; }
+
     /// <summary>When pledging opened. Every ledger entry of the campaign is at or after it, so sums can name the months to read.</summary>
     public DateTimeOffset OpenedAt { get; private set; }
 
