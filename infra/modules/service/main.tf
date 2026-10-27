@@ -93,8 +93,9 @@ data "aws_iam_policy_document" "task" {
   dynamic "statement" {
     for_each = var.queue_arn == null ? [] : [var.queue_arn]
     content {
-      sid       = "ReadItsQueue"
-      actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"]
+      sid = "ReadItsQueue"
+      # What the SQS reader calls; nothing in the services asks a queue's attributes (CQA-2105).
+      actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility"]
       resources = [statement.value]
     }
   }

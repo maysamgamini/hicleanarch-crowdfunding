@@ -291,6 +291,14 @@ run "the_monolith_holds_nothing_of_payments" {
     error_message = "Only Payments' tasks reach Payments' cluster."
   }
 
+  # CQA-2105: and Payments' tasks do not reach the shared cluster, where the other modules' data lives.
+  assert {
+    condition = length(flatten([for f in fileset(path.module, "*.tf") : [
+      for rule in regexall("resource \"aws_vpc_security_group_ingress_rule\" \"[a-z0-9_]+\" \\{[^}]*\\}", file("${path.module}/${f}")) : rule
+    if strcontains(rule, "aws_security_group.database.id") && strcontains(rule, "aws_security_group.payments.id")]])) == 0
+    error_message = "No ingress rule of the shared cluster may admit Payments' security group."
+  }
+
   # Payments' own migrate task (infra/services/payments) migrates Payments as its cluster's master.
   assert {
     condition = (local.shared_outputs.payments_database_owner_secret_arn == aws_secretsmanager_secret.payments_own["owner"].arn
