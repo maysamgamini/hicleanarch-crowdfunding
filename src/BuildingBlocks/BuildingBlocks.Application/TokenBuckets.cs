@@ -20,4 +20,10 @@ public readonly record struct TokenGrant(bool Granted, TimeSpan RetryAfter)
 public interface ITokenBuckets
 {
     Task<TokenGrant> TryTake(IReadOnlyList<Bucket> buckets, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Empties a bucket now: the provider said "too many" although the bucket had room, so every task
+    /// waits a full refill before the next call.
+    /// </summary>
+    Task Drain(Bucket bucket, CancellationToken cancellationToken);
 }

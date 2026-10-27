@@ -21,6 +21,9 @@ public sealed record SettlementCounts(int Expected, int Charged, int Failed, int
 /// <summary>A charge as the webhook handler finds it by its pledge: the work, and its campaign.</summary>
 public sealed record ChargeOfPledge(Guid CampaignId, ChargeWork Work);
 
+/// <summary>How far a campaign's settlement has got, and when it should be done at the charges' rate.</summary>
+public sealed record SettlementProgress(string Status, int Expected, int Charged, int Failed, int Open, int EtaSeconds);
+
 /// <summary>Charges, attempts and settlement jobs, each move conditional on where the row stands.</summary>
 public interface ISettlements
 {
@@ -30,20 +33,22 @@ public interface ISettlements
 
     /// <summary>
     /// Claims one job nobody holds, or whose lease ran out: <c>FOR UPDATE SKIP LOCKED</c>, skipping jobs
-    /// whose <c>not_before</c> is still ahead. With <paramref name="campaignId"/>, only that campaign's
-    /// job, whatever its <c>not_before</c>. Null: nothing to do.
+    /// whose <c>not_before</c> is still ahead, the job whose last turn was longest ago first, so
+    /// campaigns take turns. With <paramref name="campaignId"/>, only that campaign's job, whatever its
+    /// <c>not_before</c>. Null: nothing to do.
     /// </summary>
-    Task<Guid?> Claim(string worker, TimeSpan lease, Guid? campaignId, CancellationToken cancellationToken);
+    Task<Guid?> Claim(string worker, TimeSpan lease, Guid? campaignId, IReadOnlyCollection<Guid>? among, CancellationToken cancellationToken);
 
     /// <summary>Extends this worker's lease. False: the lease was lost to another worker.</summary>
     Task<bool> Renew(Guid campaignId, string worker, TimeSpan lease, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Gives the job back, if this worker still holds it. If none of its charges can be worked now, no
-    /// worker claims it again before the earliest retry is due, or before <paramref name="recheckAfter"/>
-    /// when it waits on an unknown attempt or on charges still to be created.
+    /// Gives the job back for a later turn, if this worker still holds it, and records when its turn
+    /// ended. If none of its charges can be worked now, no worker claims it again before the earliest
+    /// retry is due, or before <paramref name="unknownBackoff"/> when it waits on an unknown attempt or
+    /// on charges still to be created; and never before <paramref name="pause"/> has passed.
     /// </summary>
-    Task Release(Guid campaignId, string worker, TimeSpan recheckAfter, CancellationToken cancellationToken);
+    Task Release(Guid campaignId, string worker, TimeSpan unknownBackoff, TimeSpan pause, CancellationToken cancellationToken);
 
     /// <summary>Gives back every job this worker holds, at once: the worker is stopping.</summary>
     Task ReleaseAll(string worker, CancellationToken cancellationToken);
@@ -51,8 +56,18 @@ public interface ISettlements
     /// <summary>RUNNING to DONE, if this worker still holds it. False: it does not.</summary>
     Task<bool> TryFinish(Guid campaignId, string worker, CancellationToken cancellationToken);
 
-    /// <summary>The campaign's charges that need work now: CHARGING ones to resolve, TO_CHARGE ones whose time has come.</summary>
-    Task<IReadOnlyList<ChargeWork>> Workable(Guid campaignId, CancellationToken cancellationToken);
+    /// <summary>
+    /// The next batch of the campaign's charges that need work now, at most <paramref name="batchSize"/>:
+    /// CHARGING ones to resolve first, then TO_CHARGE ones whose time has come.
+    /// </summary>
+    Task<IReadOnlyList<ChargeWork>> Workable(Guid campaignId, int batchSize, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The campaign's settlement now, and its open charges against every settling campaign's: with
+    /// turns taken in rotation, a campaign is done when each other campaign has had as many charges
+    /// as it, up to their own. Null: no settlement for this campaign.
+    /// </summary>
+    Task<(SettlementCounts Counts, string Status, int OpenAheadOrAlongside)?> Progress(Guid campaignId, CancellationToken cancellationToken);
 
     Task<SettlementCounts> Counts(Guid campaignId, CancellationToken cancellationToken);
 
@@ -90,8 +105,37 @@ public sealed class SettlementOptions
 
     public int MaxAttempts { get; set; } = 3;
 
-    /// <summary>A job with nothing to do now is looked at again after this, unless a retry is due sooner.</summary>
-    public TimeSpan RecheckAfter { get; set; } = TimeSpan.FromSeconds(30);
+    /// <summary>Charges one turn works through before the job goes back for the next campaign's turn.</summary>
+    public int BatchSize { get; set; } = 500;
+
+    /// <summary>How long a charge whose outcome is unknown waits before the PSP is asked about it again.</summary>
+    public TimeSpan UnknownBackoff { get; set; } = TimeSpan.FromSeconds(5);
+
+    /// <summary>How long a job waits after the PSP could not be reached, or the circuit was open.</summary>
+    public TimeSpan PauseWhenPspFails { get; set; } = TimeSpan.FromSeconds(30);
+}
+
+/// <summary>How far a campaign's settlement has got.</summary>
+public sealed record GetSettlementProgress(Guid CampaignId) : IQuery<SettlementProgress>;
+
+/// <summary>
+/// Progress, and an ETA from the charges' share of the budget: the rate is the PSP's, not ours. An
+/// operator's question about work in progress, read from the writer: Payments keeps no read side.
+/// </summary>
+[ReadsTheWriter]
+public sealed class GetSettlementProgressHandler(ISettlements settlements, PspBudget budget) : IQueryHandler<GetSettlementProgress, SettlementProgress>
+{
+    public async Task<Result<SettlementProgress>> Handle(GetSettlementProgress query, CancellationToken cancellationToken)
+    {
+        var progress = await settlements.Progress(query.CampaignId, cancellationToken);
+        if (progress is not { } p)
+        {
+            return Result.Failure<SettlementProgress>(PaymentErrors.NoSettlement);
+        }
+
+        var eta = (int)Math.Ceiling(p.OpenAheadOrAlongside / budget.ChargesPerSecond);
+        return Result.Success(new SettlementProgress(p.Status, p.Counts.Expected, p.Counts.Charged, p.Counts.Failed, p.Counts.Open, eta));
+    }
 }
 
 /// <summary>A pledge of a funded campaign gets its charge, once, whatever repeats the event.</summary>
@@ -113,11 +157,12 @@ public sealed class CreateSettlementJob(ISettlements settlements) : IIntegration
 }
 
 /// <summary>
-/// One pass of a settlement worker: claim a job, work its charges, finish it or give it back. With
-/// <see cref="CampaignId"/>, only that campaign's job (an operator's or a test's pass). True if the
-/// pass did something: worked a charge or finished the job.
+/// One pass of a settlement worker: claim a job, work a batch of its charges, finish it or give it
+/// back. With <see cref="CampaignId"/>, only that campaign's job, whenever it is due (an operator's
+/// or a test's pass). With <see cref="Among"/>, the next due job of those campaigns, in turn. True
+/// if the pass did something: worked a charge or finished the job.
 /// </summary>
-public sealed record RunSettlement(string Worker, Guid? CampaignId = null) : ICommand<bool>;
+public sealed record RunSettlement(string Worker, Guid? CampaignId = null, IReadOnlyCollection<Guid>? Among = null) : ICommand<bool>;
 
 /// <summary>
 /// The orchestrator. The lease only decides who works; what is true is decided by the conditional
@@ -137,30 +182,40 @@ public sealed class RunSettlementHandler(
     public async Task<Result<bool>> Handle(RunSettlement command, CancellationToken cancellationToken)
     {
         var settings = options;
-        var campaignId = await settlements.Claim(command.Worker, settings.Lease, command.CampaignId, cancellationToken);
+        var campaignId = await settlements.Claim(command.Worker, settings.Lease, command.CampaignId, command.Among, cancellationToken);
         if (campaignId is not { } id)
         {
             return Result.Success(false);
         }
 
         var worked = 0;
-        foreach (var charge in await settlements.Workable(id, cancellationToken))
+        try
         {
-            if (!await settlements.Renew(id, command.Worker, settings.Lease, cancellationToken))
+            foreach (var charge in await settlements.Workable(id, settings.BatchSize, cancellationToken))
             {
-                return Result.Success(true); // the lease went to another worker; it carries on from the charges' statuses
-            }
+                worked++;
+                if (!await settlements.Renew(id, command.Worker, settings.Lease, cancellationToken))
+                {
+                    return Result.Success(true); // the lease went to another worker; it carries on from the charges' statuses
+                }
 
-            worked++;
-            var customer = await settlements.CustomerOf(charge.BackerId, cancellationToken);
-            if (charge.Status == ChargeStatus.Charging)
-            {
-                await Resolve(id, charge, customer, cancellationToken);
+                var customer = await settlements.CustomerOf(charge.BackerId, cancellationToken);
+                if (charge.Status == ChargeStatus.Charging)
+                {
+                    await Resolve(id, charge, customer, cancellationToken);
+                }
+                else
+                {
+                    await ChargeOnce(id, charge, customer, cancellationToken);
+                }
             }
-            else
-            {
-                await ChargeOnce(id, charge, customer, cancellationToken);
-            }
+        }
+        catch (HttpRequestException)
+        {
+            // The PSP cannot be reached, or the circuit is open: give the job back and pause. A charge
+            // left CHARGING is resolved with its own key on the next turn.
+            await settlements.Release(id, command.Worker, settings.UnknownBackoff, settings.PauseWhenPspFails, cancellationToken);
+            return Result.Success(false);
         }
 
         var counts = await settlements.Counts(id, cancellationToken);
@@ -179,7 +234,7 @@ public sealed class RunSettlementHandler(
             return Result.Success(worked > 0 || finished.Value);
         }
 
-        await settlements.Release(id, command.Worker, settings.RecheckAfter, cancellationToken);
+        await settlements.Release(id, command.Worker, settings.UnknownBackoff, TimeSpan.Zero, cancellationToken);
         return Result.Success(worked > 0);
     }
 

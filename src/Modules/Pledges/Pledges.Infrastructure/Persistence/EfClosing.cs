@@ -29,7 +29,8 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
         var only = campaignId ?? Guid.Empty;
         return await db.Database.SqlQuery<Guid>($"""
             SELECT campaign_id AS "Value" FROM pledges.funding_windows
-            WHERE status IN ('LIVE', 'ENDED') AND deadline <= now() AND ({any} OR campaign_id = {only})
+            WHERE ((status IN ('LIVE', 'ENDED') AND deadline <= now()) OR (status = 'FUNDED' AND marking_finished_at IS NULL))
+              AND ({any} OR campaign_id = {only})
             ORDER BY deadline LIMIT {batchSize}
             """).ToListAsync(cancellationToken);
     }
@@ -68,7 +69,9 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
         // nothing, and the next pass decides it.
         var wait = fence.WaitAfterEnd;
         return await db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE pledges.funding_windows SET status = {outcome}, final_minor = {finalMinor}, decided_at = now()
+            UPDATE pledges.funding_windows
+            SET status = {outcome}, final_minor = {finalMinor}, decided_at = now(),
+                marking_finished_at = CASE WHEN {funded} THEN NULL ELSE now() END
             WHERE campaign_id = {campaignId} AND status = 'ENDED' AND ended_at <= now() - {wait}
             """, cancellationToken) == 1;
     }
@@ -100,12 +103,42 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
     [LoggerMessage(Level = LogLevel.Critical, Message = "Campaign {CampaignId} was decided on {FinalMinor}, but its ledger sums to {RecheckMinor}: an entry landed after the fence")]
     private static partial void LogMismatch(ILogger logger, Guid campaignId, long finalMinor, long recheckMinor);
 
-    public async Task<IReadOnlyList<ChargeablePledge>> MarkToCharge(Guid campaignId, CancellationToken cancellationToken) =>
-        await db.Database.SqlQuery<ChargeablePledge>($"""
-            UPDATE pledges.pledges SET status = 'TO_CHARGE'
-            WHERE campaign_id = {campaignId} AND status = 'ACTIVE'
-            RETURNING id AS pledge_id, backer_id, amount_minor, payment_method_ref
+    public async Task<IReadOnlyList<ChargeablePledge>> MarkNextBatch(Guid campaignId, int batchSize, CancellationToken cancellationToken)
+    {
+        // The window's row is locked first, so two passes mark one batch after the other, each from
+        // the cursor the other left.
+        var window = await db.Database.SqlQuery<MarkingCursor>($"""
+            SELECT marked_through, currency FROM pledges.funding_windows
+            WHERE campaign_id = {campaignId} AND status = 'FUNDED' AND marking_finished_at IS NULL
+            FOR UPDATE
             """).ToListAsync(cancellationToken);
+        if (window.Count == 0)
+        {
+            return [];
+        }
+
+        // The nil uuid sorts before every other, so a marking that has not started begins at the first pledge.
+        var after = window[0].MarkedThrough ?? Guid.Empty;
+        var marked = await db.Database.SqlQuery<ChargeablePledge>($"""
+            WITH next AS (
+                SELECT id FROM pledges.pledges
+                WHERE campaign_id = {campaignId} AND status = 'ACTIVE' AND id > {after}
+                ORDER BY id
+                LIMIT {batchSize})
+            UPDATE pledges.pledges p SET status = 'TO_CHARGE'
+            FROM next WHERE p.id = next.id
+            RETURNING p.id AS pledge_id, p.backer_id, p.amount_minor, p.payment_method_ref, {window[0].Currency} AS currency
+            """).ToListAsync(cancellationToken);
+        // PostgreSQL orders uuids by their bytes, as the 32-digit text spells them.
+        var through = marked.Count > 0 ? marked.Select(p => p.PledgeId).MaxBy(id => id.ToString("N"), StringComparer.Ordinal) : after;
+        var finished = marked.Count < batchSize;
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.funding_windows
+            SET marked_through = {through}, marking_finished_at = CASE WHEN {finished} THEN now() ELSE NULL END
+            WHERE campaign_id = {campaignId}
+            """, cancellationToken);
+        return marked;
+    }
 
     public async Task<int> Release(Guid campaignId, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""
@@ -126,3 +159,6 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
 
 /// <summary>One campaign's recorded sum beside its sum a minute later.</summary>
 internal sealed record Recheck(Guid CampaignId, long FinalMinor, long RecheckMinor);
+
+/// <summary>Where a funded campaign's marking stands, and the currency its charges are in.</summary>
+internal sealed record MarkingCursor(Guid? MarkedThrough, string Currency);

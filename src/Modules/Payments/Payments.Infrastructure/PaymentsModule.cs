@@ -1,6 +1,9 @@
 using System.Text.Json;
 
 using BuildingBlocks.Application;
+using BuildingBlocks.Domain;
+using BuildingBlocks.Infrastructure;
+using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Events;
 using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Persistence;
@@ -16,6 +19,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 using Payments.Application;
+using Payments.Domain;
 using Payments.Contracts;
 using Payments.Infrastructure.Persistence;
 using Payments.Infrastructure.Psp;
@@ -58,9 +62,15 @@ public static class PaymentsModule
         services.AddOptions<PaymentsOptions>().Bind(configuration.GetSection("Payments"))
             .Validate(o => o.WebhookSecret.Length >= 16, "Payments:WebhookSecret must be at least 16 characters.");
 
-        // The course runs on the fake PSP. A real adapter implements the same port.
+        // The course runs on the fake PSP. A real adapter implements the same port. Every call goes
+        // through the circuit first, then the shared budget (lesson s3-a04).
         services.AddSingleton<FakePaymentProvider>();
-        services.AddSingleton<IPaymentProvider>(sp => sp.GetRequiredService<FakePaymentProvider>());
+        services.AddSingleton(configuration.GetSection("Payments:Breaker").Get<CircuitBreakerOptions>() ?? new CircuitBreakerOptions());
+        services.AddSingleton<CircuitBreaker>();
+        services.AddSingleton<IPaymentProvider>(sp => new CircuitBreakingPaymentProvider(
+            new BudgetedPaymentProvider(sp.GetRequiredService<FakePaymentProvider>(), sp.GetRequiredService<ITokenBuckets>(),
+                sp.GetRequiredService<PspBudget>(), sp.GetRequiredService<TimeProvider>()),
+            sp.GetRequiredService<CircuitBreaker>()));
 
         services.AddScoped<EfPayments>();
         return services
@@ -82,6 +92,18 @@ public static class PaymentsModule
             var body = await reader.ReadToEndAsync(http.RequestAborted);
             return await Receive(services, body, http.Request.Headers[WebhookSignature.Header], http.RequestAborted);
         }).AllowAnonymous().WithTags("Payments");
+
+        // How far a funded campaign's settlement has got, with an ETA at the PSP's rate (lesson s3-a04).
+        app.MapGet("/v1/campaigns/{id}/settlement", async (string id, IDispatcher dispatcher, CancellationToken ct) =>
+        {
+            if (!PublicId.TryParse("cmp", id, out var campaignId))
+            {
+                return new[] { PaymentErrors.NoSettlement }.ToProblem();
+            }
+
+            var progress = await dispatcher.Query<GetSettlementProgress, SettlementProgress>(new GetSettlementProgress(campaignId), ct);
+            return progress.IsSuccess ? Results.Ok(progress.Value) : progress.Errors.ToProblem();
+        }).RequireAuthorization(Policies.Creator).WithTags("Payments");
 
         // On a laptop there is no PSP to finish the card form: this plays the backer and the PSP.
         if (app.ServiceProvider.GetRequiredService<IHostEnvironment>().IsDevelopment())

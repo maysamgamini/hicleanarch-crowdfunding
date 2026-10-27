@@ -83,6 +83,7 @@ public static class PledgesModule
         services.AddReadSide<PledgesDbContext>(
             configuration.GetConnectionString("PledgesRead") ?? connectionString, PledgesDbOptions.Configure);
         services.AddScoped<EfPledges>();
+        services.AddSingleton(configuration.GetSection("Pledges").Get<MarkingOptions>() ?? new MarkingOptions());
         services.AddSharedValkey(configuration);
         if (configuration.HasValkey())
         {

@@ -36,12 +36,14 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
                 .HasMaxLength(20);
             window.Property(w => w.Currency).HasMaxLength(3).IsFixedLength();
             // The close job finds due windows on this index (lesson s2-l12).
-            window.HasIndex(w => w.Deadline).HasFilter("status IN ('LIVE', 'ENDED')").HasDatabaseName("funding_windows_due");
+            window.HasIndex(w => w.Deadline, "funding_windows_due").HasFilter("status IN ('LIVE', 'ENDED')").HasDatabaseName("funding_windows_due");
             // Written only by the close's SQL: when the decision was made, and the check a minute later (lesson s3-l05).
             window.Property<DateTimeOffset?>("DecidedAt");
             window.Property<DateTimeOffset?>("RecheckedAt");
             window.Property<long?>("RecheckMinor");
             window.HasIndex("DecidedAt").HasFilter("rechecked_at IS NULL").HasDatabaseName("funding_windows_to_recheck");
+            // ... and funded windows whose marking is unfinished on this one (lesson s3-l08).
+            window.HasIndex(w => w.Deadline, "funding_windows_marking").HasFilter("status = 'FUNDED' AND marking_finished_at IS NULL").HasDatabaseName("funding_windows_marking");
         });
 
         modelBuilder.Entity<TierCounter>(tier =>
@@ -70,6 +72,8 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
             pledge.Property(p => p.PaymentMethodRef).HasMaxLength(200);
             pledge.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
             pledge.HasIndex(p => p.CampaignId);
+            // A funded campaign's marking walks its active pledges in id order from the cursor.
+            pledge.HasIndex(p => new { p.CampaignId, p.Id }).HasFilter("status = 'ACTIVE'").HasDatabaseName("pledges_active_by_campaign");
             // The sweeper finds holds that ran out on this index.
             pledge.HasIndex(p => p.HoldExpiresAt).HasFilter("status = 'PENDING_SETUP'").HasDatabaseName("pledges_hold_due");
             // Lesson 4: one live pledge per backer per campaign, whatever code path sends a second.

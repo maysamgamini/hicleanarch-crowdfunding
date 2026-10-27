@@ -313,6 +313,10 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("expected_charges");
 
+                    b.Property<DateTimeOffset?>("LastTurnAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_turn_at");
+
                     b.Property<string>("LeaseOwner")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")

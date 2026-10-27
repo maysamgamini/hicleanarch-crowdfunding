@@ -11,6 +11,16 @@ public sealed class InProcessTokenBuckets(TimeProvider clock) : ITokenBuckets
     private readonly Dictionary<string, (double Tokens, DateTimeOffset At)> _buckets = [];
     private readonly Lock _lock = new();
 
+    public Task Drain(Bucket bucket, CancellationToken cancellationToken)
+    {
+        lock (_lock)
+        {
+            _buckets[bucket.Name] = (0, clock.GetUtcNow());
+        }
+
+        return Task.CompletedTask;
+    }
+
     public Task<TokenGrant> TryTake(IReadOnlyList<Bucket> buckets, CancellationToken cancellationToken)
     {
         var now = clock.GetUtcNow();

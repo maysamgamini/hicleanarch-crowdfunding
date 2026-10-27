@@ -13,5 +13,6 @@ public static class PaymentsApplication
             .AddScoped<ICommandHandler<StartCardSetup, CardSetupStarted>, StartCardSetupHandler>()
             .AddScoped<ICommandHandler<HandlePspWebhook, WebhookHandled>, HandlePspWebhookHandler>()
             .AddScoped<ChargeResults>()
-            .AddScoped<ICommandHandler<RunSettlement, bool>, RunSettlementHandler>();
+            .AddScoped<ICommandHandler<RunSettlement, bool>, RunSettlementHandler>()
+            .AddScoped<IQueryHandler<GetSettlementProgress, SettlementProgress>, GetSettlementProgressHandler>();
 }

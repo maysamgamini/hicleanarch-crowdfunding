@@ -24,8 +24,12 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     private readonly ConcurrentDictionary<string, string> _setups = new();
     private readonly ConcurrentDictionary<string, ChargeOutcome> _byKey = new();
     private readonly ConcurrentDictionary<string, (ChargeRequest Request, ChargeOutcome Outcome)> _payments = new();
+    private readonly ConcurrentQueue<(string Call, DateTimeOffset At)> _calls = new();
+    private int _attempts;
     private int _loseNextReplies;
     private int _unreachable;
+    private int _rateLimitNext;
+    private string? _rateLimitCall;
 
     /// <summary>How many charge calls the PSP has actually carried out (a stored replay is not one).</summary>
     public int ChargesMade => _payments.Count;
@@ -36,15 +40,28 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     /// <summary>Calls fail before they reach the PSP, as if the network were down.</summary>
     public void Unreachable(bool unreachable) => Interlocked.Exchange(ref _unreachable, unreachable ? 1 : 0);
 
+    /// <summary>The next <paramref name="count"/> calls of one kind ("charge", "lookup", ...) are refused for the endpoint's rate limit, as a PSP's 429.</summary>
+    public void RateLimitNext(string call, int count)
+    {
+        Volatile.Write(ref _rateLimitCall, call);
+        Interlocked.Exchange(ref _rateLimitNext, count);
+    }
+
+    /// <summary>Each call that reached the PSP, by kind and time: a refused call counts, one that never left us does not.</summary>
+    public IReadOnlyList<(string Call, DateTimeOffset At)> Calls => [.. _calls];
+
+    /// <summary>Every call that was made, reachable or not: what an open circuit saves.</summary>
+    public int Attempts => Volatile.Read(ref _attempts);
+
     public Task<string> CreateCustomer(Guid backerId, CancellationToken ct)
     {
-        ThrowIfUnreachable();
+        Reach("customer");
         return Task.FromResult($"cus_{backerId:N}");
     }
 
     public Task<CardSetupIntent> StartCardSetup(string pspCustomerId, CancellationToken ct)
     {
-        ThrowIfUnreachable();
+        Reach("card-setup");
         var id = $"seti_{Guid.NewGuid():N}";
         _setups[id] = pspCustomerId;
         return Task.FromResult(new CardSetupIntent(id, $"{id}_secret_{Guid.NewGuid():N}"));
@@ -52,7 +69,7 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
 
     public Task<ChargeOutcome> Charge(ChargeRequest request, string idempotencyKey, CancellationToken ct)
     {
-        ThrowIfUnreachable();
+        Reach("charge");
         var outcome = _byKey.GetOrAdd(idempotencyKey, _ =>
         {
             var paymentId = $"pi_{Guid.NewGuid():N}";
@@ -77,7 +94,7 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
 
     public Task<ChargeOutcome> LookUp(ChargeReference reference, CancellationToken ct)
     {
-        ThrowIfUnreachable();
+        Reach("lookup");
         var found = reference.PspPaymentId is { } id && _payments.TryGetValue(id, out var byId)
             ? byId.Outcome
             : _payments.Values
@@ -97,11 +114,18 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
         return new SignedWebhook(body, WebhookSignature.Sign(options.Value.WebhookSecret, body, clock.GetUtcNow()));
     }
 
-    private void ThrowIfUnreachable()
+    private void Reach(string call)
     {
+        Interlocked.Increment(ref _attempts);
         if (Volatile.Read(ref _unreachable) == 1)
         {
             throw new HttpRequestException("The fake PSP is unreachable.");
+        }
+
+        _calls.Enqueue((call, clock.GetUtcNow()));
+        if (Volatile.Read(ref _rateLimitCall) == call && Interlocked.Decrement(ref _rateLimitNext) >= 0)
+        {
+            throw new PspRateLimitedException(global: false);
         }
     }
 }

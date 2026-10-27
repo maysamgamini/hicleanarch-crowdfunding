@@ -11,8 +11,8 @@ namespace Pledges.Application;
 public interface IClosing
 {
     /// <summary>
-    /// Campaigns whose deadline has passed and that are still LIVE, or ENDED and undecided. With
-    /// <paramref name="campaignId"/>, only that one.
+    /// Campaigns whose deadline has passed and that are still LIVE, or ENDED and undecided, and funded
+    /// campaigns whose marking is unfinished. With <paramref name="campaignId"/>, only that one.
     /// </summary>
     Task<IReadOnlyList<Guid>> Due(int batchSize, Guid? campaignId, CancellationToken cancellationToken);
 
@@ -45,11 +45,19 @@ public interface IClosing
     /// <summary>The exact sum of the ledger and the number of active pledges, read after the close.</summary>
     Task<(long SumMinor, int Backers, long GoalMinor, string Currency)> ExactSum(Guid campaignId, CancellationToken cancellationToken);
 
-    /// <summary>ENDED to the outcome, with the final sum, once. False: someone else decided it first.</summary>
+    /// <summary>
+    /// ENDED to the outcome, with the final sum, once. An unsuccessful campaign's marking is finished
+    /// with it; a funded one's starts after it. False: someone else decided it first.
+    /// </summary>
     Task<bool> TryDecide(Guid campaignId, bool funded, long finalMinor, CancellationToken cancellationToken);
 
-    /// <summary>Every ACTIVE pledge to TO_CHARGE, returned so each can be asked for.</summary>
-    Task<IReadOnlyList<ChargeablePledge>> MarkToCharge(Guid campaignId, CancellationToken cancellationToken);
+    /// <summary>
+    /// The next batch of a funded campaign's ACTIVE pledges to TO_CHARGE, in pledge id order after the
+    /// window's cursor, which moves to the batch's last pledge. A batch smaller than
+    /// <paramref name="batchSize"/> finishes the marking. Empty: nothing left, or not a funded campaign
+    /// with its marking unfinished.
+    /// </summary>
+    Task<IReadOnlyList<ChargeablePledge>> MarkNextBatch(Guid campaignId, int batchSize, CancellationToken cancellationToken);
 
     /// <summary>Every ACTIVE pledge to RELEASED. Nothing was charged, so nothing is undone at the PSP.</summary>
     Task<int> Release(Guid campaignId, CancellationToken cancellationToken);
@@ -58,19 +66,32 @@ public interface IClosing
     Task<int> ExpireWaiting(Guid campaignId, CancellationToken cancellationToken);
 }
 
-public sealed record ChargeablePledge(Guid PledgeId, Guid BackerId, long AmountMinor, string PaymentMethodRef);
+public sealed record ChargeablePledge(Guid PledgeId, Guid BackerId, long AmountMinor, string PaymentMethodRef, string Currency);
 
 /// <summary>One pass of the close job. With <see cref="CampaignId"/>, only that campaign (an operator's or a test's pass).</summary>
 public sealed record CloseDueCampaigns(Guid? CampaignId = null) : ICommand<int>;
 
+/// <summary>Configuration section <c>Pledges</c>: how a funded campaign's pledges are marked TO_CHARGE.</summary>
+public sealed class MarkingOptions
+{
+    /// <summary>Pledges marked per transaction: a million in one would hold their locks for minutes.</summary>
+    public int MarkBatchSize { get; set; } = 5_000;
+
+    /// <summary>Batches one pass of the close job marks before it moves on; the next pass continues from the cursor.</summary>
+    public int MarkBatchesPerPass { get; set; } = 200;
+}
+
 /// <summary>
-/// One pass of the close job. For each due campaign, two transactions: the close, and then, once
-/// every pledge that saw the campaign LIVE has committed or ended, the decision from the exact sum,
-/// which moves every pledge in the same transaction. A campaign left ENDED by a pass that died between the two is picked up by
-/// the next pass, and both steps are conditional, so two passes at once decide a campaign once.
+/// One pass of the close job. For each due campaign: the close; then, once every pledge that saw the
+/// campaign LIVE has committed or ended (the time fence, lesson s3-l05), the decision from the exact
+/// sum; then, for a funded campaign, its pledges marked TO_CHARGE in batches, each its own transaction
+/// with its events and the window's cursor (lesson s3-a04). A campaign left ENDED, or funded with its
+/// marking unfinished, by a pass that died is picked up by the next pass. Every step is conditional,
+/// so two passes at once decide and mark a campaign once.
 /// </summary>
 public sealed class CloseDueCampaignsHandler(
     IClosing closing,
+    MarkingOptions marking,
     TimeProvider clock,
     [FromKeyedServices(PledgesModuleName.Value)] IOutbox outbox,
     [FromKeyedServices(PledgesModuleName.Value)] ITransactionScope transaction) : ICommandHandler<CloseDueCampaigns, int>
@@ -101,10 +122,36 @@ public sealed class CloseDueCampaignsHandler(
             {
                 decided++;
             }
+
+            await MarkToCharge(campaignId, cancellationToken);
         }
 
         await closing.RecheckDecided(50, cancellationToken);
         return Result.Success(decided);
+    }
+
+    /// <summary>Marks a funded campaign's pledges batch by batch, from its cursor, until done or this pass's share is spent.</summary>
+    private async Task MarkToCharge(Guid campaignId, CancellationToken cancellationToken)
+    {
+        for (var batch = 0; batch < marking.MarkBatchesPerPass; batch++)
+        {
+            var marked = await transaction.Run(async ct =>
+            {
+                var pledges = await closing.MarkNextBatch(campaignId, marking.MarkBatchSize, ct);
+                var now = clock.GetUtcNow();
+                foreach (var pledge in pledges)
+                {
+                    await outbox.Add(new PledgeChargeRequested(
+                        Guid.CreateVersion7(), now, pledge.PledgeId, campaignId, pledge.BackerId, pledge.AmountMinor, pledge.Currency, pledge.PaymentMethodRef), ct);
+                }
+
+                return Result.Success(pledges.Count);
+            }, cancellationToken);
+            if (!marked.IsSuccess || marked.Value < marking.MarkBatchSize)
+            {
+                return;
+            }
+        }
     }
 
     private async Task<Result<bool>> Decide(Guid campaignId, CancellationToken ct)
@@ -118,15 +165,7 @@ public sealed class CloseDueCampaignsHandler(
 
         await closing.ExpireWaiting(campaignId, ct);
         var now = clock.GetUtcNow();
-        if (funded)
-        {
-            foreach (var pledge in await closing.MarkToCharge(campaignId, ct))
-            {
-                await outbox.Add(new PledgeChargeRequested(
-                    Guid.CreateVersion7(), now, pledge.PledgeId, campaignId, pledge.BackerId, pledge.AmountMinor, currency, pledge.PaymentMethodRef), ct);
-            }
-        }
-        else
+        if (!funded)
         {
             await closing.Release(campaignId, ct);
         }

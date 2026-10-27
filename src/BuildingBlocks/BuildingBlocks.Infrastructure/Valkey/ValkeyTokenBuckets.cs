@@ -47,6 +47,30 @@ public sealed partial class ValkeyTokenBuckets(IConnectionMultiplexer valkey, IL
         return {granted, wait}
         """;
 
+    private const string Empty = """
+        local t = redis.call('TIME')
+        local now = tonumber(t[1]) * 1000 + math.floor(tonumber(t[2]) / 1000)
+        redis.call('HSET', KEYS[1], 'tokens', '0', 'at_ms', tostring(now))
+        redis.call('PEXPIRE', KEYS[1], math.ceil(tonumber(ARGV[1]) * 1000 / tonumber(ARGV[2])) + 1000)
+        return 1
+        """;
+
+    public async Task Drain(Bucket bucket, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await valkey.GetDatabase().ScriptEvaluateAsync(Empty, [(RedisKey)$"buckets:{bucket.Name}"],
+            [
+                bucket.Rate.Capacity.ToString(CultureInfo.InvariantCulture),
+                bucket.Rate.PerSecond.ToString(CultureInfo.InvariantCulture),
+            ]);
+        }
+        catch (Exception e) when (e is RedisException or TimeoutException)
+        {
+            LogUnreachable(logger, e);
+        }
+    }
+
     public async Task<TokenGrant> TryTake(IReadOnlyList<Bucket> buckets, CancellationToken cancellationToken)
     {
         var keys = buckets.Select(b => (RedisKey)$"buckets:{b.Name}").ToArray();

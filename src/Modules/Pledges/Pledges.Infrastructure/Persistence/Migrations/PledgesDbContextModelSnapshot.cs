@@ -177,6 +177,14 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("goal_minor");
 
+                    b.Property<Guid?>("MarkedThrough")
+                        .HasColumnType("uuid")
+                        .HasColumnName("marked_through");
+
+                    b.Property<DateTimeOffset?>("MarkingFinishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("marking_finished_at");
+
                     b.Property<long>("PledgedMinor")
                         .HasColumnType("bigint")
                         .HasColumnName("pledged_minor");
@@ -198,13 +206,17 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                     b.HasKey("CampaignId")
                         .HasName("pk_funding_windows");
 
-                    b.HasIndex("Deadline")
-                        .HasDatabaseName("funding_windows_due")
-                        .HasFilter("status IN ('LIVE', 'ENDED')");
-
                     b.HasIndex("DecidedAt")
                         .HasDatabaseName("funding_windows_to_recheck")
                         .HasFilter("rechecked_at IS NULL");
+
+                    b.HasIndex(new[] { "Deadline" }, "funding_windows_due")
+                        .HasDatabaseName("funding_windows_due")
+                        .HasFilter("status IN ('LIVE', 'ENDED')");
+
+                    b.HasIndex(new[] { "Deadline" }, "funding_windows_marking")
+                        .HasDatabaseName("funding_windows_marking")
+                        .HasFilter("status = 'FUNDED' AND marking_finished_at IS NULL");
 
                     b.ToTable("funding_windows", "pledges");
                 });
@@ -330,6 +342,10 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("one_live_pledge_per_backer")
                         .HasFilter("status IN ('PENDING_SETUP', 'ACTIVE')");
+
+                    b.HasIndex("CampaignId", "Id")
+                        .HasDatabaseName("pledges_active_by_campaign")
+                        .HasFilter("status = 'ACTIVE'");
 
                     b.ToTable("pledges", "pledges", t =>
                         {

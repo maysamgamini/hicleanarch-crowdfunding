@@ -65,8 +65,10 @@ public sealed class TokenBucketTests(Valkey valkey) : IClassFixture<Valkey>, IDi
     public async Task A_take_is_all_or_nothing_across_the_buckets_it_names()
     {
         var buckets = Task();
-        var account = NewBucket(perSecond: 0.1, capacity: 3);
-        var setups = NewBucket(perSecond: 0.1, capacity: 1);
+        // Rates far too slow to add a token while the test runs, however loaded the machine: this test
+        // is about all or nothing, not refill.
+        var account = NewBucket(perSecond: 0.0001, capacity: 3);
+        var setups = NewBucket(perSecond: 0.0001, capacity: 1);
         Assert.True((await buckets.TryTake([account, setups], Ct)).Granted);
 
         Assert.False((await buckets.TryTake([account, setups], Ct)).Granted); // the lane is empty
@@ -104,7 +106,7 @@ public sealed class TokenBucketTests(Valkey valkey) : IClassFixture<Valkey>, IDi
     public async Task Without_Valkey_the_buckets_live_in_the_process_and_keep_the_same_rule()
     {
         var buckets = new InProcessTokenBuckets(TimeProvider.System);
-        var bucket = NewBucket(perSecond: 1, capacity: 2);
+        var bucket = NewBucket(perSecond: 0.0001, capacity: 2); // no refill while the test runs
 
         Assert.True((await buckets.TryTake([bucket], Ct)).Granted);
         Assert.True((await buckets.TryTake([bucket], Ct)).Granted);

@@ -44,6 +44,12 @@ public sealed class FundingWindow
 
     public DateTimeOffset? EndedAt { get; private set; }
 
+    /// <summary>The last pledge marked TO_CHARGE so far: the cursor a resumed marking starts after (lesson s3-a04).</summary>
+    public Guid? MarkedThrough { get; private set; }
+
+    /// <summary>When every pledge of a decided campaign was marked; null while a funded campaign's marking is unfinished.</summary>
+    public DateTimeOffset? MarkingFinishedAt { get; private set; }
+
     public static FundingWindow Open(Guid campaignId, DateTimeOffset deadline, long goalMinor, string currency) => new()
     {
         CampaignId = campaignId,
