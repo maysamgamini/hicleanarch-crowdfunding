@@ -33,3 +33,9 @@ variable "collector_image" {
   type        = string
   default     = "public.ecr.aws/aws-observability/aws-otel-collector:v0.49.0"
 }
+
+variable "notifications_from" {
+  description = "The address emails are sent from. Empty: emails stay in memory (nothing is sent)."
+  type        = string
+  default     = ""
+}

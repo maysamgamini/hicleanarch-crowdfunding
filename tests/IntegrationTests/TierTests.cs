@@ -30,6 +30,8 @@ public sealed class TierTests(Database database) : IDisposable
         var responses = await Task.WhenAll(Enumerable.Range(0, 50).Select(_ =>
             given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(4_900, campaign.TierIds[0]), Ct)));
 
+        var unexpected = responses.Where(r => r.StatusCode is not HttpStatusCode.Created and not HttpStatusCode.Conflict).ToList();
+        Assert.True(unexpected.Count == 0, string.Join("\n", await Task.WhenAll(unexpected.Select(async r => $"{(int)r.StatusCode} {await r.Content.ReadAsStringAsync(Ct)}"))));
         Assert.Equal(10, responses.Count(r => r.StatusCode == HttpStatusCode.Created));
         Assert.Equal(40, responses.Count(r => r.StatusCode == HttpStatusCode.Conflict));
         foreach (var refused in responses.Where(r => r.StatusCode == HttpStatusCode.Conflict))

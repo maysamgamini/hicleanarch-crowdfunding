@@ -116,7 +116,7 @@ data "aws_iam_policy_document" "task_boundary" {
       "xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets",
       "cloudwatch:PutMetricData",
       "secretsmanager:GetSecretValue",
-      "ses:SendEmail", "ses:SendRawEmail",
+      "ses:SendEmail", "ses:SendRawEmail", "cognito-idp:ListUsers",
       "elasticache:Connect",
     ]
     resources = ["*"]

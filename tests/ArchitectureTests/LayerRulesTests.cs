@@ -23,6 +23,7 @@ public class LayerRulesTests
             new HashSet<string> { "CrowdFunding.Host", "Campaigns.Domain", "Campaigns.Application", "Campaigns.Infrastructure", "Campaigns.Contracts",
                 "Pledges.Domain", "Pledges.Application", "Pledges.Infrastructure", "Pledges.Contracts",
                 "Payments.Domain", "Payments.Application", "Payments.Infrastructure", "Payments.Contracts",
+                "Notifications",
                 "BuildingBlocks.Domain", "BuildingBlocks.Application", "BuildingBlocks.Infrastructure" },
             Ours.Select(a => a.GetName().Name!).ToHashSet());
 
@@ -77,6 +78,16 @@ public class LayerRulesTests
         var foreign = ReferencesOf(name).Where(r => ModuleOf(r) != module && Modules.Contains(ModuleOf(r)));
         Assert.All(foreign, r => Assert.EndsWith(".Contracts", r, StringComparison.Ordinal));
     }
+
+    /// <summary>
+    /// Notifications is one project on purpose: it has no rules of its own to protect with layers.
+    /// It may still see other modules only through their contracts.
+    /// </summary>
+    [Fact]
+    public void Notifications_is_one_project_that_sees_others_only_through_contracts() =>
+        Assert.All(ReferencesOf("Notifications"), r => Assert.True(
+            r.StartsWith("BuildingBlocks.", StringComparison.Ordinal) || r.EndsWith(".Contracts", StringComparison.Ordinal),
+            $"Notifications references {r}"));
 
     [Theory]
     [MemberData(nameof(OurAssemblies))]

@@ -9,6 +9,8 @@ using Campaigns.Infrastructure;
 
 using CrowdFunding.Host;
 
+using Notifications;
+
 using Payments.Infrastructure;
 
 using Pledges.Infrastructure;
@@ -29,6 +31,7 @@ builder.Services.AddInProcessEvents();
 builder.Services.AddCampaignsModule(builder.Configuration);
 builder.Services.AddPledgesModule(builder.Configuration);
 builder.Services.AddPaymentsModule(builder.Configuration);
+builder.Services.AddNotificationsModule(builder.Configuration);
 
 var app = builder.Build();
 
@@ -58,6 +61,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapCampaignsEndpoints();
 app.MapPledgesEndpoints();
 app.MapPaymentsEndpoints();
+app.MapNotificationsEndpoints();
 
 await app.RunAsync();
 

@@ -10,7 +10,8 @@ public sealed record PledgeChargeSucceeded(
     Guid CampaignId,
     int AttemptNo,
     string PspPaymentId,
-    long AmountMinor) : IntegrationEvent(EventId, OccurredAt);
+    long AmountMinor,
+    Guid BackerId) : IntegrationEvent(EventId, OccurredAt);
 
 /// <summary>An attempt to charge a pledge was declined. <see cref="Final"/>: no attempt is left.</summary>
 public sealed record PledgeChargeFailed(
@@ -20,7 +21,8 @@ public sealed record PledgeChargeFailed(
     Guid CampaignId,
     int AttemptNo,
     string DeclineCode,
-    bool Final) : IntegrationEvent(EventId, OccurredAt);
+    bool Final,
+    Guid BackerId) : IntegrationEvent(EventId, OccurredAt);
 
 /// <summary>Every charge of a funded campaign has ended, charged or failed.</summary>
 public sealed record CampaignSettled(

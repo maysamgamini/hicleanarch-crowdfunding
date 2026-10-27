@@ -22,6 +22,7 @@ locals {
     { name = "ConnectionStrings__Pledges", valueFrom = aws_secretsmanager_secret.connection["pledges"].arn },
     { name = "ConnectionStrings__Payments", valueFrom = aws_secretsmanager_secret.connection["payments"].arn },
     { name = "Payments__WebhookSecret", valueFrom = aws_secretsmanager_secret.webhook.arn },
+    { name = "ConnectionStrings__Notifications", valueFrom = aws_secretsmanager_secret.connection["notifications"].arn },
   ]
   owner_secret = { name = "ConnectionStrings__Owner", valueFrom = aws_secretsmanager_secret.connection["owner"].arn }
 
@@ -38,6 +39,9 @@ locals {
       { name = "OTEL_SERVICE_NAME", value = "crowdfunding-api" },
       { name = "Auth__Authority", value = local.cognito_issuer },
       { name = "Auth__ClientId", value = aws_cognito_user_pool_client.api.id },
+      { name = "Notifications__Sender", value = var.notifications_from == "" ? "InMemory" : "Ses" },
+      { name = "Notifications__FromAddress", value = var.notifications_from },
+      { name = "Notifications__UserPoolId", value = aws_cognito_user_pool.users.id },
     ]
     secrets = local.module_secrets
     logConfiguration = {

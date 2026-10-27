@@ -13,6 +13,9 @@
     <Project Path="src/Modules/Campaigns/Campaigns.Domain/Campaigns.Domain.csproj" />
     <Project Path="src/Modules/Campaigns/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Notifications/">
+    <Project Path="src/Modules/Notifications/Notifications.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Payments/">
     <Project Path="src/Modules/Payments/Payments.Application/Payments.Application.csproj" />
     <Project Path="src/Modules/Payments/Payments.Contracts/Payments.Contracts.csproj" />

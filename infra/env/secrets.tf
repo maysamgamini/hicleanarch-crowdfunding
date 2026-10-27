@@ -17,6 +17,11 @@ resource "random_password" "payments" {
   special = false
 }
 
+resource "random_password" "notifications" {
+  length  = 32
+  special = false
+}
+
 # The fake PSP signs its webhooks with this; a real PSP's signing secret would replace it.
 resource "random_password" "webhook" {
   length  = 40
@@ -35,11 +40,14 @@ resource "aws_secretsmanager_secret_version" "webhook" {
 
 locals {
   db_host = aws_rds_cluster.main.endpoint
+  # Every task keeps a pool per module role; Aurora at its smallest capacity allows few connections.
+  pool = "Maximum Pool Size=10"
   connection_strings = {
-    owner     = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=owner;Password=${random_password.owner.result};Timeout=60"
-    campaigns = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=campaigns_app;Password=${random_password.campaigns.result};Timeout=60"
-    pledges   = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=pledges_app;Password=${random_password.pledges.result};Timeout=60"
-    payments  = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=payments_app;Password=${random_password.payments.result};Timeout=60"
+    owner         = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=owner;Password=${random_password.owner.result};Timeout=60"
+    campaigns     = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=campaigns_app;Password=${random_password.campaigns.result};Timeout=60;${local.pool}"
+    pledges       = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=pledges_app;Password=${random_password.pledges.result};Timeout=60;${local.pool}"
+    payments      = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=payments_app;Password=${random_password.payments.result};Timeout=60;${local.pool}"
+    notifications = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=notifications_app;Password=${random_password.notifications.result};Timeout=60;${local.pool}"
   }
 }
 

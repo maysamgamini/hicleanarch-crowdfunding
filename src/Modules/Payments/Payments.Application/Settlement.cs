@@ -197,7 +197,7 @@ public sealed class RunSettlementHandler(
             {
                 if (await settlements.TryRecordSuccess(charge.PledgeId, n, s.PspPaymentId, ct))
                 {
-                    await outbox.Add(new PledgeChargeSucceeded(Guid.CreateVersion7(), clock.GetUtcNow(), charge.PledgeId, campaignId, n, s.PspPaymentId, charge.AmountMinor), ct);
+                    await outbox.Add(new PledgeChargeSucceeded(Guid.CreateVersion7(), clock.GetUtcNow(), charge.PledgeId, campaignId, n, s.PspPaymentId, charge.AmountMinor, charge.BackerId), ct);
                 }
 
                 return Result.Success(true);
@@ -208,7 +208,7 @@ public sealed class RunSettlementHandler(
                 var next = final ? (DateTimeOffset?)null : clock.GetUtcNow() + options.RetryAfter;
                 if (await settlements.TryRecordDecline(charge.PledgeId, n, d.Code, d.PspPaymentId, final, next, ct))
                 {
-                    await outbox.Add(new PledgeChargeFailed(Guid.CreateVersion7(), clock.GetUtcNow(), charge.PledgeId, campaignId, n, d.Code, final), ct);
+                    await outbox.Add(new PledgeChargeFailed(Guid.CreateVersion7(), clock.GetUtcNow(), charge.PledgeId, campaignId, n, d.Code, final, charge.BackerId), ct);
                 }
 
                 return Result.Success(true);

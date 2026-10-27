@@ -14,8 +14,11 @@ namespace IntegrationTests;
 /// <summary>One real PostgreSQL 17 for the whole test run, migrated once, as in a deploy.</summary>
 public sealed class Database : IAsyncLifetime
 {
+    // Every test class starts a host, and every host keeps a connection pool per module role: more
+    // than PostgreSQL's default of 100 connections when the classes run in parallel.
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder("postgres:17")
         .WithDatabase("crowdfunding")
+        .WithCommand("-c", "max_connections=500")
         .Build();
 
     public string Owner => _container.GetConnectionString();
@@ -36,6 +39,12 @@ public sealed class Database : IAsyncLifetime
     {
         Username = "payments_app",
         Password = "payments_test",
+    }.ConnectionString;
+
+    public string Notifications => new Npgsql.NpgsqlConnectionStringBuilder(Owner)
+    {
+        Username = "notifications_app",
+        Password = "notifications_test",
     }.ConnectionString;
 
     public const string WebhookSecret = "whsec_test_only_0123456789abcdef";
@@ -95,6 +104,7 @@ public sealed class Database : IAsyncLifetime
             .UseSetting("ConnectionStrings:Campaigns", Campaigns)
             .UseSetting("ConnectionStrings:Pledges", Pledges)
             .UseSetting("ConnectionStrings:Payments", Payments)
+            .UseSetting("ConnectionStrings:Notifications", Notifications)
             .UseSetting("Payments:WebhookSecret", WebhookSecret)
             // Tests drive settlement passes themselves; the background worker waits an hour.
             .UseSetting("Payments:Settlement:PollEvery", "01:00:00")
