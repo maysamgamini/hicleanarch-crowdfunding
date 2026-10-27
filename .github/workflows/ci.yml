@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # the BuildingBlocks version check reads every pushed commit
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
@@ -25,6 +27,15 @@ jobs:
         run: dotnet test tests/Delivery.Tests
       - name: Every service host still matches the service template
         run: scripts/check-service-template.sh
+      - name: Each BuildingBlocks change comes with a new version (CQA-2112)
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -z "$BASE" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "No earlier commit to compare with (a new branch or a tag): nothing to check."
+            exit 0
+          fi
+          scripts/check-buildingblocks-version.sh "$BASE"
 
   # Every root under both tools the course supports: OpenTofu (MPL-2.0, the default) and Terraform
   # (BUSL-1.1), each at the version its file pins. No credentials: init without the backend, and the
@@ -54,3 +65,4 @@ jobs:
           terraform_wrapper: false
       - name: fmt, init, validate and test every root
         run: scripts/check-infra.sh
+

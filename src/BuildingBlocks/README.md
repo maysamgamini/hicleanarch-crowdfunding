@@ -24,6 +24,10 @@ the `package` workflow packs and publishes to AWS CodeArtifact.
 
 ## Versions
 
+- **6.0.1**: `DatabaseBusy.WithLockTimeout` puts the lock wait back to the session's own once its
+  statement is done, so it no longer lasts the whole transaction (CQA-1580, 5dd059e). That commit
+  changed the code and kept 6.0.0, so the version is bumped here (CQA-2112), and CI now refuses
+  a BuildingBlocks change that keeps its version (`scripts/check-buildingblocks-version.sh`).
 - **6.0.0**: `ITokenBuckets` gains `TryEnter` and the `Lane` record (a line of waiting callers);
   `IInFlightSlots` caps calls in flight beside the buckets; `ValkeyTokenBuckets` takes a
   `DegradedTokenBuckets`, used while Valkey cannot be reached; `ValkeyRegistration.ClientOptions`
