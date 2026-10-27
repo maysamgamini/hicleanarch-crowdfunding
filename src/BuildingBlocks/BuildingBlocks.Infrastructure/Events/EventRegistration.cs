@@ -40,9 +40,10 @@ public static class EventRegistration
         where TContext : DbContext
     {
         services.TryAddScoped<PendingEvents<TContext>>();
-        services.TryAddScoped<OutboxCommitInterceptor<TContext>>();
         services.AddKeyedScoped<IOutbox>(module, (sp, _) =>
             new EfOutbox<TContext>(sp.GetRequiredService<TContext>(), sp.GetRequiredService<PendingEvents<TContext>>(), sp.GetRequiredService<EventRoutes>(), module));
+        services.TryAddScoped<OutboxCommitInterceptor<TContext>>(sp => new OutboxCommitInterceptor<TContext>(
+            sp.GetRequiredService<PendingEvents<TContext>>(), sp.GetRequiredService<EventBus>(), sp.GetService<PublishHandoff>()));
         services.AddSingleton<IModuleEvents>(sp => new ModuleEvents<TContext>(module, sp.GetRequiredService<IServiceScopeFactory>()));
         return services;
     }
@@ -51,14 +52,33 @@ public static class EventRegistration
     /// A consumer the program adds to <c>events/subscriptions.json</c> for itself: for event types that exist
     /// only in tests. A real consumer belongs in the file, where every host and Terraform read it.
     /// </summary>
-    public static IServiceCollection AddEventSubscription<TEvent>(this IServiceCollection services, string module)
+    public static IServiceCollection AddEventSubscription<TEvent>(this IServiceCollection services, string module, string producer)
         where TEvent : IntegrationEvent =>
-        services.AddSingleton(new EventSubscription(typeof(TEvent).Name, module));
+        services.AddSingleton(new EventSubscription(typeof(TEvent).Name, module, producer));
 
-    /// <summary>Declares an event type the module publishes, so the dispatcher knows it.</summary>
-    public static IServiceCollection AddPublishedEvent<TEvent>(this IServiceCollection services)
+    /// <summary>Declares an event type <paramref name="module"/> publishes, so the routes and the dispatcher know it.</summary>
+    public static IServiceCollection AddPublishedEvent<TEvent>(this IServiceCollection services, string module)
         where TEvent : IntegrationEvent =>
-        services.AddSingleton(new PublishedEvent(typeof(TEvent)));
+        services.AddSingleton(new PublishedEvent(typeof(TEvent), module));
+
+    /// <summary>
+    /// Publishing to the broker: committed rows that owe a publish are handed to <see cref="IEventPublisher"/>
+    /// right after the commit, and a recovery pass claims what is left. The publisher itself is the
+    /// broker adapter's (SNS); configuration section <c>Outbox:Publishing</c>.
+    /// </summary>
+    public static IServiceCollection AddBrokerPublishing(this IServiceCollection services)
+    {
+        services.TryAddSingleton<PublishHandoff>();
+        services.TryAddSingleton<OutboxPublisher>();
+        services.AddHostedService(sp => sp.GetRequiredService<OutboxPublisher>());
+        services.AddSingleton<IStopParticipant>(sp => sp.GetRequiredService<OutboxPublisher>());
+        services.AddOptions<OutboxPublishingOptions>()
+            .BindConfiguration("Outbox:Publishing")
+            .Validate(o => o.QueueCapacity > 0 && o.RecoveryBatch > 0 && o.RecoverAfter > TimeSpan.Zero && o.Claim > TimeSpan.Zero
+                    && o.RecoverEvery > TimeSpan.Zero, "Outbox:Publishing: every value must be positive.")
+            .ValidateOnStart();
+        return services;
+    }
 
     /// <summary>A handler of <paramref name="module"/> for <typeparamref name="TEvent"/>; its inbox is that module's.</summary>
     public static IServiceCollection AddEventHandler<TEvent, THandler>(this IServiceCollection services, string module)

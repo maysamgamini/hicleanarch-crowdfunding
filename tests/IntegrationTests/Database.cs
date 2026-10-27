@@ -1,5 +1,8 @@
 using BuildingBlocks.Infrastructure.Identity;
 
+using CrowdFunding.Messaging;
+using CrowdFunding.Testing;
+
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -11,7 +14,10 @@ using Testcontainers.PostgreSql;
 
 namespace IntegrationTests;
 
-/// <summary>One real PostgreSQL 17 for the whole test run, migrated once, as in a deploy.</summary>
+/// <summary>
+/// One real PostgreSQL 17 for the whole test run, migrated once, as in a deploy, and one Moto (SNS and
+/// SQS): from s4-l02 every host routes Payments' events, in and out, through the broker.
+/// </summary>
 public sealed class Database : IAsyncLifetime
 {
     // Every test class starts a host, and every host keeps a connection pool per module role: more
@@ -22,6 +28,10 @@ public sealed class Database : IAsyncLifetime
         .Build();
 
     public string Owner => _container.GetConnectionString();
+
+    public MotoBroker Broker { get; } = new();
+
+    private static readonly BrokerPlan Plan = BrokerPlan.Load(Path.Combine(AppContext.BaseDirectory, "events", "subscriptions.json"));
 
     public string Campaigns => new Npgsql.NpgsqlConnectionStringBuilder(Owner)
     {
@@ -66,13 +76,17 @@ public sealed class Database : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        await _container.StartAsync();
-        await using var host = StartHost();
+        await Task.WhenAll(_container.StartAsync(), Broker.Start());
+        await using var host = StartHost(broker: false);
         await host.Services.GetRequiredService<BuildingBlocks.Infrastructure.Persistence.DatabaseMigrator>()
             .Run(Owner, CancellationToken.None);
     }
 
-    public ValueTask DisposeAsync() => _container.DisposeAsync();
+    public async ValueTask DisposeAsync()
+    {
+        await Broker.DisposeAsync();
+        await _container.DisposeAsync();
+    }
 
     /// <summary>A client of the host, signed in with the token if one is given, which sends a fresh
     /// Idempotency-Key with every change unless the test sets one.</summary>
@@ -100,9 +114,60 @@ public sealed class Database : IAsyncLifetime
         }
     }
 
-    /// <summary>A fresh host process on this database: a new host is what a restart looks like.</summary>
-    public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null) =>
-        new WebApplicationFactory<Program>().WithWebHostBuilder(web => web
+    /// <summary>
+    /// A fresh host process on this database: a new host is what a restart looks like. With
+    /// <paramref name="broker"/>, the host gets topics and queues of its own (what Terraform builds, under a
+    /// fresh prefix), so no other test's host reads its messages, and Payments' routes are on <c>Broker</c>.
+    /// </summary>
+    public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null, bool broker = true) =>
+        StartHost(broker ? Provision().Settings : null, services);
+
+    /// <summary>Topics and queues for one host, the monolith of s4-l02, which reads both queues.</summary>
+    public MotoBroker.Provisioned Provision() =>
+        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], Plan.Services.Keys).GetAwaiter().GetResult();
+
+    /// <summary>
+    /// A host on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>), or with every event
+    /// in process. With <paramref name="brokerRoutes"/> false, the broker is there but every route is
+    /// <c>InProcess</c>: a rollback, with rows and messages still owed to the broker.
+    /// </summary>
+    public WebApplicationFactory<Program> StartHost(IReadOnlyDictionary<string, string?>? broker, Action<IServiceCollection>? services = null,
+        bool brokerRoutes = true, string? recoverAfter = null) =>
+        WithBroker(Configure(new WebApplicationFactory<Program>(), services), broker, brokerRoutes, recoverAfter);
+
+    private static WebApplicationFactory<Program> WithBroker(WebApplicationFactory<Program> host, IReadOnlyDictionary<string, string?>? broker,
+        bool brokerRoutes, string? recoverAfter)
+    {
+        if (broker is null)
+        {
+            return host;
+        }
+
+        return host.WithWebHostBuilder(web =>
+        {
+            foreach (var (key, value) in broker)
+            {
+                web.UseSetting(key, value);
+            }
+
+            // A failed message comes back after a second, not 30: the tests wait for retries.
+            web.UseSetting("Events:Broker:Backoff:0", "00:00:01")
+                .UseSetting("Events:Broker:WaitSeconds", "2")
+                // Every test's host shares the database, and many stop within seconds: a recovery pass cut
+                // short leaves its claims for two minutes. Hosts recover only what a test left for them.
+                .UseSetting("Outbox:Publishing:RecoverAfter", recoverAfter ?? "00:10:00");
+            if (brokerRoutes)
+            {
+                web.UseSetting("Events:Routes:Payments", "Broker")
+                    .UseSetting("Events:Producers:Payments:Pledges", "Broker")
+                    .UseSetting("Events:Producers:Payments:Campaigns", "Broker")
+                    .UseSetting("Events:Producers:Payments:Notifications", "Broker");
+            }
+        });
+    }
+
+    private WebApplicationFactory<Program> Configure(WebApplicationFactory<Program> factory, Action<IServiceCollection>? services) =>
+        factory.WithWebHostBuilder(web => web
             .ConfigureTestServices(s => services?.Invoke(s))
             .UseEnvironment("Testing")
             // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.

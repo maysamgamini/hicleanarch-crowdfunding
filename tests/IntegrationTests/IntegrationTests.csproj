@@ -12,4 +12,8 @@
     <ProjectReference Include="..\..\src\Services\Payments.Host\Payments.Host.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Include="..\Shared\MotoBroker.cs" Link="MotoBroker.cs" />
+  </ItemGroup>
+
 </Project>

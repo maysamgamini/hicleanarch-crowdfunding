@@ -66,11 +66,11 @@ public sealed class OutboxTests(Database database)
     private WebApplicationFactory<Program> Host() => database.StartHost(services => services
         .AddEventHandler<CampaignPublished, Counter>(CampaignsModuleName.Value)
         .AddEventHandler<Ping, Counter>(CampaignsModuleName.Value)
-            .AddEventSubscription<Ping>(CampaignsModuleName.Value)
+            .AddEventSubscription<Ping>(CampaignsModuleName.Value, CampaignsModuleName.Value)
         .AddEventHandler<RecoveredPing, Counter>(CampaignsModuleName.Value)
-            .AddEventSubscription<RecoveredPing>(CampaignsModuleName.Value)
+            .AddEventSubscription<RecoveredPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
         .AddEventHandler<FlakyPing, Flaky>(CampaignsModuleName.Value)
-            .AddEventSubscription<FlakyPing>(CampaignsModuleName.Value)
+            .AddEventSubscription<FlakyPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
         .Configure<OutboxOptions>(o => o.RetryDelays = [TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50)]));
 
     private static Task Eventually(Func<Task<bool>> condition) => Scenario.Eventually(condition);

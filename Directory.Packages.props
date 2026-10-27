@@ -8,6 +8,8 @@
   <ItemGroup>
     <PackageVersion Include="AWSSDK.CognitoIdentityProvider" Version="4.0.106.4" />
     <PackageVersion Include="AWSSDK.SimpleEmailV2" Version="4.0.106.5" />
+    <PackageVersion Include="AWSSDK.SimpleNotificationService" Version="4.0.100.21" />
+    <PackageVersion Include="AWSSDK.SQS" Version="4.0.100.20" />
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.0" />
     <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.13" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.13" />
@@ -34,7 +36,7 @@
   <Import Project="$(MSBuildThisFileDirectory)artifacts/packages/local-version.props"
           Condition="Exists('$(MSBuildThisFileDirectory)artifacts/packages/local-version.props')" />
   <PropertyGroup>
-    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">3.0.0</BuildingBlocksVersion>
+    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">4.0.0</BuildingBlocksVersion>
   </PropertyGroup>
   <ItemGroup Label="BuildingBlocks">
     <PackageVersion Include="CrowdFunding.BuildingBlocks.Application" Version="$(BuildingBlocksVersion)" />

@@ -44,7 +44,7 @@ locals {
       containerPort = 8080
       protocol      = "tcp"
     }]
-    environment = [
+    environment = concat([
       { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://localhost:4317" },
       { name = "OTEL_SERVICE_NAME", value = "crowdfunding-api" },
       { name = "Auth__Authority", value = local.cognito_issuer },
@@ -53,7 +53,7 @@ locals {
       { name = "Notifications__FromAddress", value = var.notifications_from },
       { name = "Notifications__UserPoolId", value = aws_cognito_user_pool.users.id },
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
-    ]
+    ], local.broker_environment)
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30
     secrets     = local.module_secrets

@@ -28,6 +28,12 @@ public sealed class OutboxMessage
     /// </summary>
     public string[]? Sinks { get; set; }
 
+    /// <summary>Until when a task's recovery pass holds the row for publishing; another task skips it.</summary>
+    public DateTimeOffset? PublishClaimedUntil { get; set; }
+
+    /// <summary>Until when a task's sweep holds the row for redelivery in process; another task skips it.</summary>
+    public DateTimeOffset? DeliveryClaimedUntil { get; set; }
+
     public int Attempts { get; set; }
 
     public string? LastError { get; set; }
@@ -55,6 +61,16 @@ public static class OutboxSink
 
 public static class OutboxModel
 {
+    /// <summary>
+    /// Rows that still owe an in-process delivery: the predicate of the partial index <c>outbox_undelivered</c>,
+    /// and word for word the condition of every query that should use it (PostgreSQL uses a partial index
+    /// only when the query's condition implies the index's).
+    /// </summary>
+    public const string Undelivered = "delivered_at IS NULL AND (sinks IS NULL OR cardinality(array_remove(sinks, 'broker')) > 0)";
+
+    /// <summary>Rows that still owe a publish: the predicate of the partial index <c>outbox_unpublished</c>, likewise.</summary>
+    public const string Unpublished = "published_at IS NULL AND 'broker' = ANY (sinks)";
+
     /// <summary>Maps the module's <c>outbox</c> and <c>inbox</c> tables; call it from the module's DbContext.</summary>
     public static ModelBuilder MapOutboxAndInbox(this ModelBuilder modelBuilder)
     {
@@ -66,9 +82,13 @@ public static class OutboxModel
             outbox.Property(m => m.Payload).HasColumnType("jsonb");
             outbox.Property(m => m.OccurredAt);
             outbox.Property(m => m.TraceParent).HasMaxLength(60);
-            outbox.HasIndex(m => m.OccurredAt)
-                .HasFilter("delivered_at IS NULL AND (sinks IS NULL OR cardinality(array_remove(sinks, 'broker')) > 0)")
+            // Two partial indexes on the same column: named, or EF would take them for one.
+            outbox.HasIndex(m => m.OccurredAt, "outbox_undelivered")
+                .HasFilter(Undelivered)
                 .HasDatabaseName("outbox_undelivered");
+            outbox.HasIndex(m => m.OccurredAt, "outbox_unpublished")
+                .HasFilter(Unpublished)
+                .HasDatabaseName("outbox_unpublished");
         });
         modelBuilder.Entity<InboxMessage>(inbox =>
         {

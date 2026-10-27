@@ -38,8 +38,8 @@ public static class CampaignsModule
             .Configure((DbContextOptionsBuilder<CampaignsDbContext>)db, connectionString)
             .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor<CampaignsDbContext>>()));
         services.AddModuleEvents<CampaignsDbContext>(CampaignsModuleName.Value);
-        services.AddPublishedEvent<CampaignPublished>();
-        services.AddPublishedEvent<CampaignCancelled>();
+        services.AddPublishedEvent<CampaignPublished>(CampaignsModuleName.Value);
+        services.AddPublishedEvent<CampaignCancelled>(CampaignsModuleName.Value);
         services.AddEventHandler<FundingCancelled, RecordFundingCancelled>(CampaignsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, FollowFundingDecision>(CampaignsModuleName.Value);
         services.AddEventHandler<Payments.Contracts.CampaignSettled, FollowSettlement>(CampaignsModuleName.Value);

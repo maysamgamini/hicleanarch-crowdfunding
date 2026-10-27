@@ -18,8 +18,8 @@ namespace BuildingBlocks.Infrastructure.Events;
 /// <summary>A handler of one module for one event type, as registered by that module.</summary>
 public sealed record EventHandlerRegistration(Type EventType, string Handler, string Module, Func<IServiceProvider, IntegrationEvent, CancellationToken, Task> Invoke);
 
-/// <summary>An event type some module of this program publishes.</summary>
-public sealed record PublishedEvent(Type EventType);
+/// <summary>An event type a module of this program publishes.</summary>
+public sealed record PublishedEvent(Type EventType, string Module);
 
 public sealed class OutboxOptions
 {
@@ -84,6 +84,9 @@ public sealed partial class OutboxDispatcher(
         .Concat(published.Select(p => p.EventType))
         .Distinct()
         .ToDictionary(t => t.Name);
+
+    // A sweep claims only rows a handler here can take: a row claimed by a program without its consumer would wait out the claim.
+    private readonly string[] _handledTypes = [.. handlers.Select(h => h.EventType.Name).Distinct()];
 
     private readonly CancellationTokenSource _taking = new();
 
@@ -206,7 +209,10 @@ public sealed partial class OutboxDispatcher(
             return;
         }
 
-        var inProcess = routes.InProcessHandlers(type).Where(h => owedTo is null || owedTo.Contains(h.Module)).ToList();
+        // The row's sinks decide, not today's routes: a row written in process stays owed in process after
+        // its consumer's route turns to Broker (it was never published), and a row from before routes is
+        // owed to every consumer here.
+        var inProcess = handlers.Where(h => h.EventType == type && (owedTo is null || owedTo.Contains(h.Module))).ToList();
         if (inProcess.Count == 0)
         {
             // Nothing here received it, so it is not delivered: the row waits for a program that has its consumers.
@@ -331,7 +337,7 @@ public sealed partial class OutboxDispatcher(
             try
             {
                 oldest = Math.Max(oldest, (await module.OldestUndeliveredAge(cancellationToken))?.TotalSeconds ?? 0);
-                foreach (var record in await module.Undelivered(occurredBefore, options.Value.SweepBatch, cancellationToken))
+                foreach (var record in await module.Undelivered(occurredBefore, _handledTypes, options.Value.SweepBatch, options.Value.RedeliverAfter, cancellationToken))
                 {
                     if (!_delivering.ContainsKey(record.EventId) && _queued.TryAdd(record.EventId, 0))
                     {

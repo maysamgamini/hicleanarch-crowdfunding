@@ -1,0 +1,29 @@
+{
+  "comment": "Generated from events/subscriptions.json by BrokerPlanTests (REGENERATE_BROKER_PLAN=1). Do not edit.",
+  "topics": [
+    "campaigns",
+    "payments",
+    "pledges"
+  ],
+  "queues": [
+    "monolith",
+    "payments"
+  ],
+  "subscriptions": [
+    {
+      "topic": "campaigns",
+      "queue": "payments",
+      "filter_policy": "{\"event_type\":[\"CampaignPublished\"]}"
+    },
+    {
+      "topic": "payments",
+      "queue": "monolith",
+      "filter_policy": "{\"event_type\":[\"CampaignSettled\",\"PaymentMethodSaved\",\"PledgeChargeFailed\",\"PledgeChargeSucceeded\"]}"
+    },
+    {
+      "topic": "pledges",
+      "queue": "payments",
+      "filter_policy": "{\"event_type\":[\"CampaignFundingDecided\",\"PledgeChargeRequested\"]}"
+    }
+  ]
+}

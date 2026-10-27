@@ -33,18 +33,18 @@ internal sealed class EfOutbox<TContext>(TContext db, PendingEvents<TContext> pe
         {
             // What the row owes is decided now, from this program's routes, and stored with it: a later
             // change of routes never makes an old row owe something new, or a new one owe nothing.
-            message.Sinks = [.. routes.SinksFor(message.Type)];
+            message.Sinks = [.. routes.SinksFor(message.Type, module)];
         }
 
         db.AddRange(messages);
         await db.SaveChangesAsync(cancellationToken); // one SaveChanges: EF Core sends the rows in batched commands
-        pending.Records.AddRange(messages.Where(m => m.Sinks!.Any(s => s != OutboxSink.Broker))
-            .Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload, m.TraceParent, m.Sinks)));
+        pending.Records.AddRange(messages.Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload, m.TraceParent, m.Sinks, m.Version, m.OccurredAt)));
     }
 }
 
 /// <summary>Right after the commit, the events of the transaction go to the bus; after a rollback, nowhere.</summary>
-public sealed class OutboxCommitInterceptor<TContext>(PendingEvents<TContext> pending, EventBus bus) : DbTransactionInterceptor
+public sealed class OutboxCommitInterceptor<TContext>(PendingEvents<TContext> pending, EventBus bus, PublishHandoff? publishing = null)
+    : DbTransactionInterceptor
     where TContext : DbContext
 {
     public override Task TransactionCommittedAsync(System.Data.Common.DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
@@ -67,7 +67,15 @@ public sealed class OutboxCommitInterceptor<TContext>(PendingEvents<TContext> pe
     {
         foreach (var record in pending.Records)
         {
-            bus.Publish(record);
+            if (record.Sinks is null || record.Sinks.Any(s => s != OutboxSink.Broker))
+            {
+                bus.Publish(record);
+            }
+
+            if (publishing is not null && record.Sinks?.Contains(OutboxSink.Broker) == true)
+            {
+                publishing.Offer(record); // a full queue never blocks the commit: the row waits for recovery
+            }
         }
 
         pending.Records.Clear();

@@ -52,7 +52,9 @@ public sealed class ReconciliationTests(Database database) : IDisposable
         await Send<CloseDueCampaigns, int>(host, new CloseDueCampaigns(campaign.CampaignId));
         await Scenario.Eventually(async () =>
             await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId) == 1
-            && await given.Scalar<long>("SELECT count(*) FROM payments.campaign_payees WHERE campaign_id = @id", campaign.CampaignId) == 1);
+            && await given.Scalar<long>("SELECT count(*) FROM payments.campaign_payees WHERE campaign_id = @id", campaign.CampaignId) == 1
+            // The charge requests come through the broker as messages of their own, not with the decision (s4-l02).
+            && await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId) == pledges);
         await Send<RunSettlement, bool>(host, new RunSettlement("reconciliation-test", campaign.CampaignId));
         return (given, campaign);
     }

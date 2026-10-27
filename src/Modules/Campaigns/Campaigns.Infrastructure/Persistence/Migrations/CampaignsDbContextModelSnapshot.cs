@@ -62,6 +62,10 @@ namespace Campaigns.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("delivered_at");
 
+                    b.Property<DateTimeOffset?>("DeliveryClaimedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivery_claimed_until");
+
                     b.Property<string>("LastError")
                         .HasColumnType("text")
                         .HasColumnName("last_error");
@@ -74,6 +78,10 @@ namespace Campaigns.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("payload");
+
+                    b.Property<DateTimeOffset?>("PublishClaimedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("publish_claimed_until");
 
                     b.Property<DateTimeOffset?>("PublishedAt")
                         .HasColumnType("timestamp with time zone")
@@ -101,9 +109,13 @@ namespace Campaigns.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_outbox");
 
-                    b.HasIndex("OccurredAt")
+                    b.HasIndex(new[] { "OccurredAt" }, "outbox_undelivered")
                         .HasDatabaseName("outbox_undelivered")
                         .HasFilter("delivered_at IS NULL AND (sinks IS NULL OR cardinality(array_remove(sinks, 'broker')) > 0)");
+
+                    b.HasIndex(new[] { "OccurredAt" }, "outbox_unpublished")
+                        .HasDatabaseName("outbox_unpublished")
+                        .HasFilter("published_at IS NULL AND 'broker' = ANY (sinks)");
 
                     b.ToTable("outbox", "campaigns");
                 });

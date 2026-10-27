@@ -48,6 +48,18 @@ locals {
       threshold   = 300
       description = "An event has waited more than 5 minutes to reach its handlers: a handler keeps failing, or the task died after the commit."
     }
+    unpublished_events = {
+      metric      = "outbox.oldest_unpublished_age"
+      meter       = "CrowdFunding.Outbox"
+      threshold   = 300
+      description = "An event has waited more than 5 minutes to be published to its topic: SNS refuses it, or no task is publishing (s4-l02)."
+    }
+    broker_subscriptions = {
+      metric      = "broker.subscription_problems"
+      meter       = "CrowdFunding.Messaging"
+      threshold   = 0
+      description = "A Broker route has no subscription, or its filter leaves out an event type: SNS drops what it publishes there. See the task's error log; apply Terraform, then replay-events for the gap."
+    }
   }
 }
 

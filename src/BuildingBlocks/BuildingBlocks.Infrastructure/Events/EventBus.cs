@@ -11,7 +11,7 @@ namespace BuildingBlocks.Infrastructure.Events;
 /// of the trace that wrote it, so the handlers' work continues that trace, across modules.
 /// </summary>
 public sealed record OutboxRecord(string Module, Guid EventId, string Type, string Payload, string? TraceParent = null,
-    IReadOnlyList<string>? Sinks = null);
+    IReadOnlyList<string>? Sinks = null, int Version = 1, DateTimeOffset OccurredAt = default);
 
 /// <summary>The in-process transport: committed events wait here for the dispatcher.</summary>
 public sealed class EventBus

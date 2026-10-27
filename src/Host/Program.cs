@@ -10,6 +10,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Campaigns.Infrastructure;
 
 using CrowdFunding.Host;
+using CrowdFunding.Messaging;
 
 using Notifications;
 
@@ -61,6 +62,12 @@ builder.Services.AddPledgesModule(builder.Configuration);
 builder.Services.AddPaymentsModule(builder.Configuration);
 builder.Services.AddNotificationsModule(builder.Configuration);
 
+// With an Events:Broker section, the events whose consumers are routed to the broker go through SNS and SQS.
+if (builder.Configuration.GetSection("Events:Broker").Exists())
+{
+    builder.Services.AddBrokerEvents(builder.Configuration);
+}
+
 var app = builder.Build();
 
 // `dotnet run -- migrate` prepares the database and exits. It is a deploy step, never part of start-up.
@@ -69,6 +76,13 @@ if (args.Contains("migrate"))
     var owner = app.Configuration.GetConnectionString("Owner")
         ?? throw new InvalidOperationException("ConnectionStrings:Owner is not set.");
     await app.Services.GetRequiredService<DatabaseMigrator>().Run(owner, CancellationToken.None);
+    return;
+}
+
+// `dotnet run -- replay-events --module Pledges --from … --to …` publishes a range of published events again, and exits.
+if (args.FirstOrDefault() == "replay-events")
+{
+    Environment.ExitCode = await EventReplay.Run(app.Services, [.. args.Skip(1)], Console.Out, CancellationToken.None);
     return;
 }
 

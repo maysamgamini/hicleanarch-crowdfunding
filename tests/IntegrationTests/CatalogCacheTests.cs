@@ -86,7 +86,10 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         }
 
         await Scenario.Eventually(async () => await Status(funded) == "FUNDED");
-        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id", funded.CampaignId) == 1);
+        // The charge request comes through the broker as a message of its own, not with the decision (s4-l02).
+        await Scenario.Eventually(async () =>
+            await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id", funded.CampaignId) == 1
+            && await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id", funded.CampaignId) == 1);
         await using (var scope = host.Services.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<RunSettlement, bool>(new RunSettlement("cache-test", funded.CampaignId), Ct);

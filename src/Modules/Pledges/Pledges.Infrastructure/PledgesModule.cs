@@ -64,13 +64,13 @@ public static class PledgesModule
         services.AddHostedService<PledgesMonitor>();
         services.AddHostedService<TotalsCheck>();
         AddDisplayTotals(services, configuration);
-        services.AddPublishedEvent<PledgeActivated>();
-        services.AddPublishedEvent<PledgeChanged>();
-        services.AddPublishedEvent<PledgeCancelled>();
-        services.AddPublishedEvent<FundingCancelled>();
-        services.AddPublishedEvent<PledgeReleased>();
-        services.AddPublishedEvent<CampaignFundingDecided>();
-        services.AddPublishedEvent<PledgeChargeRequested>();
+        services.AddPublishedEvent<PledgeActivated>(PledgesModuleName.Value);
+        services.AddPublishedEvent<PledgeChanged>(PledgesModuleName.Value);
+        services.AddPublishedEvent<PledgeCancelled>(PledgesModuleName.Value);
+        services.AddPublishedEvent<FundingCancelled>(PledgesModuleName.Value);
+        services.AddPublishedEvent<PledgeReleased>(PledgesModuleName.Value);
+        services.AddPublishedEvent<CampaignFundingDecided>(PledgesModuleName.Value);
+        services.AddPublishedEvent<PledgeChargeRequested>(PledgesModuleName.Value);
         services.AddKeyedScoped<ITransactionScope>(PledgesModuleName.Value, (sp, _) => new ModuleTransaction<PledgesDbContext>(sp.GetRequiredService<PledgesDbContext>()));
         services.AddSingleton<IModuleMigrator, PledgesMigrator>();
         // The request path's role: every transaction that can add a ledger entry after reading LIVE is

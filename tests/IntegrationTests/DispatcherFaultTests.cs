@@ -48,9 +48,20 @@ public sealed class DispatcherFaultTests(Database database)
     {
         public string Module => inner.Module;
 
-        public Task<IReadOnlyList<OutboxRecord>> Undelivered(DateTimeOffset? occurredBefore, int limit, CancellationToken ct) => inner.Undelivered(occurredBefore, limit, ct);
+        public Task<IReadOnlyList<OutboxRecord>> Undelivered(DateTimeOffset? occurredBefore, IReadOnlyCollection<string> types, int limit, TimeSpan claim, CancellationToken ct) =>
+            inner.Undelivered(occurredBefore, types, limit, claim, ct);
 
         public Task<TimeSpan?> OldestUndeliveredAge(CancellationToken ct) => inner.OldestUndeliveredAge(ct);
+
+        public Task<IReadOnlyList<OutboxRecord>> ClaimUnpublished(TimeSpan olderThan, int limit, TimeSpan claim, CancellationToken ct) =>
+            inner.ClaimUnpublished(olderThan, limit, claim, ct);
+
+        public Task MarkPublished(IReadOnlyCollection<Guid> eventIds, CancellationToken ct) => inner.MarkPublished(eventIds, ct);
+
+        public Task<TimeSpan?> OldestUnpublishedAge(CancellationToken ct) => inner.OldestUnpublishedAge(ct);
+
+        public Task<IReadOnlyList<OutboxRecord>> Published(string? eventType, DateTimeOffset from, DateTimeOffset to, OutboxRecord? after, int limit, CancellationToken ct) =>
+            inner.Published(eventType, from, to, after, limit, ct);
 
         public Task MarkDelivered(Guid eventId, CancellationToken ct) => inner.MarkDelivered(eventId, ct);
 
@@ -70,9 +81,9 @@ public sealed class DispatcherFaultTests(Database database)
 
         services
             .AddEventHandler<DoomedPing, AlwaysFails>(CampaignsModuleName.Value)
-            .AddEventSubscription<DoomedPing>(CampaignsModuleName.Value)
+            .AddEventSubscription<DoomedPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
             .AddEventHandler<LaterPing, Succeeds>(CampaignsModuleName.Value)
-            .AddEventSubscription<LaterPing>(CampaignsModuleName.Value)
+            .AddEventSubscription<LaterPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
             .Configure<OutboxOptions>(o => o.RetryDelays = [TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20)]);
     });
 

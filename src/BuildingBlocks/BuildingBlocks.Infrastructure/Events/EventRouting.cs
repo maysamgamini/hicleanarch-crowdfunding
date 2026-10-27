@@ -11,57 +11,51 @@ public enum EventRoute
     /// <summary>The module runs in this program: its handlers get the event from the in-process dispatcher.</summary>
     InProcess,
 
-    /// <summary>The event is published to the broker (SNS and SQS), and the module's host reads it from its queue.</summary>
+    /// <summary>The event is published to its producer's topic, and the module's host reads it from its queue.</summary>
     Broker,
 }
 
 public sealed class EventRoutingOptions
 {
-    /// <summary>The file that names every event's consuming modules, relative to the program's folder.</summary>
+    /// <summary>The file that names every event's producer and consumers, relative to the program's folder.</summary>
     public string SubscriptionsFile { get; set; } = Path.Combine("events", "subscriptions.json");
 
     /// <summary>
-    /// A route per consuming module. A module that runs in this program is <see cref="EventRoute.InProcess"/>
-    /// unless set here; a module that does not run here has no route unless set here.
+    /// A route per consuming module, for every producer. A module that runs in this program is
+    /// <see cref="EventRoute.InProcess"/> unless set here; a module that does not run here has no route unless set here.
     /// </summary>
     public Dictionary<string, EventRoute> Routes { get; set; } = [];
+
+    /// <summary>
+    /// Routes for the events of one producing module, by consumer: they win over <see cref="Routes"/>.
+    /// <c>Events:Producers:Payments:Pledges = Broker</c> sends Payments' events to Pledges through the broker.
+    /// </summary>
+    public Dictionary<string, Dictionary<string, EventRoute>> Producers { get; set; } = [];
 }
 
-/// <summary>Publishes outbox rows to the broker. Registered from s4-l02; a Broker route needs one.</summary>
+/// <summary>
+/// Publishes outbox rows to the broker, and returns the ids of the rows the broker accepted. A row it
+/// did not accept stays unpublished, for the recovery pass.
+/// </summary>
 public interface IEventPublisher
 {
-    Task Publish(IReadOnlyList<OutboxRecord> records, CancellationToken cancellationToken);
+    Task<IReadOnlyCollection<Guid>> Publish(IReadOnlyList<OutboxRecord> records, CancellationToken cancellationToken);
 }
 
 /// <summary>One consumer of one event type, added by a program itself (tests only).</summary>
-public sealed record EventSubscription(string EventType, string Module);
+public sealed record EventSubscription(string EventType, string Module, string Producer);
 
-/// <summary>Every event type and the modules that consume it: the one list every host and Terraform read.</summary>
-public sealed class EventSubscriptions(IReadOnlyDictionary<string, IReadOnlyList<string>> consumers)
+/// <summary>An event type, the module that produces it and the modules that consume it.</summary>
+public sealed record EventDescription(string Producer, IReadOnlyList<string> Consumers);
+
+/// <summary>Every event type, its producer and its consumers: the one list every host and Terraform read.</summary>
+public sealed class EventSubscriptions(IReadOnlyDictionary<string, EventDescription> events)
 {
-    public IReadOnlyDictionary<string, IReadOnlyList<string>> Consumers => consumers;
+    public IReadOnlyDictionary<string, EventDescription> Events => events;
 
-    public IReadOnlyList<string> ConsumersOf(string eventType) => consumers.TryGetValue(eventType, out var c) ? c : [];
+    public IReadOnlyList<string> ConsumersOf(string eventType) => events.TryGetValue(eventType, out var e) ? e.Consumers : [];
 
-    /// <summary>This list with <paramref name="extra"/> consumers added.</summary>
-    public EventSubscriptions With(IEnumerable<EventSubscription> extra)
-    {
-        var merged = consumers.ToDictionary(c => c.Key, c => c.Value.ToList());
-        foreach (var s in extra)
-        {
-            if (!merged.TryGetValue(s.EventType, out var list))
-            {
-                merged[s.EventType] = list = [];
-            }
-
-            if (!list.Contains(s.Module))
-            {
-                list.Add(s.Module);
-            }
-        }
-
-        return new EventSubscriptions(merged.ToDictionary(m => m.Key, m => (IReadOnlyList<string>)m.Value));
-    }
+    public string? ProducerOf(string eventType) => events.TryGetValue(eventType, out var e) ? e.Producer : null;
 
     public static EventSubscriptions Load(string path)
     {
@@ -71,10 +65,33 @@ public sealed class EventSubscriptions(IReadOnlyDictionary<string, IReadOnlyList
         }
 
         using var file = File.OpenRead(path);
-        var document = JsonDocument.Parse(file);
-        var consumers = document.RootElement.GetProperty("consumers").EnumerateObject()
-            .ToDictionary(e => e.Name, e => (IReadOnlyList<string>)[.. e.Value.EnumerateArray().Select(m => m.GetString()!)]);
-        return new EventSubscriptions(consumers);
+        using var document = JsonDocument.Parse(file);
+        var events = document.RootElement.GetProperty("events").EnumerateObject().ToDictionary(
+            e => e.Name,
+            e => new EventDescription(
+                e.Value.GetProperty("producer").GetString()!,
+                [.. e.Value.GetProperty("consumers").EnumerateArray().Select(m => m.GetString()!)]));
+        return new EventSubscriptions(events);
+    }
+
+    /// <summary>This list with <paramref name="extra"/> consumers added.</summary>
+    public EventSubscriptions With(IEnumerable<EventSubscription> extra)
+    {
+        var merged = events.ToDictionary(e => e.Key, e => (e.Value.Producer, Consumers: e.Value.Consumers.ToList()));
+        foreach (var s in extra)
+        {
+            if (!merged.TryGetValue(s.EventType, out var entry))
+            {
+                merged[s.EventType] = entry = (s.Producer, []);
+            }
+
+            if (!entry.Consumers.Contains(s.Module))
+            {
+                entry.Consumers.Add(s.Module);
+            }
+        }
+
+        return new EventSubscriptions(merged.ToDictionary(m => m.Key, m => new EventDescription(m.Value.Producer, m.Value.Consumers)));
     }
 }
 
@@ -89,7 +106,7 @@ public sealed class EventRoutes
     private readonly IReadOnlyList<EventHandlerRegistration> _handlers;
     private readonly IReadOnlyList<PublishedEvent> _published;
     private readonly bool _hasBroker;
-    private readonly Dictionary<string, EventRoute> _configured;
+    private readonly EventRoutingOptions _options;
 
     public EventRoutes(
         EventSubscriptions subscriptions,
@@ -104,22 +121,27 @@ public sealed class EventRoutes
         _handlers = [.. handlers];
         _published = [.. published];
         _hasBroker = publishers.Any();
-        _configured = options.Value.Routes;
+        _options = options.Value;
     }
 
-    /// <summary>The consuming module's route, or null when this program cannot reach it.</summary>
-    public EventRoute? RouteOf(string module) =>
-        _configured.TryGetValue(module, out var route) ? route : _local.Contains(module) ? EventRoute.InProcess : null;
+    public EventSubscriptions Subscriptions => _subscriptions;
+
+    /// <summary>How the events of <paramref name="producer"/> reach <paramref name="consumer"/>, or null when this program cannot reach it.</summary>
+    public EventRoute? RouteOf(string consumer, string producer) =>
+        _options.Producers.TryGetValue(producer, out var byConsumer) && byConsumer.TryGetValue(consumer, out var forProducer) ? forProducer
+        : _options.Routes.TryGetValue(consumer, out var route) ? route
+        : _local.Contains(consumer) ? EventRoute.InProcess
+        : null;
 
     /// <summary>
-    /// What a new row of <paramref name="eventType"/> owes: each consumer routed in process, and
-    /// <see cref="OutboxSink.Broker"/> once if any consumer is routed to the broker.
+    /// What a new row of <paramref name="eventType"/> written by <paramref name="producer"/> owes: each consumer
+    /// routed in process, and <see cref="OutboxSink.Broker"/> once if any consumer is routed to the broker.
     /// </summary>
-    public IReadOnlyList<string> SinksFor(string eventType)
+    public IReadOnlyList<string> SinksFor(string eventType, string producer)
     {
         var consumers = _subscriptions.ConsumersOf(eventType);
-        var sinks = consumers.Where(c => RouteOf(c) == EventRoute.InProcess).ToList();
-        if (consumers.Any(c => RouteOf(c) == EventRoute.Broker))
+        var sinks = consumers.Where(c => RouteOf(c, producer) == EventRoute.InProcess).ToList();
+        if (consumers.Any(c => RouteOf(c, producer) == EventRoute.Broker))
         {
             sinks.Add(OutboxSink.Broker);
         }
@@ -127,12 +149,16 @@ public sealed class EventRoutes
         return sinks;
     }
 
-    /// <summary>The modules that run in this program.</summary>
+    /// <summary>Whether <paramref name="module"/> runs in this program.</summary>
     public bool RunsHere(string module) => _local.Contains(module);
 
-    /// <summary>Handlers in this program that get <paramref name="eventType"/> in process.</summary>
-    public IEnumerable<EventHandlerRegistration> InProcessHandlers(Type eventType) =>
-        _handlers.Where(h => h.EventType == eventType && RouteOf(h.Module) == EventRoute.InProcess);
+    /// <summary>Handlers in this program for <paramref name="eventType"/> whose module gets it from <paramref name="producer"/> by <paramref name="route"/>.</summary>
+    public IEnumerable<EventHandlerRegistration> HandlersFor(Type eventType, string producer, EventRoute route) =>
+        _handlers.Where(h => h.EventType == eventType && RouteOf(h.Module, producer) == route);
+
+    /// <summary>Every event type a handler in this program takes, by name.</summary>
+    public IReadOnlyDictionary<string, Type> HandledTypes() =>
+        _handlers.Select(h => h.EventType).Distinct().ToDictionary(t => t.Name);
 
     /// <summary>Everything that would lose or misroute an event; the program must not start while any is listed.</summary>
     public IReadOnlyList<string> Problems()
@@ -143,11 +169,17 @@ public sealed class EventRoutes
             problems.Add($"{handler.Handler} handles {handler.EventType.Name}, but events/subscriptions.json does not list {handler.Module} as its consumer.");
         }
 
-        foreach (var eventType in _published.Select(p => p.EventType.Name).Distinct())
+        foreach (var published in _published.DistinctBy(p => p.EventType))
         {
+            var eventType = published.EventType.Name;
+            if (_subscriptions.ProducerOf(eventType) is { } listed && listed != published.Module)
+            {
+                problems.Add($"{published.Module} publishes {eventType}, but events/subscriptions.json names {listed} as its producer.");
+            }
+
             foreach (var consumer in _subscriptions.ConsumersOf(eventType))
             {
-                switch (RouteOf(consumer))
+                switch (RouteOf(consumer, published.Module))
                 {
                     case null:
                         problems.Add($"{consumer} consumes {eventType}, which this program publishes, but {consumer} does not run here and has no route.");

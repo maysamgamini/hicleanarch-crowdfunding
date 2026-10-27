@@ -1,18 +1,104 @@
 {
-  "comment": "Every event type and the modules that consume it. Every host loads this file and routes each consumer InProcess (the module runs in this host) or Broker (SNS and SQS, from s4-l02). A host with a consumer it cannot route refuses to start. Terraform builds the subscriptions from it (s4-l02).",
-  "consumers": {
-    "CampaignPublished": ["Campaigns", "Pledges", "Payments", "Notifications"],
-    "CampaignCancelled": ["Campaigns", "Notifications"],
-    "FundingCancelled": ["Campaigns"],
-    "CampaignFundingDecided": ["Campaigns", "Payments", "Notifications"],
-    "PledgeActivated": ["Pledges", "Notifications"],
-    "PledgeChanged": ["Pledges"],
-    "PledgeCancelled": ["Pledges", "Notifications"],
-    "PledgeReleased": ["Notifications"],
-    "PledgeChargeRequested": ["Payments"],
-    "PaymentMethodSaved": ["Pledges"],
-    "PledgeChargeSucceeded": ["Pledges", "Notifications"],
-    "PledgeChargeFailed": ["Pledges", "Notifications"],
-    "CampaignSettled": ["Campaigns", "Notifications"]
+  "comment": "Every event type, the module that produces it and the modules that consume it. Every host loads this file and routes each consumer InProcess (the module runs in this host) or Broker (the producer's SNS topic and the consumer's SQS queue); a host with a consumer it cannot route refuses to start. Each service has one SQS queue, read by the modules it runs; Terraform builds the topics, queues and subscriptions from the file events/broker-subscriptions.json, which is generated from this one (BrokerPlanTests).",
+  "services": {
+    "payments": [
+      "Payments"
+    ],
+    "monolith": [
+      "Campaigns",
+      "Pledges",
+      "Notifications"
+    ]
+  },
+  "events": {
+    "CampaignPublished": {
+      "producer": "Campaigns",
+      "consumers": [
+        "Campaigns",
+        "Pledges",
+        "Payments",
+        "Notifications"
+      ]
+    },
+    "CampaignCancelled": {
+      "producer": "Campaigns",
+      "consumers": [
+        "Campaigns",
+        "Notifications"
+      ]
+    },
+    "FundingCancelled": {
+      "producer": "Pledges",
+      "consumers": [
+        "Campaigns"
+      ]
+    },
+    "CampaignFundingDecided": {
+      "producer": "Pledges",
+      "consumers": [
+        "Campaigns",
+        "Payments",
+        "Notifications"
+      ]
+    },
+    "PledgeActivated": {
+      "producer": "Pledges",
+      "consumers": [
+        "Pledges",
+        "Notifications"
+      ]
+    },
+    "PledgeChanged": {
+      "producer": "Pledges",
+      "consumers": [
+        "Pledges"
+      ]
+    },
+    "PledgeCancelled": {
+      "producer": "Pledges",
+      "consumers": [
+        "Pledges",
+        "Notifications"
+      ]
+    },
+    "PledgeReleased": {
+      "producer": "Pledges",
+      "consumers": [
+        "Notifications"
+      ]
+    },
+    "PledgeChargeRequested": {
+      "producer": "Pledges",
+      "consumers": [
+        "Payments"
+      ]
+    },
+    "PaymentMethodSaved": {
+      "producer": "Payments",
+      "consumers": [
+        "Pledges"
+      ]
+    },
+    "PledgeChargeSucceeded": {
+      "producer": "Payments",
+      "consumers": [
+        "Pledges",
+        "Notifications"
+      ]
+    },
+    "PledgeChargeFailed": {
+      "producer": "Payments",
+      "consumers": [
+        "Pledges",
+        "Notifications"
+      ]
+    },
+    "CampaignSettled": {
+      "producer": "Payments",
+      "consumers": [
+        "Campaigns",
+        "Notifications"
+      ]
+    }
   }
 }

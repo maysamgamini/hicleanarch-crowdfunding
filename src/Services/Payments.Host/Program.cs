@@ -6,6 +6,8 @@ using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Persistence;
 
+using CrowdFunding.Messaging;
+
 using Npgsql;
 
 using OpenTelemetry;
@@ -60,6 +62,12 @@ public static class PaymentsProgram
         }
 
         builder.Services.AddPaymentsModule(builder.Configuration);
+
+        // With an Events:Broker section, the events whose consumers are routed to the broker go through SNS and SQS.
+        if (builder.Configuration.GetSection("Events:Broker").Exists())
+        {
+            builder.Services.AddBrokerEvents(builder.Configuration);
+        }
 
         var app = builder.Build();
 

@@ -128,11 +128,21 @@ public sealed class OutboxSweepTests(Database database)
     {
         public string Module => inner.Module;
 
-        public Task<IReadOnlyList<OutboxRecord>> Undelivered(DateTimeOffset? occurredBefore, int limit, CancellationToken ct) =>
-            outage.Down ? throw new NpgsqlException("Failed to connect to 127.0.0.1:5432") : inner.Undelivered(occurredBefore, limit, ct);
+        public Task<IReadOnlyList<OutboxRecord>> Undelivered(DateTimeOffset? occurredBefore, IReadOnlyCollection<string> types, int limit, TimeSpan claim, CancellationToken ct) =>
+            outage.Down ? throw new NpgsqlException("Failed to connect to 127.0.0.1:5432") : inner.Undelivered(occurredBefore, types, limit, claim, ct);
 
         public Task<TimeSpan?> OldestUndeliveredAge(CancellationToken ct) =>
             outage.Down ? throw new NpgsqlException("Failed to connect to 127.0.0.1:5432") : inner.OldestUndeliveredAge(ct);
+
+        public Task<IReadOnlyList<OutboxRecord>> ClaimUnpublished(TimeSpan olderThan, int limit, TimeSpan claim, CancellationToken ct) =>
+            inner.ClaimUnpublished(olderThan, limit, claim, ct);
+
+        public Task MarkPublished(IReadOnlyCollection<Guid> eventIds, CancellationToken ct) => inner.MarkPublished(eventIds, ct);
+
+        public Task<TimeSpan?> OldestUnpublishedAge(CancellationToken ct) => inner.OldestUnpublishedAge(ct);
+
+        public Task<IReadOnlyList<OutboxRecord>> Published(string? eventType, DateTimeOffset from, DateTimeOffset to, OutboxRecord? after, int limit, CancellationToken ct) =>
+            inner.Published(eventType, from, to, after, limit, ct);
 
         public Task MarkDelivered(Guid eventId, CancellationToken ct) => inner.MarkDelivered(eventId, ct);
 
@@ -151,13 +161,13 @@ public sealed class OutboxSweepTests(Database database)
     {
         services
             .AddEventHandler<StartPing, Counts>(CampaignsModuleName.Value)
-            .AddEventSubscription<StartPing>(CampaignsModuleName.Value)
+            .AddEventSubscription<StartPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
             .AddEventHandler<StubbornPing, Stubborn>(CampaignsModuleName.Value)
-            .AddEventSubscription<StubbornPing>(CampaignsModuleName.Value)
+            .AddEventSubscription<StubbornPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
             .AddEventHandler<BatchPing, Concurrency>(CampaignsModuleName.Value)
-            .AddEventSubscription<BatchPing>(CampaignsModuleName.Value)
+            .AddEventSubscription<BatchPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
             .AddEventHandler<SlowPing, Slow>(CampaignsModuleName.Value)
-            .AddEventSubscription<SlowPing>(CampaignsModuleName.Value)
+            .AddEventSubscription<SlowPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
             .Configure<OutboxOptions>(o =>
             {
                 o.RetryDelays = [TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20)];
@@ -272,9 +282,9 @@ public sealed class OutboxSweepTests(Database database)
         // Only this host knows the backlog's type, so no other test's host works through it.
         await using var host = Host(_ => { }, services => services
             .AddEventHandler<BacklogPing, Backlog>(CampaignsModuleName.Value)
-            .AddEventSubscription<BacklogPing>(CampaignsModuleName.Value)
+            .AddEventSubscription<BacklogPing>(CampaignsModuleName.Value, CampaignsModuleName.Value)
             .AddEventHandler<FreshPing, Fresh>(CampaignsModuleName.Value)
-            .AddEventSubscription<FreshPing>(CampaignsModuleName.Value));
+            .AddEventSubscription<FreshPing>(CampaignsModuleName.Value, CampaignsModuleName.Value));
         _ = host.Services; // start it: its first sweep finds the backlog
         await Scenario.Eventually(() => Task.FromResult(backlog.Any(p => Handled.ContainsKey(p.EventId)))); // the start-up sweep has begun
         var fresh = new FreshPing(Guid.NewGuid(), DateTimeOffset.UtcNow);

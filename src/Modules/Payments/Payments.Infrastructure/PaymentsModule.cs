@@ -45,10 +45,10 @@ public static class PaymentsModule
             .Configure((DbContextOptionsBuilder<PaymentsDbContext>)db, connectionString)
             .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor<PaymentsDbContext>>()));
         services.AddModuleEvents<PaymentsDbContext>(PaymentsModuleName.Value);
-        services.AddPublishedEvent<PaymentMethodSaved>();
-        services.AddPublishedEvent<PledgeChargeSucceeded>();
-        services.AddPublishedEvent<PledgeChargeFailed>();
-        services.AddPublishedEvent<CampaignSettled>();
+        services.AddPublishedEvent<PaymentMethodSaved>(PaymentsModuleName.Value);
+        services.AddPublishedEvent<PledgeChargeSucceeded>(PaymentsModuleName.Value);
+        services.AddPublishedEvent<PledgeChargeFailed>(PaymentsModuleName.Value);
+        services.AddPublishedEvent<CampaignSettled>(PaymentsModuleName.Value);
         services.AddEventHandler<PledgeChargeRequested, CreateCharge>(PaymentsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, CreateSettlementJob>(PaymentsModuleName.Value);
         services.AddSharedValkey(configuration);

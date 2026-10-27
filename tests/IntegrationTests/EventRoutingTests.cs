@@ -70,8 +70,18 @@ public sealed class EventRoutingTests(Database database)
     {
         var routes = Routes(new() { ["Remote"] = EventRoute.Broker }, published: [typeof(Spoken)]);
 
-        Assert.Equal(["Local", OutboxSink.Broker], routes.SinksFor(nameof(Spoken)));
-        Assert.Empty(routes.SinksFor("NobodyListens"));
+        Assert.Equal(["Local", OutboxSink.Broker], routes.SinksFor(nameof(Spoken), "Local"));
+        Assert.Empty(routes.SinksFor("NobodyListens", "Local"));
+    }
+
+    [Fact]
+    public void A_route_for_one_producer_wins_over_the_consumers_route()
+    {
+        var routes = Routes([], published: [typeof(Spoken)], producers: new() { ["Local"] = new() { ["Local"] = EventRoute.Broker } },
+            configuredRemote: EventRoute.InProcess);
+
+        Assert.Equal(EventRoute.Broker, routes.RouteOf("Local", "Local"));
+        Assert.Equal(EventRoute.InProcess, routes.RouteOf("Local", "SomeoneElse"));
     }
 
     [Fact]
@@ -80,7 +90,7 @@ public sealed class EventRoutingTests(Database database)
         // Spoken is published here; its only local consumer has no handler for it, and Remote is elsewhere.
         var module = new RecordingModule("Local");
         var routes = Routes(new() { ["Remote"] = EventRoute.Broker }, published: [typeof(Spoken)], modules: [module]);
-        using var dispatcher = new OutboxDispatcher(new EventBus(), [module], [], [new PublishedEvent(typeof(Spoken))], routes,
+        using var dispatcher = new OutboxDispatcher(new EventBus(), [module], [], [new PublishedEvent(typeof(Spoken), "Local")], routes,
             Options.Create(new OutboxOptions()), NullLogger<OutboxDispatcher>.Instance);
 
         await dispatcher.Deliver(new OutboxRecord("Local", Guid.NewGuid(), nameof(Spoken), "{}"), TestContext.Current.CancellationToken);
@@ -94,7 +104,7 @@ public sealed class EventRoutingTests(Database database)
         var module = new RecordingModule("Local");
         var routes = Routes([], published: [typeof(Spoken)], modules: [module],
             handlers: [new EventHandlerRegistration(typeof(Spoken), "Local.Handler", "Local", (_, _, _) => Task.CompletedTask)]);
-        using var dispatcher = new OutboxDispatcher(new EventBus(), [module], [], [new PublishedEvent(typeof(Spoken))], routes,
+        using var dispatcher = new OutboxDispatcher(new EventBus(), [module], [], [new PublishedEvent(typeof(Spoken), "Local")], routes,
             Options.Create(new OutboxOptions()), NullLogger<OutboxDispatcher>.Instance);
 
         await dispatcher.Deliver(new OutboxRecord("Local", Guid.NewGuid(), nameof(Spoken), "{}", Sinks: ["Local", "Remote"]),
@@ -104,14 +114,38 @@ public sealed class EventRoutingTests(Database database)
         Assert.Equal(0, module.Handled);
     }
 
+    [Fact]
+    public async Task A_row_follows_the_sinks_it_was_written_with_not_todays_routes()
+    {
+        // Written while Local took Spoken in process; Local has been routed to the broker since.
+        var module = new RecordingModule("Local");
+        var handler = new EventHandlerRegistration(typeof(Spoken), "Local.Handler", "Local", (_, _, _) => Task.CompletedTask);
+        var routes = Routes(new() { ["Local"] = EventRoute.Broker }, published: [typeof(Spoken)], modules: [module], handlers: [handler]);
+        using var dispatcher = new OutboxDispatcher(new EventBus(), [module], [handler], [new PublishedEvent(typeof(Spoken), "Local")], routes,
+            Options.Create(new OutboxOptions()), NullLogger<OutboxDispatcher>.Instance);
+
+        await dispatcher.Deliver(new OutboxRecord("Local", Guid.NewGuid(), nameof(Spoken), "{}", Sinks: ["Local"]), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, module.Handled);
+        Assert.Equal(1, module.MarkedDelivered);
+    }
+
     private static EventRoutes Routes(Dictionary<string, EventRoute> configured, Type[] published,
-        EventHandlerRegistration[]? handlers = null, IModuleEvents[]? modules = null) =>
-        new(new EventSubscriptions(new Dictionary<string, IReadOnlyList<string>> { [nameof(Spoken)] = ["Local", "Remote"] }),
+        EventHandlerRegistration[]? handlers = null, IModuleEvents[]? modules = null,
+        Dictionary<string, Dictionary<string, EventRoute>>? producers = null, EventRoute? configuredRemote = null)
+    {
+        if (configuredRemote is { } remote)
+        {
+            configured["Remote"] = remote;
+        }
+
+        return new(new EventSubscriptions(new Dictionary<string, EventDescription> { [nameof(Spoken)] = new("Local", ["Local", "Remote"]) }),
             modules ?? [new RecordingModule("Local")],
             handlers ?? [],
-            published.Select(t => new PublishedEvent(t)),
+            published.Select(t => new PublishedEvent(t, "Local")),
             [],
-            Options.Create(new EventRoutingOptions { Routes = configured }));
+            Options.Create(new EventRoutingOptions { Routes = configured, Producers = producers ?? [] }));
+    }
 
     private static EventHandlerRegistration Registration<TEvent>(string module) =>
         new(typeof(TEvent), $"{module}.Handler", module, (_, _, _) => Task.CompletedTask);
@@ -126,10 +160,20 @@ public sealed class EventRoutingTests(Database database)
 
         public string Module => module;
 
-        public Task<IReadOnlyList<OutboxRecord>> Undelivered(DateTimeOffset? occurredBefore, int limit, CancellationToken cancellationToken) =>
+        public Task<IReadOnlyList<OutboxRecord>> Undelivered(DateTimeOffset? occurredBefore, IReadOnlyCollection<string> types, int limit, TimeSpan claim, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<OutboxRecord>>([]);
 
         public Task<TimeSpan?> OldestUndeliveredAge(CancellationToken cancellationToken) => Task.FromResult<TimeSpan?>(null);
+
+        public Task<IReadOnlyList<OutboxRecord>> ClaimUnpublished(TimeSpan olderThan, int limit, TimeSpan claim, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<OutboxRecord>>([]);
+
+        public Task MarkPublished(IReadOnlyCollection<Guid> eventIds, CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task<TimeSpan?> OldestUnpublishedAge(CancellationToken cancellationToken) => Task.FromResult<TimeSpan?>(null);
+
+        public Task<IReadOnlyList<OutboxRecord>> Published(string? eventType, DateTimeOffset from, DateTimeOffset to, OutboxRecord? after, int limit, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<OutboxRecord>>([]);
 
         public Task MarkDelivered(Guid eventId, CancellationToken cancellationToken)
         {
