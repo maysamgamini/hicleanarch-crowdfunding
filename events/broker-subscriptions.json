@@ -7,9 +7,15 @@
   ],
   "queues": [
     "monolith",
+    "notifications",
     "payments"
   ],
   "subscriptions": [
+    {
+      "topic": "campaigns",
+      "queue": "notifications",
+      "filter_policy": "{\"event_type\":[\"CampaignCancelled\",\"CampaignPublished\"]}"
+    },
     {
       "topic": "campaigns",
       "queue": "payments",
@@ -19,6 +25,16 @@
       "topic": "payments",
       "queue": "monolith",
       "filter_policy": "{\"event_type\":[\"CampaignSettled\",\"PaymentMethodSaved\",\"PledgeChargeFailed\",\"PledgeChargeSucceeded\"]}"
+    },
+    {
+      "topic": "payments",
+      "queue": "notifications",
+      "filter_policy": "{\"event_type\":[\"CampaignSettled\",\"PledgeChargeFailed\",\"PledgeChargeSucceeded\"]}"
+    },
+    {
+      "topic": "pledges",
+      "queue": "notifications",
+      "filter_policy": "{\"event_type\":[\"CampaignFundingDecided\",\"PledgeActivated\",\"PledgeCancelled\",\"PledgeDecided\",\"PledgeReleased\"]}"
     },
     {
       "topic": "pledges",

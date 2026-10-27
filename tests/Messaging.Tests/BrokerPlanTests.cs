@@ -45,4 +45,17 @@ public sealed class BrokerPlanTests
         Assert.DoesNotContain(("Pledges", "monolith"), subscriptions.Keys);
         Assert.DoesNotContain("PledgeActivated", subscriptions[("Pledges", "payments")]); // Payments does not consume it
     }
+
+    [Fact]
+    public void Notifications_has_a_queue_of_its_own_that_gets_every_event_it_consumes_and_no_payment_data()
+    {
+        var subscriptions = Plan.Subscriptions.Where(s => s.Queue == "notifications").ToDictionary(s => s.Topic, s => s.EventTypes);
+
+        Assert.Equal(["CampaignCancelled", "CampaignPublished"], subscriptions["Campaigns"]);
+        Assert.Equal(["CampaignFundingDecided", "PledgeActivated", "PledgeCancelled", "PledgeDecided", "PledgeReleased"], subscriptions["Pledges"]);
+        Assert.Equal(["CampaignSettled", "PledgeChargeFailed", "PledgeChargeSucceeded"], subscriptions["Payments"]);
+        // PledgeChargeRequested carries the saved payment method: Payments' alone.
+        Assert.DoesNotContain(subscriptions.Values, types => types.Contains("PledgeChargeRequested"));
+        Assert.DoesNotContain("Notifications", Plan.Services["monolith"]);
+    }
 }

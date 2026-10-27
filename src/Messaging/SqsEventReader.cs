@@ -15,7 +15,8 @@ namespace CrowdFunding.Messaging;
 
 /// <summary>
 /// Reads this host's SQS queues and hands each event to every handler here of a module the queue serves
-/// that consumes it, each in its own inbox transaction. What a queued message owes was decided when it was
+/// (its service's modules, and any <see cref="BrokerOptions.AlsoServe"/>) that consumes it, each in its own
+/// inbox transaction. What a queued message owes was decided when it was
 /// published, so today's routes do not filter it: after a route goes back to <c>InProcess</c>, the messages
 /// already queued are still handled (a repeat does nothing, by the inbox). A message is deleted only after every
 /// handler committed; a message that fails stays, hidden for longer each time it comes back, and after
@@ -291,7 +292,7 @@ public sealed partial class SqsEventReader(
             return false;
         }
 
-        var served = plan.Services[service];
+        var served = plan.Services[service].Concat(options.AlsoServe.GetValueOrDefault(service) ?? []).ToHashSet();
         var consumers = routes.Subscriptions.ConsumersOf(type);
         var owed = handlers.Where(h => h.EventType == eventType && served.Contains(h.Module) && consumers.Contains(h.Module)).ToList();
         if (owed.Count == 0)

@@ -90,7 +90,8 @@ draft='{"title":"Local smoke","goal_minor":5000,"currency":"USD","deadline":"'"$
 reply=$(expect 201 "$(call POST /v1/campaigns "$creator" "$draft")" "create the draft")
 campaign=$(field campaign_id "$reply")
 [[ -n "$campaign" ]] || fail "no campaign_id in $reply"
-status_is "/v1/campaigns/$campaign" DRAFT || fail "the new campaign is not a DRAFT: $(last)"
+# A draft is shown only to its creator (CQA-505).
+status_is "/v1/campaigns/$campaign" DRAFT -H "Authorization: Bearer $creator" || fail "the new campaign is not a DRAFT: $(last)"
 
 step "publish $campaign"
 expect 200 "$(call POST "/v1/campaigns/$campaign/publish" "$creator")" "publish" >/dev/null
@@ -129,9 +130,12 @@ settlement=$(expect 200 "$(call GET "/v1/campaigns/$campaign/settlement" "$creat
 step "the emails: the backer's three and the creator's summary"
 c=$(uuid_of "$campaign")
 p=$(uuid_of "$pledge")
-kinds() { sql "SELECT string_agg(kind, ',' ORDER BY kind) FROM notifications.sent_notifications WHERE recipient_id = ($1)"; }
-eventually 30 test "$(kinds "SELECT creator_id FROM notifications.campaign_creators WHERE campaign_id = '$c'")" == campaign_settled ||
-  fail "the creator was not told the campaign settled: $(kinds "SELECT creator_id FROM notifications.campaign_creators WHERE campaign_id = '$c'")"
+# The emails the paced worker has sent (CQA-907): the creator hears the decision at once and the
+# settlement after (CQA-400); the backer is told by their own pledge's PledgeDecided (CQA-1625).
+kinds() { sql "SELECT string_agg(kind, ',' ORDER BY kind) FROM notifications.outgoing_emails WHERE status = 'SENT' AND recipient_id = ($1)"; }
+eventually 30 test "$(kinds "SELECT creator_id FROM notifications.campaign_creators WHERE campaign_id = '$c'")" == campaign_decided,campaign_settled ||
+  fail "the creator was not told the campaign was decided and settled: $(kinds "SELECT creator_id FROM notifications.campaign_creators WHERE campaign_id = '$c'")"
+eventually 30 test "$(kinds "SELECT backer_id FROM pledges.pledges WHERE id = '$p'")" == campaign_funded,charge_succeeded,pledge_confirmed || true
 emails=$(kinds "SELECT backer_id FROM pledges.pledges WHERE id = '$p'")
 [[ "$emails" == campaign_funded,charge_succeeded,pledge_confirmed ]] || fail "the backer's emails are $emails"
 

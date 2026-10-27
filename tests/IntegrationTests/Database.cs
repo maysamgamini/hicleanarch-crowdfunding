@@ -156,19 +156,20 @@ public sealed class Database : IAsyncLifetime
         Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], Plan.Services.Keys).GetAwaiter().GetResult();
 
     /// <summary>A monolith and its Payments service on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).</summary>
+    /// <paramref name="brokerRoutes"/> false routes Notifications' consumers InProcess again: s5-l02's rollback.
     public WebApplicationFactory<Program> StartHost(IReadOnlyDictionary<string, string?> broker, Action<IServiceCollection>? services = null,
-        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null) =>
-        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments);
+        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null, bool brokerRoutes = true) =>
+        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments, brokerRoutes);
 
     /// <summary>
     /// One monolith started directly, with no Events:Broker section and no Payments service beside it: what
     /// a deploy that lost the broker's settings would start (CQA-1504's refusal). It is not meant to serve.
     /// </summary>
     public WebApplicationFactory<Program> StartMonolithWithoutBroker() =>
-        Configure(new WebApplicationFactory<Program>(), null, null, "00:10:00", null);
+        Configure(new WebApplicationFactory<Program>(), null, null, "00:10:00", null, true);
 
     private WebApplicationFactory<Program> Configure(WebApplicationFactory<Program> factory, Action<IServiceCollection>? services,
-        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments) =>
+        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments, bool brokerRoutes) =>
         factory.WithWebHostBuilder(web =>
         {
             web.ConfigureTestServices(s =>
@@ -222,7 +223,9 @@ public sealed class Database : IAsyncLifetime
                 .UseSetting("Events:Routes:Payments", "Broker")
                 .UseSetting("Events:Producers:Payments:Pledges", "Broker")
                 .UseSetting("Events:Producers:Payments:Campaigns", "Broker")
-                .UseSetting("Events:Producers:Payments:Notifications", "Broker");
+                .UseSetting("Events:Producers:Payments:Notifications", "Broker")
+                // s5-l02: every event Notifications consumes goes through its own queue, still read here.
+                .UseSetting("Events:Routes:Notifications", brokerRoutes ? "Broker" : "InProcess");
         });
 
     /// <summary>How many rows of a table have the given value in a column, read as the owner.</summary>

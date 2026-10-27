@@ -90,6 +90,36 @@ public sealed class PledgeDecidedTests(Database database)
     }
 
     [Fact]
+    public async Task A_funded_campaigns_marking_writes_one_PledgeDecided_beside_each_PledgeChargeRequested_also_when_it_resumes()
+    {
+        // Two pledges a batch, one batch a pass: each pass stops where a pass that died would.
+        await using var host = database.StartHost().WithWebHostBuilder(web => web
+            .UseSetting("Pledges:MarkBatchSize", "2")
+            .UseSetting("Pledges:MarkBatchesPerPass", "1"));
+        var (given, campaign, backers) = await Pledged(host, 1_000, 5);
+        Task<long> Rows(string type) => given.Scalar<long>(
+            $"SELECT count(DISTINCT payload::jsonb ->> 'pledgeId') FROM pledges.outbox WHERE type = '{type}' AND payload::jsonb ->> 'campaignId' = @id::text", campaign.CampaignId);
+
+        await Close(host, campaign.CampaignId);
+        Assert.Equal(2L, await Rows("PledgeDecided"));
+        Assert.Equal(2L, await Rows("PledgeChargeRequested"));
+
+        for (var pass = 0; pass < 3; pass++)
+        {
+            await Close(host, campaign.CampaignId);
+        }
+
+        Assert.Equal(5L, await Rows("PledgeDecided"));
+        Assert.Equal(5L, await Rows("PledgeChargeRequested"));
+        Assert.Equal(5L, await given.Scalar<long>(
+            "SELECT count(*) FROM pledges.outbox WHERE type = 'PledgeDecided' AND payload::jsonb ->> 'campaignId' = @id::text AND payload::jsonb ->> 'outcome' = 'FUNDED'", campaign.CampaignId));
+        foreach (var backer in backers)
+        {
+            await Scenario.Eventually(() => Task.FromResult(Told(host, backer, "The campaign is funded") == 1));
+        }
+    }
+
+    [Fact]
     public async Task An_unsuccessful_campaigns_telling_resumes_from_its_cursor_and_tells_each_pledge_once()
     {
         // Two pledges a batch, one batch a pass: each pass stops where a pass that died would.

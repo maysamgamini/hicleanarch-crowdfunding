@@ -17,6 +17,14 @@ public sealed class BrokerOptions
     /// <summary>The services whose queues this host reads.</summary>
     public List<string> Read { get; set; } = [];
 
+    /// <summary>
+    /// Modules this host also hands a queue's messages to, by service, beyond the modules the plan gives that
+    /// service: for the release that moves a module to a queue of its own. Messages that reached the old queue
+    /// before the subscriptions changed still reach the module; the copy that also arrives on its new queue
+    /// does nothing, by the inbox. <c>Events:Broker:AlsoServe:monolith:0 = Notifications</c> (s5-l02).
+    /// </summary>
+    public Dictionary<string, List<string>> AlsoServe { get; set; } = [];
+
     /// <summary>PublishBatch calls one task keeps in flight.</summary>
     public int MaxCallsInFlight { get; set; } = 8;
 

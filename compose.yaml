@@ -181,6 +181,11 @@ services:
       Events__Producers__Payments__Campaigns: Broker
       Events__Producers__Payments__Notifications: Broker
       Events__Broker__Read__0: monolith
+      # s5-l02: every event Notifications consumes comes through its own queue, which the monolith reads
+      # while it still runs Notifications.
+      Events__Routes__Notifications: Broker
+      Events__Broker__Read__1: notifications
+      Events__Broker__AlsoServe__monolith__0: Notifications
       # s4-l03 and s4-l10: StartCardSetup goes over HTTP to the Payments service's internal port.
       Modules__Payments__BaseAddress: http://payments:8081
       # s4-l04: the monolith's service identity. Without a token endpoint it signs its service tokens

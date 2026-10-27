@@ -146,6 +146,14 @@ override_resource {
 }
 
 override_resource {
+  target = aws_sqs_queue.events["notifications"]
+  values = {
+    arn = "arn:aws:sqs:us-east-1:123456789012:hicleanarch-sandbox-notifications"
+    id  = "https://sqs.us-east-1.amazonaws.com/123456789012/hicleanarch-sandbox-notifications"
+  }
+}
+
+override_resource {
   target = aws_sqs_queue.events["payments"]
   values = {
     arn = "arn:aws:sqs:us-east-1:123456789012:hicleanarch-sandbox-payments"
@@ -198,8 +206,8 @@ run "the_monolith_holds_nothing_of_payments" {
   }
 
   assert {
-    condition     = toset(data.aws_iam_policy_document.events.statement[2].resources) == toset([aws_sqs_queue.events["monolith"].arn])
-    error_message = "The monolith's task role reads its own queue and no other."
+    condition     = toset(data.aws_iam_policy_document.events.statement[2].resources) == toset([aws_sqs_queue.events["monolith"].arn, aws_sqs_queue.events["notifications"].arn])
+    error_message = "The monolith's task role reads its own queue and, while it runs Notifications (s5-l02 to s5-l04), the notifications queue, and no other."
   }
 
   assert {
@@ -225,9 +233,9 @@ run "the_monolith_holds_nothing_of_payments" {
     condition = alltrue([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment :
       !contains(["Modules__Payments__Mode", "Modules__Payments__Calls", "Payments__Budget__Prefix", "Auth__ServiceClients__0",
       "Events__Broker__Topics__payments", "Events__Broker__Queues__payments__Url"], e.name)
-      && !(startswith(e.name, "Events__Broker__Read__") && e.value != "monolith")
+      && !(startswith(e.name, "Events__Broker__Read__") && !contains(["monolith", "notifications"], e.value))
     ])
-    error_message = "The monolith has no Payments switch, budget or service client, reads only its own queue and publishes to no Payments topic."
+    error_message = "The monolith has no Payments switch, budget or service client, reads only its own queue (and Notifications' while it runs it) and publishes to no Payments topic."
   }
 
   assert {

@@ -116,7 +116,7 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
             return (string)(await command.ExecuteScalarAsync(Ct))!;
         }
 
-        Assert.Equal("Campaigns,Pledges,Notifications,broker", await SinksOf(viaBroker.CampaignId));
+        Assert.Equal("Campaigns,Pledges,broker", await SinksOf(viaBroker.CampaignId));
     }
 
     [Fact]

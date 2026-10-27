@@ -113,7 +113,7 @@ public sealed class BrokerTests(Aws aws)
     {
         var ct = TestContext.Current.CancellationToken;
         var plan = BrokerPlanTests.Plan;
-        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "monolith"]);
+        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "monolith"]);
         using var sns = aws.Broker.Sns();
         var options = Options(provisioned);
 
@@ -138,7 +138,7 @@ public sealed class BrokerTests(Aws aws)
     {
         var ct = TestContext.Current.CancellationToken;
         var plan = BrokerPlanTests.Plan;
-        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "monolith"]);
+        var provisioned = await aws.Broker.Provision(plan, Prefix(), ["payments", "notifications", "monolith"]);
         using var sns = aws.Broker.Sns();
         var options = Options(provisioned);
         var subscription = (await sns.ListSubscriptionsByTopicAsync(provisioned.Topics["Payments"], ct)).Subscriptions
@@ -150,13 +150,38 @@ public sealed class BrokerTests(Aws aws)
         Assert.Contains(problems, p => p.Contains("filters out", StringComparison.Ordinal) && p.Contains("PaymentMethodSaved", StringComparison.Ordinal));
     }
 
-    /// <summary>The monolith of s4-l02: every module here, Payments' events in and out through the broker.</summary>
+    [Fact]
+    public async Task Notifications_routed_to_the_broker_needs_its_queue_read_and_subscribed()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var plan = BrokerPlanTests.Plan;
+        var provisioned = await aws.Broker.Provision(plan, Prefix(), []);
+        using var sns = aws.Broker.Sns();
+        var options = Options(provisioned);
+        options.Read.Remove("notifications");
+
+        Assert.Contains(await Check(sns, options, plan).Problems(ct),
+            p => p.StartsWith("Notifications get Pledges", StringComparison.Ordinal)
+                && p.Contains("from the notifications queue, which this host does not read", StringComparison.Ordinal));
+
+        options.Read.Add("notifications");
+        foreach (var subscription in (await sns.ListSubscriptionsByTopicAsync(provisioned.Topics["Pledges"], ct)).Subscriptions
+                     .Where(s => s.Endpoint == options.Queues["notifications"].Arn))
+        {
+            await sns.UnsubscribeAsync(subscription.SubscriptionArn, ct);
+        }
+
+        Assert.Contains(await Check(sns, options, plan).Problems(ct),
+            p => p.Contains("The Pledges topic has no raw-delivery subscription to the notifications queue", StringComparison.Ordinal));
+    }
+
+    /// <summary>The monolith of s5-l02: every module here, Payments' events in and out and Notifications' in through the broker.</summary>
     private static SubscriptionCheck Check(IAmazonSimpleNotificationService sns, BrokerOptions options, BrokerPlan plan)
     {
         string[] modules = ["Campaigns", "Pledges", "Payments", "Notifications"];
         var routing = new EventRoutingOptions
         {
-            Routes = new() { ["Payments"] = EventRoute.Broker },
+            Routes = new() { ["Payments"] = EventRoute.Broker, ["Notifications"] = EventRoute.Broker },
             Producers = new() { ["Payments"] = new() { ["Pledges"] = EventRoute.Broker, ["Campaigns"] = EventRoute.Broker, ["Notifications"] = EventRoute.Broker } },
         };
         var routes = new EventRoutes(
@@ -169,7 +194,7 @@ public sealed class BrokerTests(Aws aws)
     private static BrokerOptions Options(MotoBroker.Provisioned provisioned)
     {
         var options = new BrokerOptions { Topics = new(provisioned.Topics) };
-        foreach (var service in new[] { "payments", "monolith" })
+        foreach (var service in new[] { "payments", "notifications", "monolith" })
         {
             options.Queues[service] = new ServiceQueueAddress
             {

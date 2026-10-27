@@ -33,6 +33,7 @@ public static class BrokerRegistration
         // Topics are named by module and queues by service; configuration keys ignore case, so these do too.
         options.Topics = new(options.Topics, StringComparer.OrdinalIgnoreCase);
         options.Queues = new(options.Queues, StringComparer.OrdinalIgnoreCase);
+        options.AlsoServe = new(options.AlsoServe, StringComparer.OrdinalIgnoreCase);
         services.AddSingleton(options);
         // On AWS the clients take the task role's credentials; an emulator (tests) takes any.
         var emulator = string.IsNullOrEmpty(options.ServiceUrl) ? null : new BasicAWSCredentials("test", "test");
