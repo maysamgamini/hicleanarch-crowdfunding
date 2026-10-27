@@ -22,6 +22,11 @@
     <ProjectReference Include="..\Modules\Notifications\Notifications.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Every host reads the same list of event consumers, events/subscriptions.json. -->
+    <Content Include="..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup Label="BuildingBlocks">
     <PackageReference Include="CrowdFunding.BuildingBlocks.Application" />
   </ItemGroup>

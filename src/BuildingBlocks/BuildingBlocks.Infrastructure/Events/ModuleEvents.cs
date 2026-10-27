@@ -35,10 +35,10 @@ internal sealed class ModuleEvents<TContext>(string module, IServiceScopeFactory
         var db = scope.ServiceProvider.GetRequiredService<TContext>();
         var before = occurredBefore ?? DateTimeOffset.MaxValue;
         return await db.Set<OutboxMessage>().AsNoTracking()
-            .Where(m => m.DeliveredAt == null && m.OccurredAt < before)
+            .Where(m => m.DeliveredAt == null && (m.Sinks == null || m.Sinks.Length > (m.Sinks.Contains(OutboxSink.Broker) ? 1 : 0)) && m.OccurredAt < before)
             .OrderBy(m => m.OccurredAt)
             .Take(limit)
-            .Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload, m.TraceParent))
+            .Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload, m.TraceParent, m.Sinks))
             .ToListAsync(cancellationToken);
     }
 
@@ -46,7 +46,8 @@ internal sealed class ModuleEvents<TContext>(string module, IServiceScopeFactory
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<TContext>();
-        var oldest = await db.Set<OutboxMessage>().Where(m => m.DeliveredAt == null)
+        var oldest = await db.Set<OutboxMessage>()
+            .Where(m => m.DeliveredAt == null && (m.Sinks == null || m.Sinks.Length > (m.Sinks.Contains(OutboxSink.Broker) ? 1 : 0)))
             .MinAsync(m => (DateTimeOffset?)m.OccurredAt, cancellationToken);
         return oldest is null ? null : DateTimeOffset.UtcNow - oldest.Value;
     }

@@ -1,0 +1,18 @@
+{
+  "comment": "Every event type and the modules that consume it. Every host loads this file and routes each consumer InProcess (the module runs in this host) or Broker (SNS and SQS, from s4-l02). A host with a consumer it cannot route refuses to start. Terraform builds the subscriptions from it (s4-l02).",
+  "consumers": {
+    "CampaignPublished": ["Campaigns", "Pledges", "Payments", "Notifications"],
+    "CampaignCancelled": ["Campaigns", "Notifications"],
+    "FundingCancelled": ["Campaigns"],
+    "CampaignFundingDecided": ["Campaigns", "Payments", "Notifications"],
+    "PledgeActivated": ["Pledges", "Notifications"],
+    "PledgeChanged": ["Pledges"],
+    "PledgeCancelled": ["Pledges", "Notifications"],
+    "PledgeReleased": ["Notifications"],
+    "PledgeChargeRequested": ["Payments"],
+    "PaymentMethodSaved": ["Pledges"],
+    "PledgeChargeSucceeded": ["Pledges", "Notifications"],
+    "PledgeChargeFailed": ["Pledges", "Notifications"],
+    "CampaignSettled": ["Campaigns", "Notifications"]
+  }
+}

@@ -74,6 +74,14 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("payload");
 
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.PrimitiveCollection<string[]>("Sinks")
+                        .HasColumnType("text[]")
+                        .HasColumnName("sinks");
+
                     b.Property<string>("TraceParent")
                         .HasMaxLength(60)
                         .HasColumnType("character varying(60)")
@@ -94,7 +102,7 @@ namespace Pledges.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("OccurredAt")
                         .HasDatabaseName("outbox_undelivered")
-                        .HasFilter("delivered_at IS NULL");
+                        .HasFilter("delivered_at IS NULL AND (sinks IS NULL OR cardinality(array_remove(sinks, 'broker')) > 0)");
 
                     b.ToTable("outbox", "pledges");
                 });

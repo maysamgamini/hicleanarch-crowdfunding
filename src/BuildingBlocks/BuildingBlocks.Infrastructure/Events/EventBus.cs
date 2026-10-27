@@ -10,7 +10,8 @@ namespace BuildingBlocks.Infrastructure.Events;
 /// A committed outbox row, as it travels inside the process. <see cref="TraceParent"/> is the W3C id
 /// of the trace that wrote it, so the handlers' work continues that trace, across modules.
 /// </summary>
-public sealed record OutboxRecord(string Module, Guid EventId, string Type, string Payload, string? TraceParent = null);
+public sealed record OutboxRecord(string Module, Guid EventId, string Type, string Payload, string? TraceParent = null,
+    IReadOnlyList<string>? Sinks = null);
 
 /// <summary>The in-process transport: committed events wait here for the dispatcher.</summary>
 public sealed class EventBus

@@ -151,9 +151,13 @@ public sealed class OutboxSweepTests(Database database)
     {
         services
             .AddEventHandler<StartPing, Counts>(CampaignsModuleName.Value)
+            .AddEventSubscription<StartPing>(CampaignsModuleName.Value)
             .AddEventHandler<StubbornPing, Stubborn>(CampaignsModuleName.Value)
+            .AddEventSubscription<StubbornPing>(CampaignsModuleName.Value)
             .AddEventHandler<BatchPing, Concurrency>(CampaignsModuleName.Value)
+            .AddEventSubscription<BatchPing>(CampaignsModuleName.Value)
             .AddEventHandler<SlowPing, Slow>(CampaignsModuleName.Value)
+            .AddEventSubscription<SlowPing>(CampaignsModuleName.Value)
             .Configure<OutboxOptions>(o =>
             {
                 o.RetryDelays = [TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20)];
@@ -268,7 +272,9 @@ public sealed class OutboxSweepTests(Database database)
         // Only this host knows the backlog's type, so no other test's host works through it.
         await using var host = Host(_ => { }, services => services
             .AddEventHandler<BacklogPing, Backlog>(CampaignsModuleName.Value)
-            .AddEventHandler<FreshPing, Fresh>(CampaignsModuleName.Value));
+            .AddEventSubscription<BacklogPing>(CampaignsModuleName.Value)
+            .AddEventHandler<FreshPing, Fresh>(CampaignsModuleName.Value)
+            .AddEventSubscription<FreshPing>(CampaignsModuleName.Value));
         _ = host.Services; // start it: its first sweep finds the backlog
         await Scenario.Eventually(() => Task.FromResult(backlog.Any(p => Handled.ContainsKey(p.EventId)))); // the start-up sweep has begun
         var fresh = new FreshPing(Guid.NewGuid(), DateTimeOffset.UtcNow);

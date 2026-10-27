@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Host\Host.csproj" />
+    <ProjectReference Include="..\..\src\Services\Payments.Host\Payments.Host.csproj" />
   </ItemGroup>
 
 </Project>

@@ -70,7 +70,9 @@ public sealed class DispatcherFaultTests(Database database)
 
         services
             .AddEventHandler<DoomedPing, AlwaysFails>(CampaignsModuleName.Value)
+            .AddEventSubscription<DoomedPing>(CampaignsModuleName.Value)
             .AddEventHandler<LaterPing, Succeeds>(CampaignsModuleName.Value)
+            .AddEventSubscription<LaterPing>(CampaignsModuleName.Value)
             .Configure<OutboxOptions>(o => o.RetryDelays = [TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(20)]);
     });
 

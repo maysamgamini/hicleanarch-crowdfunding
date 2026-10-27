@@ -67,6 +67,7 @@ public sealed partial class OutboxDispatcher(
     IEnumerable<IModuleEvents> modules,
     IEnumerable<EventHandlerRegistration> handlers,
     IEnumerable<PublishedEvent> published,
+    EventRoutes routes,
     IOptions<OutboxOptions> options,
     ILogger<OutboxDispatcher> logger) : BackgroundService, IStopParticipant
 {
@@ -191,8 +192,30 @@ public sealed partial class OutboxDispatcher(
         activity?.SetTag("crowdfunding.module", record.Module);
         var integrationEvent = (IntegrationEvent)JsonSerializer.Deserialize(record.Payload, type, EventBus.Json)!;
         var source = modules.Single(m => m.Module == record.Module);
+        // The modules the row owes it to; a row from before routes existed owes it to every consumer here.
+        var owedTo = record.Sinks?.Where(s => s != OutboxSink.Broker).ToList();
+        if (owedTo is { Count: 0 })
+        {
+            return; // nothing owed in process
+        }
+
+        if (owedTo?.FirstOrDefault(m => !routes.RunsHere(m)) is { } elsewhere)
+        {
+            // Written by a program that runs a module this one does not: left for a program that does.
+            LogOwedElsewhere(logger, record.Type, record.EventId, elsewhere);
+            return;
+        }
+
+        var inProcess = routes.InProcessHandlers(type).Where(h => owedTo is null || owedTo.Contains(h.Module)).ToList();
+        if (inProcess.Count == 0)
+        {
+            // Nothing here received it, so it is not delivered: the row waits for a program that has its consumers.
+            LogNoConsumerHere(logger, record.Type, record.EventId);
+            return;
+        }
+
         var allHandled = true;
-        foreach (var handler in handlers.Where(h => h.EventType == type))
+        foreach (var handler in inProcess)
         {
             var target = modules.Single(m => m.Module == handler.Module);
             allHandled &= await DeliverWithRetries(record, integrationEvent, handler, target, source, cancellationToken);
@@ -334,6 +357,12 @@ public sealed partial class OutboxDispatcher(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "No handler in this program knows {Type}; event {EventId} stays undelivered")]
     private static partial void LogUnknownType(ILogger logger, string type, Guid eventId);
+
+    [LoggerMessage(Level = LogLevel.Debug, Message = "{Type} {EventId} is owed to {Module}, which does not run here; left for a program that runs it")]
+    private static partial void LogOwedElsewhere(ILogger logger, string type, Guid eventId, string module);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "No consumer of {Type} runs in this program; event {EventId} stays undelivered")]
+    private static partial void LogNoConsumerHere(ILogger logger, string type, Guid eventId);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "{Handler} failed on {Type} {EventId} after every retry; it stays undelivered for a sweep")]
     private static partial void LogGaveUp(ILogger logger, Exception exception, string handler, string type, Guid eventId);

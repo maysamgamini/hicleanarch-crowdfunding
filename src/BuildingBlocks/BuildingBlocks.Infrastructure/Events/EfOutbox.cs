@@ -15,7 +15,7 @@ public sealed class PendingEvents<TContext>
     public List<OutboxRecord> Records { get; } = [];
 }
 
-internal sealed class EfOutbox<TContext>(TContext db, PendingEvents<TContext> pending, string module) : IOutbox
+internal sealed class EfOutbox<TContext>(TContext db, PendingEvents<TContext> pending, EventRoutes routes, string module) : IOutbox
     where TContext : DbContext
 {
     public Task Add(IntegrationEvent integrationEvent, CancellationToken cancellationToken) =>
@@ -29,9 +29,17 @@ internal sealed class EfOutbox<TContext>(TContext db, PendingEvents<TContext> pe
         }
 
         var messages = integrationEvents.Select(EventBus.ToMessage).ToList();
+        foreach (var message in messages)
+        {
+            // What the row owes is decided now, from this program's routes, and stored with it: a later
+            // change of routes never makes an old row owe something new, or a new one owe nothing.
+            message.Sinks = [.. routes.SinksFor(message.Type)];
+        }
+
         db.AddRange(messages);
         await db.SaveChangesAsync(cancellationToken); // one SaveChanges: EF Core sends the rows in batched commands
-        pending.Records.AddRange(messages.Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload, m.TraceParent)));
+        pending.Records.AddRange(messages.Where(m => m.Sinks!.Any(s => s != OutboxSink.Broker))
+            .Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload, m.TraceParent, m.Sinks)));
     }
 }
 

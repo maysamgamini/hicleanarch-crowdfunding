@@ -12,6 +12,13 @@ public static class EventRegistration
     /// <summary>The bus and the dispatcher, once per program; configuration section <c>Outbox</c>.</summary>
     public static IServiceCollection AddInProcessEvents(this IServiceCollection services)
     {
+        // Routing first: a program whose events are not all routed stops here, before anything is delivered.
+        services.AddOptions<EventRoutingOptions>().BindConfiguration("Events");
+        services.TryAddSingleton(sp => EventSubscriptions.Load(
+                Path.Combine(AppContext.BaseDirectory, sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<EventRoutingOptions>>().Value.SubscriptionsFile))
+            .With(sp.GetServices<EventSubscription>()));
+        services.TryAddSingleton<EventRoutes>();
+        services.AddHostedService<EventRoutesCheck>();
         services.TryAddSingleton<EventBus>();
         services.TryAddSingleton<OutboxDispatcher>();
         services.AddHostedService(sp => sp.GetRequiredService<OutboxDispatcher>());
@@ -35,10 +42,18 @@ public static class EventRegistration
         services.TryAddScoped<PendingEvents<TContext>>();
         services.TryAddScoped<OutboxCommitInterceptor<TContext>>();
         services.AddKeyedScoped<IOutbox>(module, (sp, _) =>
-            new EfOutbox<TContext>(sp.GetRequiredService<TContext>(), sp.GetRequiredService<PendingEvents<TContext>>(), module));
+            new EfOutbox<TContext>(sp.GetRequiredService<TContext>(), sp.GetRequiredService<PendingEvents<TContext>>(), sp.GetRequiredService<EventRoutes>(), module));
         services.AddSingleton<IModuleEvents>(sp => new ModuleEvents<TContext>(module, sp.GetRequiredService<IServiceScopeFactory>()));
         return services;
     }
+
+    /// <summary>
+    /// A consumer the program adds to <c>events/subscriptions.json</c> for itself: for event types that exist
+    /// only in tests. A real consumer belongs in the file, where every host and Terraform read it.
+    /// </summary>
+    public static IServiceCollection AddEventSubscription<TEvent>(this IServiceCollection services, string module)
+        where TEvent : IntegrationEvent =>
+        services.AddSingleton(new EventSubscription(typeof(TEvent).Name, module));
 
     /// <summary>Declares an event type the module publishes, so the dispatcher knows it.</summary>
     public static IServiceCollection AddPublishedEvent<TEvent>(this IServiceCollection services)

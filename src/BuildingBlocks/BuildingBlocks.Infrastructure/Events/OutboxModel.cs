@@ -15,7 +15,18 @@ public sealed class OutboxMessage
 
     public required string Payload { get; set; }
 
+    /// <summary>Set when every in-process sink has its inbox row.</summary>
     public DateTimeOffset? DeliveredAt { get; set; }
+
+    /// <summary>Set when the broker accepted the row; owed only when <see cref="Sinks"/> holds <see cref="OutboxSink.Broker"/>.</summary>
+    public DateTimeOffset? PublishedAt { get; set; }
+
+    /// <summary>
+    /// What the row owes, fixed from the routes in force when it was written: the modules that get it in
+    /// process, and <see cref="OutboxSink.Broker"/> when it must be published. Null on rows written before
+    /// routes existed (s4-l01): every consumer in the program, in process.
+    /// </summary>
+    public string[]? Sinks { get; set; }
 
     public int Attempts { get; set; }
 
@@ -35,6 +46,13 @@ public sealed class InboxMessage
     public DateTimeOffset HandledAt { get; set; }
 }
 
+/// <summary>The sink names stored in an outbox row besides module names.</summary>
+public static class OutboxSink
+{
+    /// <summary>The row must be published to the broker.</summary>
+    public const string Broker = "broker";
+}
+
 public static class OutboxModel
 {
     /// <summary>Maps the module's <c>outbox</c> and <c>inbox</c> tables; call it from the module's DbContext.</summary>
@@ -48,7 +66,9 @@ public static class OutboxModel
             outbox.Property(m => m.Payload).HasColumnType("jsonb");
             outbox.Property(m => m.OccurredAt);
             outbox.Property(m => m.TraceParent).HasMaxLength(60);
-            outbox.HasIndex(m => m.OccurredAt).HasFilter("delivered_at IS NULL").HasDatabaseName("outbox_undelivered");
+            outbox.HasIndex(m => m.OccurredAt)
+                .HasFilter("delivered_at IS NULL AND (sinks IS NULL OR cardinality(array_remove(sinks, 'broker')) > 0)")
+                .HasDatabaseName("outbox_undelivered");
         });
         modelBuilder.Entity<InboxMessage>(inbox =>
         {
