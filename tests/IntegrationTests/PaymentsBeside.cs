@@ -19,12 +19,20 @@ public sealed class PaymentsBeside : IDisposable
 {
     private static readonly string[] Passed = ["Payments:", "ConnectionStrings:Payments", "ConnectionStrings:Valkey", "Events:Broker:", "Outbox:"];
 
-    public PaymentsBeside(Database database, IConfiguration monolith, IHostEnvironment environment, Action<IWebHostBuilder>? configure)
+    public PaymentsBeside(Database database, IConfiguration monolith, IHostEnvironment environment, Action<IWebHostBuilder>? configure,
+        IReadOnlyDictionary<string, string?> broker)
     {
+        // The topics' and queues' addresses come from the test broker, not the monolith, which has only its own
+        // (CQA-2115); PaymentsService keeps those infra/services/payments gives Payments.
         var settings = monolith.AsEnumerable()
             .Where(kv => kv.Value is not null && Passed.Any(p => kv.Key.StartsWith(p, StringComparison.OrdinalIgnoreCase))
-                && !kv.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase))
+                && !kv.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase) && !InfraBroker.IsAddress(kv.Key))
             .ToDictionary(kv => kv.Key, kv => kv.Value);
+        foreach (var (key, value) in broker.Where(kv => InfraBroker.IsAddress(kv.Key)))
+        {
+            settings[key] = value;
+        }
+
         settings["Events:Broker:Read:0"] = "payments";
         // The same environment as the monolith beside it: a Development pair runs both in Development.
         Host = TwoHosts.PaymentsService(database, settings, web =>

@@ -197,7 +197,7 @@ public sealed class Database : IAsyncLifetime
                     {
                         s.AddSingleton(new TwoHosts.PaymentsLink());
                         s.AddSingleton(sp => new PaymentsBeside(this, sp.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>(),
-                            sp.GetRequiredService<Microsoft.Extensions.Hosting.IHostEnvironment>(), payments));
+                            sp.GetRequiredService<Microsoft.Extensions.Hosting.IHostEnvironment>(), payments, broker));
                         s.AddHostedService(sp => new PaymentsBeside.StartWithMonolith(sp.GetRequiredService<PaymentsBeside>()));
                         s.AddHttpClient<RemoteStartCardSetup>().ConfigurePrimaryHttpMessageHandler(sp =>
                             PaymentsBeside.Link(sp.GetRequiredService<TwoHosts.PaymentsLink>(), sp.GetRequiredService<PaymentsBeside>()));
@@ -233,7 +233,8 @@ public sealed class Database : IAsyncLifetime
                 return;
             }
 
-            foreach (var (key, value) in broker)
+            // The Pledges service knows only the addresses infra/services/pledges gives it (CQA-2115).
+            foreach (var (key, value) in InfraBroker.For("pledges", broker))
             {
                 web.UseSetting(key, value);
             }
@@ -279,7 +280,8 @@ public sealed class Database : IAsyncLifetime
                 return;
             }
 
-            foreach (var (key, value) in broker.Where(b => !b.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase)))
+            // Only the addresses infra/services/notifications gives it (CQA-2115).
+            foreach (var (key, value) in InfraBroker.For("notifications", broker).Where(b => !b.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase)))
             {
                 web.UseSetting(key, value);
             }
@@ -305,7 +307,8 @@ public sealed class Database : IAsyncLifetime
                 .UseSetting("ConnectionStrings:Campaigns", Campaigns)
                 .UseSetting("Auth:ClientId", ClientId)
                 .UseSetting("Auth:LocalSigningKey", SigningKey);
-            foreach (var (key, value) in broker.Where(b => !b.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase)))
+            // Only the addresses infra/services/campaigns gives it (CQA-2115).
+            foreach (var (key, value) in InfraBroker.For("campaigns", broker).Where(b => !b.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase)))
             {
                 web.UseSetting(key, value);
             }

@@ -64,7 +64,8 @@ public sealed class TwoHosts : IDisposable
                 .UseSetting("Events:Broker:WaitSeconds", "2")
                 .UseSetting("Outbox:Publishing:RecoverAfter", "00:10:00");
             // Payments.Host reads its own queue only: one it runs none of the modules of would hide their messages.
-            foreach (var (key, value) in broker.Where(kv => !kv.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase)))
+            // It knows only the addresses infra/services/payments gives it (CQA-2115).
+            foreach (var (key, value) in InfraBroker.For("payments", broker).Where(kv => !kv.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase)))
             {
                 web.UseSetting(key, value);
             }

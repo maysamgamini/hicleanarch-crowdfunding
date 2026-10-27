@@ -160,3 +160,25 @@ run "the_second_apply_moves_to_the_release" {
     error_message = "The release's task definition reports the release's tag."
   }
 }
+
+# CQA-2115: the start-up subscription check of a producer needs the ARN of every queue its topic feeds
+# (events/broker-subscriptions.json, which messaging.tf builds the subscriptions from). Without one, the
+# service refuses to start in AWS, while the tests and the local stack, which give every host every queue,
+# never show it. The ARN is an address only; the task role still names no other service's queue.
+run "names_every_consumer_queue_its_subscription_check_reads" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for s in jsondecode(file("../../../events/broker-subscriptions.json")).subscriptions :
+      length([for e in module.service.container.environment : e if e.name == "Events__Broker__Queues__${s.queue}__Arn" && endswith(e.value, "-${s.queue}")]) == 1
+      if s.topic == "campaigns"
+    ])
+    error_message = "The task definition lacks the ARN of a queue the campaigns topic feeds, which its subscription check reads."
+  }
+
+  assert {
+    condition     = length([for e in module.service.container.environment : e if e.name == "Events__Broker__Topics__campaigns"]) == 1
+    error_message = "The task definition names no campaigns topic, which its subscription check and its publisher need."
+  }
+}

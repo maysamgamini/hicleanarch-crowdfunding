@@ -44,6 +44,8 @@ mock_provider "aws" {
           "payments_webhook_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:webhook-AbCdEf",
           "payments_valkey_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:valkey-AbCdEf",
           "pledges_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-pledges",
+          "notifications_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-notifications",
+          "campaigns_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-campaigns",
           "payments_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-payments",
           "payments_queue_url": "https://sqs.us-east-1.amazonaws.com/123456789012/hicleanarch-payments",
           "payments_topic_arn": "arn:aws:sns:us-east-1:123456789012:hicleanarch-payments",
@@ -110,4 +112,26 @@ run "refuses_more_tasks_than_share_the_psp_budget" {
   }
 
   expect_failures = [terraform_data.psp_budget_share]
+}
+
+# CQA-2115: the start-up subscription check of a producer needs the ARN of every queue its topic feeds
+# (events/broker-subscriptions.json, which messaging.tf builds the subscriptions from). Without one, the
+# service refuses to start in AWS, while the tests and the local stack, which give every host every queue,
+# never show it. The ARN is an address only; the task role still names no other service's queue.
+run "names_every_consumer_queue_its_subscription_check_reads" {
+  command = plan
+
+  assert {
+    condition = alltrue([
+      for s in jsondecode(file("../../../events/broker-subscriptions.json")).subscriptions :
+      length([for e in module.service.container.environment : e if e.name == "Events__Broker__Queues__${s.queue}__Arn" && endswith(e.value, "-${s.queue}")]) == 1
+      if s.topic == "payments"
+    ])
+    error_message = "The task definition lacks the ARN of a queue the payments topic feeds, which its subscription check reads."
+  }
+
+  assert {
+    condition     = length([for e in module.service.container.environment : e if e.name == "Events__Broker__Topics__payments"]) == 1
+    error_message = "The task definition names no payments topic, which its subscription check and its publisher need."
+  }
 }

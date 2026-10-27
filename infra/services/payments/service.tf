@@ -45,8 +45,11 @@ module "service" {
   ]
 
   # The consumers of Payments' events run elsewhere, so every route of its events is Broker; it reads
-  # the payments queue, publishes to its own topic, and checks that topic's subscription to the
-  # Pledges service's queue (the monolith's until s5-l10), which it knows by ARN only (s4-l10).
+  # the payments queue, publishes to its own topic, and checks that topic's subscription to each
+  # consumer's queue, which it knows by ARN only (s4-l10): the pledges queue (PaymentMethodSaved and the
+  # charges), the notifications queue (the charges and CampaignSettled, since s5-l02) and the campaigns
+  # queue (CampaignSettled, since s5-l07). An ARN is an address and grants nothing. Without one, the
+  # start-up check refuses to start (CQA-2115); the test checks every consumer queue of the plan.
   environment = [
     { name = "Payments__Budget__Prefix", value = local.shared.psp_budget_prefix },
     # The tasks that share that budget: while Valkey is down each keeps its share of the limits (CQA-1008).
@@ -60,6 +63,8 @@ module "service" {
     { name = "Events__Broker__Queues__payments__Arn", value = local.shared.payments_queue_arn },
     { name = "Events__Broker__Queues__payments__Url", value = local.shared.payments_queue_url },
     { name = "Events__Broker__Queues__pledges__Arn", value = local.shared.pledges_queue_arn },
+    { name = "Events__Broker__Queues__notifications__Arn", value = local.shared.notifications_queue_arn },
+    { name = "Events__Broker__Queues__campaigns__Arn", value = local.shared.campaigns_queue_arn },
     { name = "Events__Broker__Read__0", value = "payments" },
     { name = "Events__Broker__Topics__payments", value = local.shared.payments_topic_arn },
   ]

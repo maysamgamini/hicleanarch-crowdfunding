@@ -108,7 +108,8 @@ public sealed class CampaignsBrokerTests(Database database) : IDisposable
         await using var row = await read.ExecuteReaderAsync(Ct);
         Assert.True(await row.ReadAsync(Ct));
         var record = new OutboxRecord("Campaigns", row.GetGuid(0), nameof(CampaignPublished), row.GetString(1), row.IsDBNull(2) ? null : row.GetString(2));
-        Assert.Single(await host.Services.GetRequiredService<IEventPublisher>().Publish([record], Ct));
+        // Published by Campaigns' host, the only one whose infra names the campaigns topic (CQA-2115).
+        Assert.Single(await host.Campaigns().Services.GetRequiredService<IEventPublisher>().Publish([record], Ct));
     }
 
     private static Func<HttpRequestMessage> PledgeRequest(string campaignId) =>
