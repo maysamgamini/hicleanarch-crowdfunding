@@ -1,8 +1,8 @@
 # One dashboard and one set of alarms per service (Stage 4, lesson s4-l08). Each service's page shows
 # what its own team answers for: its requests, errors and latency, its tasks, its queue and dead-letter
 # queues, its topics, and the failure-mode gauges of the modules it runs. Queues and topics are those of
-# messaging.tf (s4-l02); the Payments service and its Service Connect name those of payments-split.tf
-# (s4-l05).
+# messaging.tf (s4-l02); the Payments service is payments-split.tf's (s4-l05), and each service's
+# Service Connect name is the one the service module gives its public port, <name>-public.
 
 locals {
   services = {
@@ -30,9 +30,9 @@ locals {
       p99_max  = 1000 # milliseconds
     }
     payments = {
-      requests = ["AWS/ECS", "RequestCount", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments"]
-      errors   = ["AWS/ECS", "HTTPCode_Target_5XX_Count", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments"]
-      latency  = ["AWS/ECS", "TargetResponseTime", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments"]
+      requests = ["AWS/ECS", "RequestCount", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments-public"]
+      errors   = ["AWS/ECS", "HTTPCode_Target_5XX_Count", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments-public"]
+      latency  = ["AWS/ECS", "TargetResponseTime", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments-public"]
       p99_max  = 1000 # milliseconds
     }
   }
@@ -188,7 +188,7 @@ resource "aws_cloudwatch_metric_alarm" "payments_5xx" {
     metric {
       namespace   = "AWS/ECS"
       metric_name = "HTTPCode_Target_5XX_Count"
-      dimensions  = { ClusterName = aws_ecs_cluster.main.name, ServiceName = "payments", DiscoveryName = "payments" }
+      dimensions  = { ClusterName = aws_ecs_cluster.main.name, ServiceName = "payments", DiscoveryName = "payments-public" }
       stat        = "Sum"
       period      = 60
     }
@@ -198,7 +198,7 @@ resource "aws_cloudwatch_metric_alarm" "payments_5xx" {
     metric {
       namespace   = "AWS/ECS"
       metric_name = "RequestCount"
-      dimensions  = { ClusterName = aws_ecs_cluster.main.name, ServiceName = "payments", DiscoveryName = "payments" }
+      dimensions  = { ClusterName = aws_ecs_cluster.main.name, ServiceName = "payments", DiscoveryName = "payments-public" }
       stat        = "Sum"
       period      = 60
     }
