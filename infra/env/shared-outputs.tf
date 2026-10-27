@@ -67,7 +67,7 @@ locals {
 }
 
 resource "aws_s3_object" "shared_outputs" {
-  bucket       = "${var.project}-tfstate-${data.aws_caller_identity.current.account_id}"
+  bucket       = local.state_bucket
   key          = "env/shared.json"
   content      = jsonencode(local.shared_outputs)
   content_type = "application/json"

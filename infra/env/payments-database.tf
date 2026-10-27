@@ -4,6 +4,30 @@
 # as the cluster's master. The shared cluster holds nothing of Payments, and the monolith's roles can
 # read none of the secrets below.
 
+# CQA-2101: an environment that still runs Payments on the shared cluster must not get here. At s4-l09
+# Payments' data is on the shared cluster until s4-l07's move has switched it; this layer would create
+# an empty cluster beside it and point Payments at it. The document this layer last handed the services
+# (shared-outputs.tf) says where Payments connected: no document is a new environment, and a connection
+# secret under db/payments-own/ is Payments' own cluster. scripts/deploy-monolith.sh also refuses an
+# environment whose state has the shared cluster and no Payments cluster (one never deployed at s4-l09).
+data "aws_s3_objects" "previous_shared_outputs" {
+  bucket = local.state_bucket
+  prefix = "env/shared.json"
+}
+
+data "aws_s3_object" "previous_shared_outputs" {
+  count  = contains(data.aws_s3_objects.previous_shared_outputs.keys, "env/shared.json") ? 1 : 0
+  bucket = local.state_bucket
+  key    = "env/shared.json"
+}
+
+locals {
+  state_bucket            = "${var.project}-tfstate-${data.aws_caller_identity.current.account_id}"
+  previous_shared_outputs = [for o in data.aws_s3_object.previous_shared_outputs : jsondecode(o.body)]
+  payments_moved = alltrue([for o in local.previous_shared_outputs :
+  strcontains(lookup(o, "payments_connection_secret_arn", ""), "/db/payments-own/")])
+}
+
 locals {
   # What ConnectionStrings__Payments reads in Payments' task: its own cluster, always.
   payments_connection_secret = aws_secretsmanager_secret.payments_own["payments"].arn
@@ -90,6 +114,11 @@ resource "aws_rds_cluster" "payments" {
   # it, with every payment in it. The clone already holds what a new cluster would be created with.
   lifecycle {
     ignore_changes = [restore_to_point_in_time, snapshot_identifier]
+
+    precondition {
+      condition     = local.payments_moved
+      error_message = "Payments still runs on the shared cluster here (env/shared.json): this apply would give it a new, empty cluster and leave its data behind. Finish s4-l07's move at s4-l09 first (scripts/move-payments.sh, to resume), then deploy this."
+    }
   }
 }
 

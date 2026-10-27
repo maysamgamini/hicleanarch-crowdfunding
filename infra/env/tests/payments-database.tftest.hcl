@@ -47,6 +47,38 @@ mock_provider "aws" {
   }
 }
 
+# CQA-2101: an environment whose last shared outputs (s4-l09) still point Payments at the shared
+# cluster has its data there. This layer must refuse it rather than give Payments an empty cluster.
+run "an_environment_not_yet_moved_is_refused" {
+  command = plan
+
+  override_data {
+    target = data.aws_s3_objects.previous_shared_outputs
+    values = { keys = ["env/shared.json"] }
+  }
+
+  override_data {
+    target = data.aws_s3_object.previous_shared_outputs
+    values = { body = "{\"payments_connection_secret_arn\":\"arn:aws:secretsmanager:us-east-1:123456789012:secret:hicleanarch/sandbox/db/payments-AbCdEf\",\"payments_own_secret_arn\":\"\"}" }
+  }
+
+  expect_failures = [aws_rds_cluster.payments]
+}
+
+run "an_environment_moved_at_s4_l09_is_deployed" {
+  command = plan
+
+  override_data {
+    target = data.aws_s3_objects.previous_shared_outputs
+    values = { keys = ["env/shared.json"] }
+  }
+
+  override_data {
+    target = data.aws_s3_object.previous_shared_outputs
+    values = { body = "{\"payments_connection_secret_arn\":\"arn:aws:secretsmanager:us-east-1:123456789012:secret:hicleanarch/sandbox/db/payments-own/payments-AbCdEf\"}" }
+  }
+}
+
 # The environment after the move: Payments runs on its own cluster.
 run "the_moved_environment" {
   command = apply

@@ -20,6 +20,15 @@ tf() { "${IAC:-tofu}" -chdir=infra/env "$@"; }
 export TF_VAR_image="$image" TF_VAR_gateway_image="$gateway"
 tf init -input=false -backend-config="bucket=$bucket" >/dev/null
 
+# CQA-2101: Payments' data must already be on its own cluster. payments-database.tf refuses an
+# environment whose last env/shared.json says otherwise; one deployed only before s4-l09 has no such
+# document, but its state has the shared cluster and no Payments cluster.
+state=$(tf state list 2>/dev/null || true)
+if grep -qx 'aws_rds_cluster.main' <<<"$state" && ! grep -Eqx 'aws_rds_cluster\.payments(\[0\])?' <<<"$state"; then
+  echo "Payments' data is still on the shared cluster here: finish s4-l07's move at s4-l09 first." >&2
+  exit 1
+fi
+
 case "$step" in
   prepare)
     current=$(tf output -raw service_image 2>/dev/null || true)
