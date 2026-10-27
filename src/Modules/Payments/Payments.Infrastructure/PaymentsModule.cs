@@ -61,6 +61,9 @@ public static class PaymentsModule
         services.AddOptions<PspBudget>().Bind(configuration.GetSection("Payments:Budget"))
             .Validate(b => new[] { b.AccountPerSecond, b.CustomersPerSecond, b.CardSetupsPerSecond, b.ChargesPerSecond, b.LookUpsPerSecond }.All(r => r > 0),
                 "Payments:Budget: every rate must be positive.")
+            .Validate(b => b.InFlight > 0, "Payments:Budget:InFlight must be positive.")
+            .Validate<IOptions<SettlementOptions>>((b, s) => b.InFlightLease > s.Value.PspCallTimeout,
+                "Payments:Budget:InFlightLease must be longer than Payments:Settlement:PspCallTimeout: a live call must never lose its slot.")
             .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<PspBudget>>().Value);
         services.AddOptions<DunningOptions>().Bind(configuration.GetSection("Payments:Dunning"))
@@ -116,7 +119,7 @@ public static class PaymentsModule
         services.AddSingleton<CircuitBreaker>();
         services.AddSingleton<IPaymentProvider>(sp => new CircuitBreakingPaymentProvider(
             new BudgetedPaymentProvider(sp.GetRequiredService<FakePaymentProvider>(), sp.GetRequiredService<ITokenBuckets>(),
-                sp.GetRequiredService<PspBudget>(), sp.GetRequiredService<TimeProvider>()),
+                sp.GetRequiredService<IInFlightSlots>(), sp.GetRequiredService<PspBudget>(), sp.GetRequiredService<TimeProvider>()),
             sp.GetRequiredService<CircuitBreaker>()));
 
         services.AddOptions<CardSetupOptions>().Bind(configuration.GetSection("Payments:CardSetup"))

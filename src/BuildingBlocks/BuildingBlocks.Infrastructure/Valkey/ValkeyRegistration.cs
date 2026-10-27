@@ -32,11 +32,11 @@ public static class ValkeyRegistration
     }
 
     /// <summary>
-    /// The shared Valkey connection and the token buckets on it, when <c>ConnectionStrings:Valkey</c>
-    /// is set; buckets in memory otherwise. Every module that needs them calls this. The connection
+    /// The shared Valkey connection, and the token buckets and in-flight slots on it, when
+    /// <c>ConnectionStrings:Valkey</c> is set; both in memory otherwise. Every module that needs them calls this. The connection
     /// replaces any registered before it, so the program has one, made by <see cref="ClientOptions"/>.
     /// <c>Valkey:Tasks</c> is the most tasks of this program that run at once; while Valkey cannot be
-    /// reached, each task keeps that share of every limit in its own memory.
+    /// reached, each task keeps that share of every limit and of every cap in its own memory.
     /// </summary>
     public static IServiceCollection AddSharedValkey(this IServiceCollection services, IConfiguration configuration)
     {
@@ -44,6 +44,7 @@ public static class ValkeyRegistration
         if (string.IsNullOrWhiteSpace(valkey))
         {
             services.TryAddSingleton<ITokenBuckets, InProcessTokenBuckets>();
+            services.TryAddSingleton<IInFlightSlots, InProcessInFlightSlots>();
             return services;
         }
 
@@ -55,7 +56,9 @@ public static class ValkeyRegistration
 
         services.Replace(ServiceDescriptor.Singleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(ClientOptions(valkey))));
         services.Replace(ServiceDescriptor.Singleton(sp => new DegradedTokenBuckets(tasks, sp.GetRequiredService<TimeProvider>())));
+        services.Replace(ServiceDescriptor.Singleton(sp => new DegradedInFlightSlots(tasks, sp.GetRequiredService<TimeProvider>())));
         services.TryAddSingleton<ITokenBuckets, ValkeyTokenBuckets>();
+        services.TryAddSingleton<IInFlightSlots, ValkeyInFlightSlots>();
         return services;
     }
 
