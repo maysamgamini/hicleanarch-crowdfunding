@@ -71,9 +71,13 @@ resource "aws_rds_cluster" "payments" {
   vpc_security_group_ids          = [aws_security_group.payments_database.id]
   storage_encrypted               = true
 
-  deletion_protection = false
-  skip_final_snapshot = true
-  apply_immediately   = true
+  # It holds Payments' only copy of its data (CQA-2100). An apply that would delete it fails at AWS
+  # instead, and a deliberate delete leaves a snapshot. The sandbox's teardown turns the protection off
+  # and makes way for the new final snapshot first (scripts/release-payments-database.sh).
+  deletion_protection       = true
+  skip_final_snapshot       = false
+  final_snapshot_identifier = "${var.project}-sandbox-payments-final"
+  apply_immediately         = true
 
   # Never paused: the settlement workers poll it every few seconds anyway, and a resume (15 s, or 30 s
   # and more after a day) would be longer than the card-setup call's 5-second budget.

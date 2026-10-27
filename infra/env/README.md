@@ -1,7 +1,9 @@
 # infra/env: the sandbox environment
 
-Applied for a lesson or a test run, destroyed afterwards. Everything here is destroyable with no
-manual step: no deletion protection, no final snapshot, secrets deleted at once, no buckets.
+Applied for a lesson or a test run, destroyed afterwards. Everything here is destroyable, secrets
+are deleted at once and there are no buckets. One exception: Payments' cluster holds Payments' only
+copy of its data, so it has deletion protection and a final snapshot (CQA-2100), and
+`scripts/release-payments-database.sh` turns the protection off before a destroy.
 
 What it creates: a VPC with a public and a private subnet in each of `zone_count` Availability
 Zones (two by default; production runs three) and no NAT gateway; an Application Load Balancer; an
@@ -21,6 +23,7 @@ tofu -chdir=infra/env apply -var image=<ecr url>:<tag> -var gateway_image=<gatew
 # 2. run the migration task (see .github/workflows/sandbox.yml), then 3. roll the service onto the release:
 tofu -chdir=infra/env apply -var image=<ecr url>:<tag> -var gateway_image=<gateway url>:<tag> -var service_image=<ecr url>:<tag>
 STATE_BUCKET=<state bucket> scripts/destroy-payments.sh   # first: Payments runs in this layer's network
+scripts/release-payments-database.sh                      # Payments' cluster may now be deleted
 tofu -chdir=infra/env destroy
 ```
 

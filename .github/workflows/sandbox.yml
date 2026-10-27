@@ -205,6 +205,7 @@ jobs:
         run: |
           start=$(date +%s)
           tofu -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
+          ./scripts/release-payments-database.sh
           tofu -chdir=infra/env destroy -input=false -auto-approve
           echo "Destroy took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 
@@ -234,4 +235,5 @@ jobs:
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
         run: |
           tofu -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
+          ./scripts/release-payments-database.sh
           tofu -chdir=infra/env destroy -input=false -auto-approve
