@@ -29,8 +29,8 @@ hour actually cost; put the measured figure next to these in lesson s3-l13.
 | Load balancers | `aws_lb.api` (public), `aws_lb.internal` | 2 | |
 | Public IPv4 addresses | one per task (no NAT gateway), and the public load balancer's nodes in 2 zones | 6 idle, up to 10 busy | |
 | Aurora PostgreSQL 17 | `aws_rds_cluster_instance.writer`, `.reader` | 2 | Serverless v2, 0 to 2 ACUs each, pauses after 5 idle minutes |
-| Valkey | `aws_elasticache_replication_group.valkey` | 1 node | `cache.t4g.micro` |
-| Secrets | the owner, four modules, Pledges' jobs role, two read connections (Campaigns, Pledges), the webhook secret | 9 | |
+| Valkey | `aws_elasticache_replication_group.valkey` | 2 nodes (a replica in a second zone, automatic failover) | `cache.t4g.micro` |
+| Secrets | the owner, four modules, Pledges' jobs role, two read connections (Campaigns, Pledges), the webhook secret, two Valkey users (API, gateway) | 11 | |
 | CloudFront | `aws_cloudfront_distribution.public` | 1 | per request |
 
 There is no NAT gateway: the tasks sit in public subnets with public addresses, which is cheaper
@@ -47,9 +47,10 @@ than one NAT gateway for a sandbox (see lesson s2-l03).
 | Public IPv4 | 6 × $0.005 | $0.0300 |
 | Load balancers | 2 × $0.0225 (LCUs near zero) | $0.0450 |
 | Aurora | paused: no instance charge | $0.0000 |
-| Valkey | 1 × $0.0128 | $0.0128 |
-| Secrets | 9 × $0.40 / 720 h | $0.0050 |
-| **Total** | | **≈ $0.17** |
+| Valkey | 2 × $0.0128 | $0.0256 |
+| Secrets | 11 × $0.40 / 720 h | $0.0061 |
+| CloudWatch alarms | about 18 alarm metrics, 8 above the free 10: 8 × $0.10 / 720 h | $0.0011 |
+| **Total** | | **≈ $0.19** |
 
 **Under the load profile** (6 monolith tasks, both database instances at their 2-ACU ceiling,
 about 2 LCUs per load balancer):
@@ -61,18 +62,19 @@ about 2 LCUs per load balancer):
 | Public IPv4 | 10 × $0.005 | $0.0500 |
 | Load balancers | 2 × $0.0225 + 4 LCU × $0.008 | $0.0770 |
 | Aurora | 2 instances × 2 ACU × $0.12 | $0.4800 |
-| Valkey | | $0.0128 |
-| Secrets | | $0.0050 |
-| **Total** | | **≈ $0.80** |
+| Valkey | | $0.0256 |
+| Secrets | | $0.0061 |
+| CloudWatch alarms | | $0.0011 |
+| **Total** | | **≈ $0.82** |
 
 Everything else stays inside the free tiers at the sandbox's scale: CloudFront (a run at scale 0.02
-sends about 1,800 totals requests), CloudWatch (7 alarms, 1 dashboard, logs kept for a day), and
+sends about 1,800 totals requests), CloudWatch (1 dashboard, logs kept for a day; the alarms are counted above), and
 Cognito (one creator and a few thousand backers per run; each run's user pool is new, so several
 runs in a month add up toward the 10,000 free monthly active users). Aurora storage is a few GB at
 $0.10 per GB-month, under a cent an hour.
 
 A one-hour lesson with a load test therefore costs well under a dollar, and an environment
-forgotten for a month while idle about $0.17 × 730 ≈ $122, which is why the nightly sweep destroys
+forgotten for a month while idle about $0.19 × 730 ≈ $139, which is why the nightly sweep destroys
 anything left up.
 
 ## Compared with the loop
