@@ -11,12 +11,14 @@ using StackExchange.Redis;
 namespace BuildingBlocks.Infrastructure.Caching;
 
 /// <summary>
-/// Cache-aside in Valkey, with two guards against a stampede when an entry is missing. Inside one
-/// task, concurrent misses for a key share one load (single-flight). Across tasks, a short refill
-/// lock in Valkey lets one task load while the others wait briefly for its answer. The shared load
-/// runs on its own deadline, not the first caller's: a caller that gives up never takes the others
-/// down with it. An invalidation deletes the entry twice, now and a moment later, so a load that
-/// read the old row just before the change cannot keep it cached for the whole time to live.
+/// Cache-aside in Valkey, with guards against a stampede. An entry is fresh for its time to live and
+/// kept as long again: once it is stale, one caller in the whole fleet (the holder of a short refill
+/// lock in Valkey) loads it again while every other caller gets the old value at once
+/// (stale-while-revalidate), so a slow database still sees one query per key. When an entry is
+/// missing, concurrent misses in one task share one load (single-flight), and other tasks wait
+/// briefly for the lock holder's answer. The shared load runs on its own deadline, not the first
+/// caller's. An invalidation deletes the entry twice, now and a moment later, so a changed status is
+/// never served stale and a load that read the old row just before the change cannot keep it.
 /// </summary>
 public sealed partial class ValkeyQueryCache(IConnectionMultiplexer valkey, TimeProvider clock, ILogger<ValkeyQueryCache> logger) : IQueryCache
 {
@@ -40,10 +42,15 @@ public sealed partial class ValkeyQueryCache(IConnectionMultiplexer valkey, Time
 
     public async Task<Result<T>> GetOrLoad<T>(string key, TimeSpan timeToLive, Func<CancellationToken, Task<Result<T>>> load, CancellationToken cancellationToken)
     {
-        var (found, value) = await TryRead<T>(key);
-        if (found)
+        var entry = await TryRead<T>(key);
+        if (entry is { Fresh: true })
         {
-            return Result.Success(value!);
+            return Result.Success(entry.Value!);
+        }
+
+        if (entry is { } stale)
+        {
+            return await Revalidate(key, timeToLive, load, stale.Value!, cancellationToken);
         }
 
         var flight = _inFlight.GetOrAdd(key, _ => new Lazy<Task<object>>(async () => await SharedRefill(key, timeToLive, load)));
@@ -69,6 +76,53 @@ public sealed partial class ValkeyQueryCache(IConnectionMultiplexer valkey, Time
         return await Refill(key, timeToLive, load, deadline.Token);
     }
 
+    /// <summary>
+    /// A stale entry: this caller loads it again only if no one else is (in this task, or holding the
+    /// refill lock in another); every other caller, and this one if the load fails, gets the old value.
+    /// </summary>
+    private async Task<Result<T>> Revalidate<T>(string key, TimeSpan timeToLive, Func<CancellationToken, Task<Result<T>>> load, T stale, CancellationToken cancellationToken)
+    {
+        var mine = new Lazy<Task<object>>(() => Task.FromResult<object>(Result.Success(stale)));
+        if (!_inFlight.TryAdd(key, mine))
+        {
+            return Result.Success(stale);
+        }
+
+        try
+        {
+            var token = Guid.NewGuid().ToString("N");
+            var lockKey = key + ":refill";
+            if (!await TryTakeLock(lockKey, token))
+            {
+                return Result.Success(stale);
+            }
+
+            try
+            {
+                var result = await load(cancellationToken);
+                if (!result.IsSuccess)
+                {
+                    return result;
+                }
+
+                await TryWrite(key, result.Value!, timeToLive);
+                return result;
+            }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                return Result.Success(stale); // the database is failing: the old value is better than none
+            }
+            finally
+            {
+                await TryRun(db => db.ScriptEvaluateAsync(ReleaseLock, [lockKey], [token]), lockKey);
+            }
+        }
+        finally
+        {
+            _inFlight.TryRemove(KeyValuePair.Create(key, mine));
+        }
+    }
+
     public async Task Invalidate(string key, CancellationToken cancellationToken)
     {
         await TryRun(db => db.KeyDeleteAsync(key), key);
@@ -91,10 +145,9 @@ public sealed partial class ValkeyQueryCache(IConnectionMultiplexer valkey, Time
             for (var waited = TimeSpan.Zero; waited < WaitForRefill; waited += Poll)
             {
                 await Task.Delay(Poll, clock, cancellationToken);
-                var (found, value) = await TryRead<T>(key);
-                if (found)
+                if (await TryRead<T>(key) is { } entry)
                 {
-                    return Result.Success(value!);
+                    return Result.Success(entry.Value!);
                 }
             }
 
@@ -106,7 +159,7 @@ public sealed partial class ValkeyQueryCache(IConnectionMultiplexer valkey, Time
             var result = await load(cancellationToken);
             if (result.IsSuccess)
             {
-                await TryWrite(key, JsonSerializer.Serialize(result.Value, Json), timeToLive);
+                await TryWrite(key, result.Value!, timeToLive);
             }
 
             return result;
@@ -117,17 +170,34 @@ public sealed partial class ValkeyQueryCache(IConnectionMultiplexer valkey, Time
         }
     }
 
-    private async Task<(bool Found, T? Value)> TryRead<T>(string key)
+    /// <summary>A stored value and whether it is still fresh.</summary>
+    private sealed record Entry<T>(T? Value, bool Fresh);
+
+    // Stored as "<fresh until, unix ms>|<json>". A value in another form (written before entries had
+    // a freshness, during a rolling deploy) counts as missing.
+    private async Task<Entry<T>?> TryRead<T>(string key)
     {
         try
         {
             var stored = await valkey.GetDatabase().StringGetAsync(key);
-            return stored.IsNull ? (false, default) : (true, JsonSerializer.Deserialize<T>(stored.ToString(), Json));
+            if (stored.IsNull)
+            {
+                return null;
+            }
+
+            var text = stored.ToString();
+            var bar = text.IndexOf('|', StringComparison.Ordinal);
+            if (bar <= 0 || !long.TryParse(text.AsSpan(0, bar), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var freshUntil))
+            {
+                return null;
+            }
+
+            return new Entry<T>(JsonSerializer.Deserialize<T>(text.AsSpan(bar + 1), Json), clock.GetUtcNow().ToUnixTimeMilliseconds() < freshUntil);
         }
         catch (Exception e) when (e is RedisException or TimeoutException)
         {
             LogUnavailable(logger, key, e.Message);
-            return (false, default);
+            return null;
         }
     }
 
@@ -145,8 +215,13 @@ public sealed partial class ValkeyQueryCache(IConnectionMultiplexer valkey, Time
         }
     }
 
-    private Task TryWrite(string key, string json, TimeSpan timeToLive) =>
-        TryRun(db => db.StringSetAsync(key, json, timeToLive), key);
+    /// <summary>Fresh for the time to live, then kept as long again to be served while one caller reloads it.</summary>
+    private Task TryWrite<T>(string key, T value, TimeSpan timeToLive)
+    {
+        var freshUntil = (clock.GetUtcNow() + timeToLive).ToUnixTimeMilliseconds();
+        var stored = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{freshUntil}|{JsonSerializer.Serialize(value, Json)}");
+        return TryRun(db => db.StringSetAsync(key, stored, timeToLive * 2), key);
+    }
 
     private async Task TryRun(Func<IDatabase, Task> action, string key)
     {
