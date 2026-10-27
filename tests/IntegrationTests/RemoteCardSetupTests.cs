@@ -167,8 +167,10 @@ public sealed class RemoteCardSetupTests(Database database)
             }
         });
         listener.Start();
-        await using var host = database.StartHost(services => services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(log))
-            .WithWebHostBuilder(web => web.UseSetting(key, value));
+        // Both are the receiver's settings (s4-l10: Payments runs only in Payments.Host): the port its
+        // internal endpoint answers on, and the service clients its token check lists.
+        await using var host = database.StartHost(services => services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(log),
+            payments: web => web.UseSetting(key, value));
         var given = new Scenario(database, host);
         var campaign = await given.Publish(1_000);
 
