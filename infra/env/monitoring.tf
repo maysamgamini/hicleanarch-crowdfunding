@@ -66,7 +66,7 @@ locals {
   # The gauges are reported by every task at every export, even at 0, so a minute with no data means
   # that no task, or no collector, is reporting: the failure the alarm is there for, so it breaches.
   # A counter reports nothing until it first counts; for these, no data is the normal case.
-  counters = ["close_recheck_mismatch"]
+  counters = ["close_recheck_mismatch", "reconciliation_differences"]
 }
 
 resource "aws_cloudwatch_metric_alarm" "failure_mode" {
