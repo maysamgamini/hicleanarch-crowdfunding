@@ -1,0 +1,10 @@
+{
+  "eventId": "3a5c7e9a-1b3d-4f5a-8c7e-000000000006",
+  "occurredAt": "2026-11-02T14:05:31.512+00:00",
+  "campaignId": "0b7e5c2a-3f41-4c8e-9a6d-2f1e8b3c4d01",
+  "outcome": "FUNDED",
+  "finalMinor": 5230000,
+  "backers": 841,
+  "goalMinor": 5000000,
+  "version": 1
+}

@@ -2,10 +2,12 @@
 #   docker build -f src/Services/Payments.Host/Dockerfile -t crowdfunding-payments .
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
-COPY global.json Directory.Build.props Directory.Packages.props .editorconfig NuGet.config BuildingBlocks.slnx ./
+COPY global.json Directory.Build.props Directory.Packages.props .editorconfig NuGet.config BuildingBlocks.slnx Contracts.slnx ./
 COPY src/ src/
 COPY events/ events/
 RUN dotnet pack BuildingBlocks.slnx -c Release -o artifacts/packages
+# And the modules' Contracts, which they build against as packages too.
+RUN dotnet pack Contracts.slnx -c Release -o artifacts/packages
 RUN dotnet publish src/Services/Payments.Host/Payments.Host.csproj -c Release -o /app
 # The CA bundle the database's certificates chain to, as in the monolith's image: the connection
 # string asks Npgsql to check the server against it (SSL Mode=VerifyFull).

@@ -193,7 +193,6 @@ public sealed partial class OutboxDispatcher(
         activity?.SetTag("messaging.system", "in-process");
         activity?.SetTag("messaging.message.id", record.EventId.ToString());
         activity?.SetTag("crowdfunding.module", record.Module);
-        var integrationEvent = (IntegrationEvent)JsonSerializer.Deserialize(record.Payload, type, EventBus.Json)!;
         var source = modules.Single(m => m.Module == record.Module);
         // The modules the row owes it to; a row from before routes existed owes it to every consumer here.
         var owedTo = record.Sinks?.Where(s => s != OutboxSink.Broker).ToList();
@@ -220,6 +219,9 @@ public sealed partial class OutboxDispatcher(
             return;
         }
 
+        // Read only once the row is known to be owed here, strictly (ContractJson): a payload missing a
+        // required field fails here, before any handler, and the row stays undelivered with the error logged.
+        var integrationEvent = (IntegrationEvent)JsonSerializer.Deserialize(record.Payload, type, EventBus.Json)!;
         var allHandled = true;
         foreach (var handler in inProcess)
         {

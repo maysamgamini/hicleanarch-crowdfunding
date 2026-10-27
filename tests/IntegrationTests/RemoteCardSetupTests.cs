@@ -142,9 +142,9 @@ public sealed class RemoteCardSetupTests(Database database)
         // The in-memory server's connections arrive on port 0, which is not the internal port here. The
         // caller holds a valid service token (s4-l04): the port alone refuses it.
         await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("Payments:Internal:Port", "8081"));
-        using var request = new HttpRequestMessage(HttpMethod.Post, Payments.Contracts.PaymentsInternalEndpoints.StartCardSetup)
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/payments/card-setups")
         {
-            Content = JsonContent.Create(new { pledge_id = Guid.NewGuid(), backer_id = Guid.NewGuid() }),
+            Content = JsonContent.Create(new { pledgeId = Guid.NewGuid(), backerId = Guid.NewGuid() }),
         };
         request.Headers.Authorization = new("Bearer", BuildingBlocks.Infrastructure.Identity.LocalTokens.IssueService(
             Database.SigningKey, Database.ServiceClientId, DateTime.UtcNow.AddHours(1), Payments.Contracts.PaymentsInternalEndpoints.CommandsScope));

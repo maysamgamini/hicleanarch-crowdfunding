@@ -1,0 +1,10 @@
+{
+  "eventId": "3a5c7e9a-1b3d-4f5a-8c7e-000000000010",
+  "occurredAt": "2026-11-02T14:05:31.512+00:00",
+  "cardSetupId": "1e3c5a7e-9b1d-4f3a-b5c7-d9e1f3a5c707",
+  "pledgeId": "9c3f7a10-2d4e-4b6f-a1c8-3e5d7f9b0c03",
+  "backerId": "e2a4c6d8-1f3b-4d5e-8a7c-9b0d2f4e6a04",
+  "paymentMethodRef": "pm_1QbX2nE4f6G8h0J2",
+  "pspMessageId": "evt_1QbX3aE4f6G8h0J2",
+  "version": 1
+}

@@ -1,0 +1,385 @@
+{
+  "package": "CrowdFunding.Pledges.Contracts",
+  "version": "1.0.0",
+  "events": {
+    "CampaignFundingDecided": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "backers": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "finalMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "goalMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "backers",
+          "campaignId",
+          "eventId",
+          "finalMinor",
+          "goalMinor",
+          "occurredAt",
+          "outcome"
+        ]
+      }
+    },
+    "FundingCancelled": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "campaignId",
+          "eventId",
+          "occurredAt"
+        ]
+      }
+    },
+    "PledgeActivated": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "amountMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "tierId": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "amountMinor",
+          "backerId",
+          "campaignId",
+          "currency",
+          "eventId",
+          "occurredAt",
+          "pledgeId",
+          "tierId"
+        ]
+      }
+    },
+    "PledgeCancelled": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "amountMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "amountMinor",
+          "backerId",
+          "campaignId",
+          "eventId",
+          "occurredAt",
+          "pledgeId"
+        ]
+      }
+    },
+    "PledgeChanged": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "newAmountMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "newTierId": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "oldAmountMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "oldTierId": {
+            "format": "uuid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "backerId",
+          "campaignId",
+          "eventId",
+          "newAmountMinor",
+          "newTierId",
+          "occurredAt",
+          "oldAmountMinor",
+          "oldTierId",
+          "pledgeId"
+        ]
+      }
+    },
+    "PledgeChargeRequested": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "amountMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "paymentMethodRef": {
+            "type": "string"
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "amountMinor",
+          "backerId",
+          "campaignId",
+          "currency",
+          "eventId",
+          "occurredAt",
+          "paymentMethodRef",
+          "pledgeId"
+        ]
+      }
+    },
+    "PledgeReleased": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "backerId",
+          "campaignId",
+          "eventId",
+          "occurredAt",
+          "pledgeId"
+        ]
+      }
+    }
+  },
+  "endpoints": {}
+}

@@ -37,12 +37,27 @@
   <Import Project="$(MSBuildThisFileDirectory)artifacts/packages/local-version.props"
           Condition="Exists('$(MSBuildThisFileDirectory)artifacts/packages/local-version.props')" />
   <PropertyGroup>
-    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">4.2.0</BuildingBlocksVersion>
+    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">5.0.0</BuildingBlocksVersion>
   </PropertyGroup>
   <ItemGroup Label="BuildingBlocks">
     <PackageVersion Include="CrowdFunding.BuildingBlocks.Application" Version="$(BuildingBlocksVersion)" />
     <PackageVersion Include="CrowdFunding.BuildingBlocks.Domain" Version="$(BuildingBlocksVersion)" />
     <PackageVersion Include="CrowdFunding.BuildingBlocks.Infrastructure" Version="$(BuildingBlocksVersion)" />
+  </ItemGroup>
+  <!-- The contract version of each module every consumer is built and tested with; the same rules as the
+       BuildingBlocks. scripts/pack-contracts.sh packs fresh prereleases locally and records them in
+       local-contracts-version.props; CI and the images pack each Contracts project's own version. -->
+  <Import Project="$(MSBuildThisFileDirectory)artifacts/packages/local-contracts-version.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)artifacts/packages/local-contracts-version.props')" />
+  <PropertyGroup>
+    <CampaignsContractsVersion Condition="'$(CampaignsContractsVersion)' == ''">1.0.0</CampaignsContractsVersion>
+    <PledgesContractsVersion Condition="'$(PledgesContractsVersion)' == ''">1.0.0</PledgesContractsVersion>
+    <PaymentsContractsVersion Condition="'$(PaymentsContractsVersion)' == ''">1.0.0</PaymentsContractsVersion>
+  </PropertyGroup>
+  <ItemGroup Label="Contracts">
+    <PackageVersion Include="CrowdFunding.Campaigns.Contracts" Version="$(CampaignsContractsVersion)" />
+    <PackageVersion Include="CrowdFunding.Pledges.Contracts" Version="$(PledgesContractsVersion)" />
+    <PackageVersion Include="CrowdFunding.Payments.Contracts" Version="$(PaymentsContractsVersion)" />
   </ItemGroup>
   <ItemGroup Label="Tests">
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />

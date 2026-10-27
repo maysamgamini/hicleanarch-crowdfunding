@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
 
@@ -198,11 +199,28 @@ public static class PaymentsModule
 
         // For other services (s4-l03): on the internal port only, which no load balancer forwards, and
         // only with a listed service's token for payments/commands (s4-l04).
-        app.MapPost(PaymentsInternalEndpoints.StartCardSetup, async (StartCardSetup command,
+        // The path, the body and the reply are the contract's: [RemoteEndpoint] and ContractJson (s4-l06).
+        var startCardSetup = typeof(StartCardSetup).GetCustomAttribute<RemoteEndpointAttribute>()!;
+        app.MapMethods(startCardSetup.Path, [startCardSetup.Method], async (HttpContext http,
             [FromKeyedServices(PaymentsModuleName.Value)] ICommandHandler<StartCardSetup, CardSetupStarted> handler, CancellationToken ct) =>
         {
+            StartCardSetup? command;
+            try
+            {
+                command = await http.Request.ReadFromJsonAsync<StartCardSetup>(ContractJson.Options, ct);
+            }
+            catch (JsonException)
+            {
+                command = null;
+            }
+
+            if (command is null)
+            {
+                return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The body is not a StartCardSetup.");
+            }
+
             var started = await handler.Handle(command, ct);
-            return started.IsSuccess ? Results.Ok(started.Value) : started.Errors.ToProblem();
+            return started.IsSuccess ? Results.Json(started.Value, ContractJson.Options) : started.Errors.ToProblem();
         }).AddEndpointFilter<InternalPortOnly>().RequirePaymentsCommands().ExcludeFromDescription();
 
         // On a laptop there is no PSP to finish the card form: this plays the backer and the PSP.

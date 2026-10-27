@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\Pledges.Contracts\Pledges.Contracts.csproj" />
+    <PackageReference Include="CrowdFunding.Pledges.Contracts" />
     <ProjectReference Include="..\Pledges.Domain\Pledges.Domain.csproj" />
-    <ProjectReference Include="..\..\Campaigns\Campaigns.Contracts\Campaigns.Contracts.csproj" />
-    <ProjectReference Include="..\..\Payments\Payments.Contracts\Payments.Contracts.csproj" />
+    <PackageReference Include="CrowdFunding.Campaigns.Contracts" />
+    <PackageReference Include="CrowdFunding.Payments.Contracts" />
   </ItemGroup>
 
   <ItemGroup Label="BuildingBlocks">

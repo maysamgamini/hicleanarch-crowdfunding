@@ -1,0 +1,266 @@
+{
+  "package": "CrowdFunding.Payments.Contracts",
+  "version": "1.0.0",
+  "events": {
+    "CampaignSettled": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "charged": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "failed": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "campaignId",
+          "charged",
+          "eventId",
+          "failed",
+          "occurredAt"
+        ]
+      }
+    },
+    "PaymentMethodSaved": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "cardSetupId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "paymentMethodRef": {
+            "type": "string"
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "pspMessageId": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "backerId",
+          "cardSetupId",
+          "eventId",
+          "occurredAt",
+          "paymentMethodRef",
+          "pledgeId",
+          "pspMessageId"
+        ]
+      }
+    },
+    "PledgeChargeFailed": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "attemptNo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "declineCode": {
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "final": {
+            "type": "boolean"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "retriedOnItsOwn": {
+            "default": false,
+            "type": "boolean"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "attemptNo",
+          "backerId",
+          "campaignId",
+          "declineCode",
+          "eventId",
+          "final",
+          "occurredAt",
+          "pledgeId"
+        ]
+      }
+    },
+    "PledgeChargeSucceeded": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "amountMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "attemptNo": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "pspPaymentId": {
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "amountMinor",
+          "attemptNo",
+          "backerId",
+          "campaignId",
+          "eventId",
+          "occurredAt",
+          "pledgeId",
+          "pspPaymentId"
+        ]
+      }
+    }
+  },
+  "endpoints": {
+    "POST /internal/payments/card-setups": {
+      "command": "StartCardSetup",
+      "request": {
+        "type": "object",
+        "properties": {
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backerId",
+          "pledgeId"
+        ]
+      },
+      "response": {
+        "type": "object",
+        "properties": {
+          "cardSetupId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "clientSecret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cardSetupId",
+          "clientSecret"
+        ]
+      }
+    }
+  }
+}

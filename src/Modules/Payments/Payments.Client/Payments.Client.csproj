@@ -2,10 +2,10 @@
 
   <ItemGroup>
     <PackageReference Include="CrowdFunding.BuildingBlocks.Infrastructure" />
+    <PackageReference Include="CrowdFunding.Payments.Contracts" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Payments.Contracts\Payments.Contracts.csproj" />
     <ProjectReference Include="..\..\..\RemoteCalls\RemoteCalls.csproj" />
   </ItemGroup>
 
