@@ -37,7 +37,12 @@ public static class DatabaseBusy
     }
 }
 
-/// <summary>Answers a busy database with <c>409</c>, the reason, and <c>Retry-After: 1</c>.</summary>
+/// <summary>
+/// Answers a busy database with <c>409</c>, the reason, and <c>Retry-After: 1</c>: a lock not free in
+/// time, or a transaction the database ended at its time limit. Once the database has ended the
+/// session, the request's next statement finds its transaction completed or disposed instead of
+/// the timeout; that is the same answer, since nothing was committed.
+/// </summary>
 public sealed class DatabaseBusyHandler : IExceptionHandler
 {
     // PostgreSQL 17 ends a session whose transaction outlives transaction_timeout with this code.
@@ -69,7 +74,11 @@ public sealed class DatabaseBusyHandler : IExceptionHandler
     {
         for (; exception is not null; exception = exception.InnerException)
         {
-            if (exception is PostgresException { SqlState: TransactionTimeout })
+            if (exception is PostgresException { SqlState: TransactionTimeout }
+                or ObjectDisposedException { ObjectName: nameof(NpgsqlTransaction) }
+                || (exception is InvalidOperationException
+                    && (exception.Message.StartsWith("Transaction is already completed", StringComparison.Ordinal)
+                        || exception.Message.StartsWith("This NpgsqlTransaction has completed", StringComparison.Ordinal))))
             {
                 return true;
             }
