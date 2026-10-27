@@ -4,3 +4,4 @@
 infra/
 tests/
 artifacts/
+.local/

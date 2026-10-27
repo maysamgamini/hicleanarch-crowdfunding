@@ -23,6 +23,8 @@ jobs:
           global-json-file: global.json
       - name: Solution filters, project graphs, path filters and pinned actions
         run: dotnet test tests/Delivery.Tests
+      - name: Every service host still matches the service template
+        run: scripts/check-service-template.sh
 
   # OpenTofu (MPL-2.0), the version in .opentofu-version. No credentials: init without the backend,
   # and tofu test plans each root against mock providers, so nothing here calls AWS.

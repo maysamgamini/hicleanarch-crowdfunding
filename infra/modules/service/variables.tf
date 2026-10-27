@@ -1,0 +1,104 @@
+variable "project" {
+  description = "Prefix for resource names; the shared layer's."
+  type        = string
+}
+
+variable "region" {
+  description = "AWS Region; the shared layer's."
+  type        = string
+}
+
+variable "name" {
+  description = "The service's name: its ECS service, its Service Connect name, its log group and the middle of every resource name (<project>-sandbox-<name>-*)."
+  type        = string
+}
+
+variable "shared" {
+  description = "The parts of the shared layer's published outputs (infra/env/shared-outputs.tf) every service needs."
+  type = object({
+    cluster_name                  = string
+    cluster_arn                   = string
+    vpc_cidr                      = string
+    task_subnet_ids               = list(string)
+    service_connect_namespace_arn = string
+    collector_image               = string
+    cognito_issuer                = string
+    user_pool_client_id           = string
+    alarm_topic_arn               = string
+  })
+}
+
+variable "security_group_id" {
+  description = "The service's own security group, which the shared layer owns with the rest of the network and which admits named callers only."
+  type        = string
+}
+
+variable "image" {
+  description = "This release's image, as repository URL and tag. The migrate task runs it."
+  type        = string
+}
+
+variable "service_image" {
+  description = "What the service runs. The deploy keeps the current one until the release's migration has run, then sets it to image. Empty: no service yet."
+  type        = string
+}
+
+variable "desired_count" {
+  description = "The service's tasks."
+  type        = number
+}
+
+variable "cpu" {
+  type    = number
+  default = 256
+}
+
+variable "memory" {
+  type    = number
+  default = 512
+}
+
+variable "secrets" {
+  description = "The container's secrets, as ECS takes them ({ name, valueFrom }). The execution role may read these and no other."
+  type        = list(object({ name = string, valueFrom = string }))
+}
+
+variable "migrate_secrets" {
+  description = "What the migrate task adds to the secrets: the service's migration role (ConnectionStrings__Migrator), or for a cluster of its own its owner. Only the migrate task's execution role may read them."
+  type        = list(object({ name = string, valueFrom = string }))
+}
+
+variable "environment" {
+  description = "The container's own settings, beside the platform's (telemetry, sign-in, forwarded headers)."
+  type        = list(object({ name = string, value = string }))
+  default     = []
+}
+
+variable "queue_arn" {
+  description = "The service's own queue, which its task role may read. Null: it reads none."
+  type        = string
+  default     = null
+}
+
+variable "topic_arn" {
+  description = "The service's own topic, to which its task role may publish and whose subscriptions it may check. Null: it publishes nothing."
+  type        = string
+  default     = null
+}
+
+variable "task_policy_json" {
+  description = "What else the running service may do: an AWS API of its own (SES, Cognito). Empty: nothing more."
+  type        = string
+  default     = ""
+}
+
+variable "internal_port" {
+  description = "A second port, 8081, for internal commands from other services (as Payments'), with this per-request timeout on the callers' proxies. Null: the public port only."
+  type        = object({ per_request_timeout_seconds = number })
+  default     = null
+}
+
+variable "assembly" {
+  description = "The host's assembly, as the image runs it (CrowdFunding.<Service>.Host.dll): the container's health check runs it with `health` (HealthProbe), which asks the program's own /health/ready."
+  type        = string
+}

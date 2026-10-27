@@ -6,7 +6,7 @@ What every module of the crowdfunding platform shares, as three packages:
 - `CrowdFunding.BuildingBlocks.Application`: commands, queries, handlers, validators and the dispatcher;
   `ContractJson`, the strict options every message between modules is read with, and `RemoteEndpoint`,
   which names the HTTP endpoint of a command another service may send.
-- `CrowdFunding.BuildingBlocks.Infrastructure`: problem replies, idempotent requests, the outbox and inbox, the database migrator, authentication.
+- `CrowdFunding.BuildingBlocks.Infrastructure`: problem replies, idempotent requests, the outbox and inbox, the database migrator, authentication, and the service host builder (`AddServiceDefaults`, `UseServiceDefaults`, `RunService`) every service host is made with (`templates/service`).
 
 Versions follow SemVer. A change that can break a caller (a removed or renamed public type or member,
 a changed signature or behaviour a caller relies on) is a new major version. A new public type or

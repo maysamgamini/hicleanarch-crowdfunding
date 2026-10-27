@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "hicleanarch",
+  "classifications": ["Web", "Service"],
+  "identity": "CrowdFunding.Service",
+  "name": "CrowdFunding service host",
+  "shortName": "crowdfunding-service",
+  "description": "A host of its own for one module: src/Services/<Module>.Host and tests/<Module>.Host.Tests, on the platform's service host builder. From the repository root: dotnet new install templates/service; dotnet new crowdfunding-service -n <Module> [--layout single] --port <port> -o . ; then add both projects to CrowdFunding.slnx and the image to CI.",
+  "sourceName": "Sample",
+  "preferNameDirectory": false,
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "symbols": {
+    "layout": {
+      "type": "parameter",
+      "datatype": "choice",
+      "description": "How the module is laid out: Domain, Application, Infrastructure and Contracts projects (layered), or one project (single, as Notifications).",
+      "choices": [
+        { "choice": "layered", "description": "src/Modules/<Module>/<Module>.Infrastructure" },
+        { "choice": "single", "description": "src/Modules/<Module>/<Module>.csproj" }
+      ],
+      "defaultValue": "layered"
+    },
+    "single": {
+      "type": "computed",
+      "value": "(layout == \"single\")"
+    },
+    "port": {
+      "type": "parameter",
+      "datatype": "integer",
+      "description": "The local port of `dotnet run` (launchSettings.json).",
+      "defaultValue": "5190",
+      "replaces": "5190"
+    }
+  }
+}

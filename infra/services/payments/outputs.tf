@@ -1,25 +1,25 @@
 output "cluster" {
-  value = local.shared.cluster_name
+  value = module.service.cluster
 }
 
 output "service" {
-  value = local.service_name
+  value = module.service.service
 }
 
 output "service_image" {
   description = "What the Payments service runs; the next deploy keeps it until its migration has run."
-  value       = var.service_image
+  value       = module.service.service_image
 }
 
 output "migrate_task_definition" {
-  value = aws_ecs_task_definition.migrate.arn
+  value = module.service.migrate_task_definition
 }
 
 output "task_subnets" {
   description = "Comma-separated, as aws ecs run-task wants them."
-  value       = join(",", local.shared.task_subnet_ids)
+  value       = module.service.task_subnets
 }
 
 output "task_security_group" {
-  value = local.shared.payments_security_group_id
+  value = module.service.task_security_group
 }

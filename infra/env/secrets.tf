@@ -51,7 +51,9 @@ locals {
   db_host = aws_rds_cluster.main.endpoint
   # TLS with the server's certificate and host name checked against the RDS CA bundle, which the
   # image carries (see the Dockerfile). Npgsql's default, Prefer, encrypts but checks nothing.
-  db_tls = "SSL Mode=VerifyFull;Root Certificate=/usr/local/share/rds/global-bundle.pem"
+  # GSS Encryption Mode=Disable: Npgsql would first probe GSSAPI encryption, which the aspnet image has no
+  # library for, and log an error at every first connection (CQA-1751); Aurora offers no GSSAPI anyway.
+  db_tls = "SSL Mode=VerifyFull;Root Certificate=/usr/local/share/rds/global-bundle.pem;GSS Encryption Mode=Disable"
   # Every pool has a cap, so the connections add up to a known number: see the budget in README.md.
   pool       = "Maximum Pool Size=${local.module_pool_size}"
   owner_pool = "Maximum Pool Size=${local.owner_pool_size}"

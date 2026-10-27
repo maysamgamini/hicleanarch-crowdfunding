@@ -271,7 +271,7 @@ internal sealed partial class PaymentsMove(
 
         await Grants(TargetOwner, TargetLogin, ct);
         var role = Sql.Quote(Role);
-        await Execute(target, $"ALTER ROLE {role} LOGIN PASSWORD {Sql.Literal(login.Password)};\nCOMMENT ON ROLE {role} IS NULL;", ct);
+        await Execute(target, $"ALTER ROLE {role} LOGIN PASSWORD {Sql.Literal(ScramVerifier.For(login.Password))};\nCOMMENT ON ROLE {role} IS NULL;", ct);
         LogSwitched(logger);
         return true;
     }

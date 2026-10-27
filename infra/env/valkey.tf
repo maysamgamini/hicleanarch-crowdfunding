@@ -43,10 +43,15 @@ resource "aws_elasticache_replication_group" "valkey" {
 }
 
 # Every client signs in as a user of its own (RBAC); a Valkey user group has no default user, so a
-# connection without a password can do nothing. The gateway may touch only its own keys.
+# connection without a password can do nothing. The gateway may touch only its own keys, and each
+# service only its own prefixes and the command categories it uses (lesson s5-l01).
 locals {
   valkey_users = {
-    api = "on ~* &* +@all"
+    # The monolith, which runs Campaigns, Pledges and Notifications (lesson s5-l01): the catalog cache and
+    # its refill locks (campaigns:*), and the display totals and sold-out flags (pledges:*). Since s4-l10
+    # it takes no PSP budget token, so buckets:* is not its own any more. Only the categories it uses, and
+    # nothing @dangerous (FLUSHALL, KEYS, CONFIG), nor SCAN or RANDOMKEY, which list keys beyond its prefixes.
+    api = "on ~campaigns:* ~pledges:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey"
     # The services' users get nothing @dangerous (FLUSHALL, FLUSHDB, KEYS, CONFIG, DEBUG), nor SCAN or RANDOMKEY,
     # which key patterns do not limit (KEYS and SCAN list every service's keys). ValkeyUsersTests runs these
     # strings against a Valkey container (CQA-1516).
@@ -60,9 +65,9 @@ locals {
   }
 
   # A user limited to its own keys may not read the client's tiebreaker key or subscribe to its
-  # configuration channel, so its connection string turns both off. The monolith and the gateway keep
-  # the client's defaults.
-  valkey_restricted_users   = toset(["payments"])
+  # configuration channel, so its connection string turns both off. The gateway keeps the client's
+  # defaults.
+  valkey_restricted_users   = toset(["api", "payments"])
   valkey_restricted_options = ",tiebreaker=,configChannel="
 }
 

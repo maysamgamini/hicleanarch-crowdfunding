@@ -1,15 +1,9 @@
-using System.Text.Json;
 
-using BuildingBlocks.Application;
-using BuildingBlocks.Infrastructure.Caching;
-using BuildingBlocks.Infrastructure.Events;
 using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Identity;
-using BuildingBlocks.Infrastructure.Persistence;
 
 using Campaigns.Infrastructure;
 
-using CrowdFunding.Host;
 using CrowdFunding.Messaging;
 
 using Notifications;
@@ -37,23 +31,9 @@ if (args.FirstOrDefault() == "token")
     return;
 }
 
-builder.Logging.AddTraceCorrelatedConsole();
-
-// The API speaks snake_case JSON: goal_minor, campaign_id.
-builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
-builder.Services.AddProblemDetails();
-// A database that cannot be reached is a 503 the client may retry, not a 500.
-builder.Services.AddExceptionHandler<DatabaseUnavailableHandler>();
-builder.Services.AddDispatcher();
-builder.Services.AddSingleton(TimeProvider.System);
-builder.Services.AddSingleton<DatabaseMigrator>();
-builder.Services.AddTelemetry(builder.Configuration);
-builder.Services.AddTokenAuthentication(builder.Configuration);
-builder.Services.AddInProcessEvents();
-builder.Services.AddProxyHeaders(builder.Configuration);
-builder.Services.AddGracefulStop();
-builder.Services.AddQueryCache(builder.Configuration);
-builder.Services.AddHealth(builder.Configuration);
+// The platform's plumbing every service shares (lesson s5-l01), under this program's name, with the broker
+// when Events:Broker is set; then the read API's description and the modules this program still runs.
+builder.AddServiceDefaults("crowdfunding-api", BrokerHosting.IfConfigured);
 builder.Services.AddOpenApi();
 
 // Each module brings its own services and endpoints. The host only composes them.
@@ -64,39 +44,9 @@ builder.Services.AddNotificationsModule(builder.Configuration);
 // exchanges events with it through the broker, and knows nothing of it but its Contracts.
 builder.Services.AddPaymentsClient(builder.Configuration);
 
-// With an Events:Broker section, the events whose consumers are routed to the broker go through SNS and SQS.
-if (builder.Configuration.GetSection("Events:Broker").Exists())
-{
-    builder.Services.AddBrokerEvents(builder.Configuration);
-}
-
 var app = builder.Build();
 
-// `dotnet run -- migrate` prepares the database and exits. It is a deploy step, never part of start-up.
-if (args.Contains("migrate"))
-{
-    var owner = app.Configuration.GetConnectionString("Owner")
-        ?? throw new InvalidOperationException("ConnectionStrings:Owner is not set.");
-    await app.Services.GetRequiredService<DatabaseMigrator>().Run(owner, CancellationToken.None);
-    return;
-}
-
-// `dotnet run -- replay-events --module Pledges --from … --to …` publishes a range of published events again, and exits.
-if (args.FirstOrDefault() == "replay-events")
-{
-    Environment.ExitCode = await EventReplay.Run(app.Services, [.. args.Skip(1)], Console.Out, CancellationToken.None);
-    return;
-}
-
-app.UseForwardedHeaders();
-// Behind the gateway, the client is the address the gateway decided (after the forwarded headers, when present).
-app.UseGatewayClientAddress();
-app.UseExceptionHandler();
-app.UseStatusCodePages();
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.MapHealth();
+app.UseServiceDefaults();
 app.MapCampaignsEndpoints();
 app.MapPledgesEndpoints();
 app.MapNotificationsEndpoints();
@@ -107,7 +57,9 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
     app.MapOpenApi().AllowAnonymous();
 }
 
-await app.RunAsync();
+// `migrate` prepares the database and exits, a deploy step, never part of start-up; `replay-events
+// --module Pledges --from … --to …` publishes a range of published events again; otherwise it serves.
+await app.RunService(args);
 
 /// <summary>Visible to the integration tests, which start the host in memory.</summary>
 public partial class Program;

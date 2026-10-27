@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- The Sample service: the Sample module in a host of its own, made from templates/service. -->
+  <PropertyGroup>
+    <RootNamespace>CrowdFunding.Sample.Host</RootNamespace>
+    <AssemblyName>CrowdFunding.Sample.Host</AssemblyName>
+  </PropertyGroup>
+
+  <!-- One module, and nothing of the others: they reach it through events and its contracts. -->
+  <ItemGroup>
+<!--#if (single) -->
+    <ProjectReference Include="..\..\Modules\Sample\Sample.csproj" />
+<!--#else -->
+    <ProjectReference Include="..\..\Modules\Sample\Sample.Infrastructure\Sample.Infrastructure.csproj" />
+<!--#endif -->
+    <ProjectReference Include="..\..\Messaging\Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The same list of event consumers every host reads. -->
+    <Content Include="..\..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Label="BuildingBlocks">
+    <PackageReference Include="CrowdFunding.BuildingBlocks.Infrastructure" />
+  </ItemGroup>
+
+</Project>

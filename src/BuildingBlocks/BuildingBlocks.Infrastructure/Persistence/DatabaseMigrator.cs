@@ -19,6 +19,14 @@ public sealed partial class DatabaseMigrator(
     {
         foreach (var migrator in migrators)
         {
+            // A schema handed to its service's migration role (SchemaHandover) is that service's to
+            // migrate: the monolith, which still runs the module until it leaves, no longer touches it.
+            if (await HandedOverTo(ownerConnectionString, migrator.Schema, cancellationToken) is { } owner)
+            {
+                LogHandedOver(logger, migrator.Module, migrator.Schema, owner);
+                continue;
+            }
+
             // Every role that logs in to this module's schema: the module's own, and any other it uses.
             var roles = databases.Where(d => d.Schema == migrator.Schema).ToList();
             foreach (var role in roles)
@@ -38,8 +46,48 @@ public sealed partial class DatabaseMigrator(
         }
     }
 
+    /// <summary>
+    /// A service's own migrate step, after <see cref="SchemaHandover"/>: logged in as its migration role,
+    /// which owns its schema and every object in it, but may not create roles, schemas or settings.
+    /// It applies the migrations, then grants the module's roles their tables and takes back what the
+    /// module takes back, as <see cref="Run"/> does. The roles and their settings stay as the owner
+    /// left them.
+    /// </summary>
+    public async Task RunAsSchemaOwner(string migratorConnectionString, CancellationToken cancellationToken)
+    {
+        foreach (var migrator in migrators)
+        {
+            var roles = databases.Where(d => d.Schema == migrator.Schema).ToList();
+            await migrator.Migrate(migratorConnectionString, cancellationToken);
+            await Execute(migratorConnectionString,
+                string.Concat(roles.Select(r => GrantTables(r) + migrator.AfterGrants(Quote(r.Role)))),
+                cancellationToken);
+            await migrator.Verify(roles, cancellationToken);
+
+            LogMigrated(logger, migrator.Module, migrator.Schema);
+        }
+    }
+
+    /// <summary>The schemas this host's modules keep.</summary>
+    public IReadOnlyList<string> Schemas => [.. migrators.Select(m => m.Schema).Distinct()];
+
     [LoggerMessage(Level = LogLevel.Information, Message = "Migrated {Module} in schema {Schema}")]
     private static partial void LogMigrated(ILogger logger, string module, string schema);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Skipped {Module}: schema {Schema} belongs to {Owner}, whose service migrates it")]
+    private static partial void LogHandedOver(ILogger logger, string module, string schema, string owner);
+
+    /// <summary>The schema's owner when it is not the connecting role (the schema was handed over), otherwise null.</summary>
+    private static async Task<string?> HandedOverTo(string owner, string schema, CancellationToken ct)
+    {
+        await using var connection = new NpgsqlConnection(owner);
+        await connection.OpenAsync(ct);
+        await using var command = new NpgsqlCommand(
+            "SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname = @schema AND nspowner <> (SELECT oid FROM pg_roles WHERE rolname = current_user)",
+            connection);
+        command.Parameters.AddWithValue("schema", schema);
+        return await command.ExecuteScalarAsync(ct) as string;
+    }
 
     private static async Task PrepareRoleAndSchema(string owner, ModuleDatabase module, CancellationToken ct)
     {
@@ -49,7 +97,7 @@ public sealed partial class DatabaseMigrator(
             DO $$
             BEGIN
                 IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = {Literal(module.Role)}) THEN
-                    CREATE ROLE {role} LOGIN PASSWORD {Literal(module.Password)};
+                    CREATE ROLE {role} LOGIN PASSWORD {Literal(ScramVerifier.For(module.Password))};
                 END IF;
             END $$;
             CREATE SCHEMA IF NOT EXISTS {schema};

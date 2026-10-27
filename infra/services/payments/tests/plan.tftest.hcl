@@ -74,3 +74,27 @@ run "plans_a_running_service" {
     service_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-payments:mock"
   }
 }
+
+# The service module gives Payments its own access and nothing else's (lesson s5-l01).
+run "its_roles_name_only_its_own_secrets_queue_and_topic" {
+  command = plan
+
+  assert {
+    condition = toset(module.service.secret_arns) == toset([
+      "arn:aws:secretsmanager:us-east-1:123456789012:secret:payments-AbCdEf",
+      "arn:aws:secretsmanager:us-east-1:123456789012:secret:webhook-AbCdEf",
+      "arn:aws:secretsmanager:us-east-1:123456789012:secret:valkey-AbCdEf",
+    ])
+    error_message = "The execution role reads a secret that is not Payments'."
+  }
+
+  assert {
+    condition     = contains(module.service.migrate_secret_arns, "arn:aws:secretsmanager:us-east-1:123456789012:secret:owner-AbCdEf") && length(module.service.migrate_secret_arns) == 4
+    error_message = "The migrate task reads more than Payments' secrets and its cluster's owner."
+  }
+
+  assert {
+    condition     = alltrue([for arn in module.service.queue_and_topic : strcontains(arn, ":hicleanarch-payments")]) && length(module.service.queue_and_topic) == 2
+    error_message = "The task role names another service's queue or topic."
+  }
+}

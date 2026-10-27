@@ -1,8 +1,9 @@
-namespace Payments.Host;
+namespace BuildingBlocks.Infrastructure.Hosting;
 
 /// <summary>
-/// The container's health check (CQA-1518). Payments has no load balancer to ask its readiness, and the
-/// aspnet image has no curl, so the program asks itself: <c>dotnet CrowdFunding.Payments.Host.dll health</c>
+/// The container's health check (CQA-1518; every service's from s5-l01). A service behind Service Connect has
+/// no load balancer to ask its readiness, and the aspnet image has no curl, so the program asks itself:
+/// <c>dotnet CrowdFunding.&lt;Service&gt;.Host.dll health</c>
 /// calls <c>/health/ready</c> on its own first HTTP port and exits 0 when ready, 1 otherwise. ECS runs it
 /// as the container's healthCheck; the deployment circuit breaker and Service Connect read the result.
 /// </summary>

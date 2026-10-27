@@ -9,7 +9,4 @@ data "aws_s3_object" "shared" {
 
 locals {
   shared = jsondecode(data.aws_s3_object.shared.body)
-
-  # The bootstrap layer's boundary: the deploy role may create a role only with it attached.
-  task_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.project}-task-boundary"
 }

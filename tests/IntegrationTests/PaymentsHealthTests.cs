@@ -1,3 +1,4 @@
+using BuildingBlocks.Infrastructure.Hosting;
 using System.Net;
 
 using Microsoft.AspNetCore.TestHost;
@@ -54,8 +55,11 @@ public sealed class PaymentsHealthTests(Database database) : IDisposable
             root = Path.GetDirectoryName(root)!;
         }
 
+        // Every service's container runs its program's probe (the service module, s5-l01), and Payments names its program.
+        var module = File.ReadAllText(Path.Combine(root, "infra", "modules", "service", "main.tf"));
         var service = File.ReadAllText(Path.Combine(root, "infra", "services", "payments", "service.tf"));
 
-        Assert.Contains($"""command     = ["CMD", "dotnet", "CrowdFunding.Payments.Host.dll", "{HealthProbe.Command}"]""", service, StringComparison.Ordinal);
+        Assert.Contains($"""command     = ["CMD", "dotnet", var.assembly, "{HealthProbe.Command}"]""", module, StringComparison.Ordinal);
+        Assert.Contains("assembly = \"CrowdFunding.Payments.Host.dll\"", service, StringComparison.Ordinal);
     }
 }

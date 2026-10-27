@@ -22,7 +22,9 @@ scripts/pack-contracts.sh                     # the BuildingBlocks and each modu
 docker compose up -d                          # PostgreSQL 17 on localhost:5432
 dotnet run --project src/Host -- migrate      # roles, schemas and migrations, then exit (a deploy step)
 dotnet run --project src/Host                 # the API on http://localhost:5080
-curl -X POST localhost:5080/v1/campaigns -H 'Content-Type: application/json' \
+TOKEN=$(dotnet run --project src/Host -- token creator)   # a local creator's token (Development only)
+curl -X POST localhost:5080/v1/campaigns -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+  -H "Idempotency-Key: $(uuidgen)" \
   -d '{"title":"Harbor Lights","goal_minor":5000000,"currency":"USD","deadline":"2027-03-31T23:59:00-04:00","tiers":[]}'
 dotnet test                                   # every test; the integration tests start their own PostgreSQL in Docker
 ```
@@ -30,6 +32,21 @@ dotnet test                                   # every test; the integration test
 Each module connects as its own database role (`campaigns_app`, `pledges_app`, `payments_app`, `notifications_app`), which can use only its own schema. Pledges' background jobs (the close and the totals aggregator) connect as `pledges_jobs`, with the same rights but without the two-second `transaction_timeout` that `migrate` sets on `pledges_app` and checks is enforced. `migrate` connects as the owner, creates the roles and schemas, applies each module's EF Core migrations and grants the module's role its tables.
 
 Payments runs on a fake PSP in memory. On a laptop, `POST /dev/fake-psp/setups/{setup_id}/complete` plays the backer finishing the card form: the setup id is the start of the `client_secret` a new-card pledge returns.
+
+## Run it locally
+
+The whole system as it runs in ECS, on a laptop, with Docker only and no AWS account: PostgreSQL 17, Valkey 8 with a user per client and no default user, Moto for SNS and SQS, the migration task, the monolith and the YARP gateway in front of it.
+
+```bash
+scripts/local-up.sh                           # build, provision the topics and queues, migrate, start; checks no endpoint is on AWS
+scripts/local-smoke.sh                        # draft → publish → pledge → card → close → charge → settle, through the gateway
+docker compose --profile stack down -v        # remove it all, data included
+```
+
+- `local-up.sh` provisions the broker on Moto from `events/broker-subscriptions.json`, the file Terraform reads (`local/broker/provision.py`): a topic per producing module, a queue and dead-letter queues per service, the filtered subscriptions. It writes their addresses to `.local/broker.env` for the hosts, as Terraform writes them into the task definitions.
+- The hosts get the environment the task definitions give them, with two local substitutes: tokens come from the local issuer instead of Cognito (`docker compose run --rm -e ASPNETCORE_ENVIRONMENT=Development api token creator` prints one), and every AWS client is pointed at Moto (`AWS_ENDPOINT_URL`). Emails stay in memory; each one sent is a row in `notifications.sent_notifications`.
+- The smoke test plays the PSP itself: it signs the card form's webhook with the development secret and posts it to the gateway, as the PSP does. It asserts the final states through the API, the four emails, that every event owed to the broker was published, and that no dead-letter queue holds a message. A run takes about a minute and a half, most of it the campaign's real 40-second deadline and the close job's 30-second pass.
+- Ports, all on 127.0.0.1: the gateway on 8080 (`LOCAL_GATEWAY_PORT`), the monolith on 8081 for debugging only, Moto on 5001, PostgreSQL on 5432 and Valkey on 6379. `docker compose up -d` without the profile still starts only PostgreSQL and Valkey, for `dotnet run`.
 
 ## Layout
 

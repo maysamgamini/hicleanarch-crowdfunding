@@ -485,3 +485,6 @@ $RECYCLE.BIN/
 *.tfstate
 *.tfstate.*
 .terraform.lock.hcl.bak
+
+# The local stack's generated broker addresses (scripts/local-up.sh)
+.local/

@@ -37,6 +37,9 @@ locals {
     # Who creates Payments' schema and login: its own cluster's master, read only by Payments' migrate
     # task (s4-l10). Never the shared cluster's owner: the monolith's migrate step prepares no Payments.
     payments_database_owner_secret_arn = aws_secretsmanager_secret.payments_own["owner"].arn
+
+    # Each schema's migration role on the shared cluster (s5-l01), for the service that will own it.
+    migrator_secret_arns = { for module, secret in aws_secretsmanager_secret.migrator : module => secret.arn }
   }
 }
 
