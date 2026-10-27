@@ -70,6 +70,9 @@ public sealed class Database : IAsyncLifetime
 
     public const string ClientId = "test-client";
 
+    /// <summary>The monolith's app client for service tokens (s4-l04), the one Payments lists.</summary>
+    public const string ServiceClientId = "test-monolith";
+
     public const string SigningKey = "test-only-signing-key-0123456789abcdef";
 
     /// <summary>A token for a new user in the given groups, as Cognito would issue it.</summary>
@@ -180,6 +183,8 @@ public sealed class Database : IAsyncLifetime
             })
             .UseEnvironment("Testing")
             .UseSetting("Modules:Payments:Calls", "Http")
+            .UseSetting("ServiceIdentity:ClientId", ServiceClientId)
+            .UseSetting("Auth:ServiceClients:0", ServiceClientId)
             // The in-memory server has no ports: its connections' local port is 0.
             .UseSetting("Payments:Internal:Port", "0")
             // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.

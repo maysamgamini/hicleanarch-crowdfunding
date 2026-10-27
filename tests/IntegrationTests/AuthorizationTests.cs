@@ -84,8 +84,6 @@ public sealed class AuthorizationTests(Database database) : IDisposable
         "GET /openapi/{documentName}.json",
         "GET /v1/campaigns/{id}",
         "GET /v1/campaigns/{id}/totals",
-        // On the internal port only, which no load balancer forwards (s4-l03); s4-l04 adds service tokens.
-        "POST /internal/payments/card-setups",
         "POST /v1/webhooks/psp",
     ];
 

@@ -58,10 +58,10 @@ locals {
       # StartCardSetup goes over HTTP to Payments' internal port, still this task's own (s4-l03).
       { name = "Modules__Payments__Calls", value = "Http" },
       { name = "Modules__Payments__BaseAddress", value = "http://localhost:8081" },
-    ], local.broker_environment)
+    ], local.broker_environment, local.service_identity_environment)
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30
-    secrets     = local.module_secrets
+    secrets     = concat(local.module_secrets, local.service_identity_secrets)
     logConfiguration = {
       logDriver = "awslogs"
       options = {

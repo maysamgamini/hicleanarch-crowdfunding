@@ -5,7 +5,7 @@
 
   <PropertyGroup>
     <!-- The one place the version is set. SemVer: a breaking change to any public type is a new major version. -->
-    <Version>4.1.0</Version>
+    <Version>4.2.0</Version>
     <IsPackable>true</IsPackable>
     <PackageId>CrowdFunding.$(MSBuildProjectName)</PackageId>
     <Authors>hicleanarch</Authors>

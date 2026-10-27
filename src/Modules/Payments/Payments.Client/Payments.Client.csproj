@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="CrowdFunding.BuildingBlocks.Infrastructure" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Payments.Contracts\Payments.Contracts.csproj" />
     <ProjectReference Include="..\..\..\RemoteCalls\RemoteCalls.csproj" />
   </ItemGroup>

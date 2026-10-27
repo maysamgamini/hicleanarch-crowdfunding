@@ -139,11 +139,17 @@ public sealed class RemoteCardSetupTests(Database database)
     [Fact]
     public async Task The_internal_endpoint_does_not_exist_on_the_public_port()
     {
-        // The in-memory server's connections arrive on port 0, which is not the internal port here.
+        // The in-memory server's connections arrive on port 0, which is not the internal port here. The
+        // caller holds a valid service token (s4-l04): the port alone refuses it.
         await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("Payments:Internal:Port", "8081"));
+        using var request = new HttpRequestMessage(HttpMethod.Post, Payments.Contracts.PaymentsInternalEndpoints.StartCardSetup)
+        {
+            Content = JsonContent.Create(new { pledge_id = Guid.NewGuid(), backer_id = Guid.NewGuid() }),
+        };
+        request.Headers.Authorization = new("Bearer", BuildingBlocks.Infrastructure.Identity.LocalTokens.IssueService(
+            Database.SigningKey, Database.ServiceClientId, DateTime.UtcNow.AddHours(1), Payments.Contracts.PaymentsInternalEndpoints.CommandsScope));
 
-        var answer = await host.CreateClient().PostAsJsonAsync(Payments.Contracts.PaymentsInternalEndpoints.StartCardSetup,
-            new { pledge_id = Guid.NewGuid(), backer_id = Guid.NewGuid() }, Ct);
+        var answer = await host.CreateClient().SendAsync(request, Ct);
 
         Assert.Equal(HttpStatusCode.NotFound, answer.StatusCode);
     }

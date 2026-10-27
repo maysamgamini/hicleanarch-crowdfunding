@@ -19,6 +19,9 @@ public static class PaymentsInternalEndpoints
 {
     /// <summary><see cref="StartCardSetup"/>, answered with <see cref="CardSetupStarted"/>.</summary>
     public const string StartCardSetup = "/internal/payments/card-setups";
+
+    /// <summary>The scope a caller's service token needs for Payments' commands (s4-l04).</summary>
+    public const string CommandsScope = "payments/commands";
 }
 
 /// <summary>

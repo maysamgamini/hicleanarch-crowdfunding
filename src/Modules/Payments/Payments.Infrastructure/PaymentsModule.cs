@@ -52,6 +52,7 @@ public static class PaymentsModule
         services.AddEventHandler<PledgeChargeRequested, CreateCharge>(PaymentsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, CreateSettlementJob>(PaymentsModuleName.Value);
         services.AddSharedValkey(configuration);
+        services.AddPaymentsCallers(configuration);
         // Every section is checked when the program starts, so a wrong setting fails the deploy, not the first call.
         services.AddOptions<PspBudget>().Bind(configuration.GetSection("Payments:Budget"))
             .Validate(b => new[] { b.AccountPerSecond, b.CustomersPerSecond, b.CardSetupsPerSecond, b.ChargesPerSecond, b.LookUpsPerSecond }.All(r => r > 0),
@@ -195,13 +196,14 @@ public static class PaymentsModule
             return progress.IsSuccess ? Results.Ok(progress.Value) : progress.Errors.ToProblem();
         }).RequireAuthorization(Policies.Creator).WithTags("Payments");
 
-        // For other services (s4-l03): on the internal port only, which no load balancer forwards.
+        // For other services (s4-l03): on the internal port only, which no load balancer forwards, and
+        // only with a listed service's token for payments/commands (s4-l04).
         app.MapPost(PaymentsInternalEndpoints.StartCardSetup, async (StartCardSetup command,
             [FromKeyedServices(PaymentsModuleName.Value)] ICommandHandler<StartCardSetup, CardSetupStarted> handler, CancellationToken ct) =>
         {
             var started = await handler.Handle(command, ct);
             return started.IsSuccess ? Results.Ok(started.Value) : started.Errors.ToProblem();
-        }).AddEndpointFilter<InternalPortOnly>().AllowAnonymous().ExcludeFromDescription();
+        }).AddEndpointFilter<InternalPortOnly>().RequirePaymentsCommands().ExcludeFromDescription();
 
         // On a laptop there is no PSP to finish the card form: this plays the backer and the PSP.
         if (app.ServiceProvider.GetRequiredService<IHostEnvironment>().IsDevelopment())

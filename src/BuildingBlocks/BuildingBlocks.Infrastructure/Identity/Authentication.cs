@@ -33,28 +33,11 @@ public static class Authentication
     {
         var auth = configuration.GetSection("Auth");
         var clientId = auth["ClientId"] ?? throw new InvalidOperationException("Auth:ClientId is not set.");
-        var authority = auth["Authority"];
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(jwt =>
         {
-            jwt.MapInboundClaims = false;
+            TrustIssuer(jwt, auth);
             var validation = jwt.TokenValidationParameters;
-            if (!string.IsNullOrEmpty(authority))
-            {
-                jwt.Authority = authority;
-                validation.ValidIssuer = authority;
-                validation.ValidAlgorithms = ["RS256"];
-            }
-            else
-            {
-                var key = auth["LocalSigningKey"] ?? throw new InvalidOperationException("Set Auth:Authority, or Auth:LocalSigningKey for local tokens.");
-                validation.ValidIssuer = LocalTokens.Issuer;
-                validation.IssuerSigningKey = LocalTokens.SigningKey(key);
-                validation.ValidAlgorithms = ["HS256"];
-            }
-
-            // Cognito's access tokens name the app client in client_id and carry no aud claim.
-            validation.ValidateAudience = false;
             validation.NameClaimType = "sub";
             validation.RoleClaimType = "cognito:groups";
             jwt.Events = new JwtBearerEvents
@@ -79,6 +62,33 @@ public static class Authentication
             .AddPolicy(Policies.Creator, policy => policy.RequireRole(Roles.Creator))
             .AddPolicy(Policies.Backer, policy => policy.RequireRole(Roles.Backer));
         return services;
+    }
+
+    /// <summary>
+    /// The issuer and keys every scheme here trusts: Cognito's issuer and published key set when
+    /// <c>Auth:Authority</c> is set, otherwise <c>Auth:LocalSigningKey</c>.
+    /// </summary>
+    internal static void TrustIssuer(JwtBearerOptions jwt, IConfigurationSection auth)
+    {
+        jwt.MapInboundClaims = false;
+        var validation = jwt.TokenValidationParameters;
+        var authority = auth["Authority"];
+        if (!string.IsNullOrEmpty(authority))
+        {
+            jwt.Authority = authority;
+            validation.ValidIssuer = authority;
+            validation.ValidAlgorithms = ["RS256"];
+        }
+        else
+        {
+            var key = auth["LocalSigningKey"] ?? throw new InvalidOperationException("Set Auth:Authority, or Auth:LocalSigningKey for local tokens.");
+            validation.ValidIssuer = LocalTokens.Issuer;
+            validation.IssuerSigningKey = LocalTokens.SigningKey(key);
+            validation.ValidAlgorithms = ["HS256"];
+        }
+
+        // Cognito's access tokens name the app client in client_id and carry no aud claim.
+        validation.ValidateAudience = false;
     }
 
     /// <summary>The caller's user id: the token's <c>sub</c>, a UUID in Cognito.</summary>

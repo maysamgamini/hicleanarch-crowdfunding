@@ -38,4 +38,27 @@ public static class LocalTokens
                 ["cognito:groups"] = groups,
             },
         });
+
+    /// <summary>
+    /// A machine token shaped like the one Cognito's client-credentials grant issues: the app client
+    /// is both <c>sub</c> and <c>client_id</c>, <c>scope</c> lists the scopes, space-separated, and each
+    /// token has its own <c>jti</c>. No groups.
+    /// </summary>
+    public static string IssueService(string signingKey, string clientId, DateTime expires, params string[] scopes) =>
+        new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Issuer = Issuer,
+            IssuedAt = expires.AddHours(-1),
+            NotBefore = expires.AddHours(-1),
+            Expires = expires,
+            SigningCredentials = new SigningCredentials(SigningKey(signingKey), SecurityAlgorithms.HmacSha256),
+            Claims = new Dictionary<string, object>
+            {
+                ["sub"] = clientId,
+                ["client_id"] = clientId,
+                ["token_use"] = "access",
+                ["scope"] = string.Join(' ', scopes),
+                ["jti"] = Guid.NewGuid().ToString(),
+            },
+        });
 }
