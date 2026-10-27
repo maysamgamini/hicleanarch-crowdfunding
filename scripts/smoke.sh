@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke test against a running API: create a draft as a creator, read it back.
+# Smoke test against a running API: create a draft as a creator, read it back, publish it.
 # Usage: TOKEN=<creator access token> smoke.sh <base url>
 set -euo pipefail
 base="${1:?usage: TOKEN=<token> smoke.sh <base url>}"
@@ -12,8 +12,13 @@ done
 
 test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$base/v1/campaigns" -H 'Content-Type: application/json' -d '{}')" = "401"
 
-created=$(curl -sf -X POST "$base/v1/campaigns" -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
-  -d '{"title":"Smoke test","goal_minor":100000,"currency":"USD","deadline":"2030-01-01T00:00:00Z","tiers":[]}')
+key() { od -An -tx1 -N16 /dev/urandom | tr -d ' \n'; }
+
+created=$(curl -sf -X POST "$base/v1/campaigns" -H "Authorization: Bearer $token" -H "Idempotency-Key: $(key)" \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"Smoke test","goal_minor":100000,"currency":"USD","deadline":"2030-01-01T00:00:00Z","tiers":[{"title":"Thanks","min_pledge_minor":500,"limit":null}]}')
 id=$(echo "$created" | sed -E 's/.*"campaign_id":"([^"]+)".*/\1/')
 curl -sf "$base/v1/campaigns/$id" | grep -q '"status":"DRAFT"'
+curl -sf -X POST "$base/v1/campaigns/$id/publish" -H "Authorization: Bearer $token" -H "Idempotency-Key: $(key)" >/dev/null
+curl -sf "$base/v1/campaigns/$id" | grep -q '"status":"LIVE"'
 echo "smoke test passed: $id"

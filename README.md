@@ -41,4 +41,4 @@ Each module connects as its own database role (`campaigns_app`), which can use o
 
 ## Requirements
 
-.NET SDK 10, Docker, Terraform 1.10 or later. An AWS account only for the lessons that deploy.
+.NET SDK 10, Docker, Terraform 1.11 or later (S3 state locking). An AWS account only for the lessons that deploy.

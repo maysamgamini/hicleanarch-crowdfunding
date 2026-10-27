@@ -11,15 +11,7 @@ public sealed class CampaignApiTests(Database database) : IDisposable
 {
     private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host = database.StartHost();
 
-    private HttpClient Client
-    {
-        get
-        {
-            var client = _host.CreateClient();
-            client.DefaultRequestHeaders.Authorization = new("Bearer", Database.Token(Roles.Creator));
-            return client;
-        }
-    }
+    private HttpClient Client => Database.Client(_host, Database.Token(Roles.Creator));
 
     public void Dispose() => _host.Dispose();
 

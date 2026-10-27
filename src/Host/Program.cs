@@ -14,6 +14,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 builder.Services.AddProblemDetails();
 builder.Services.AddDispatcher();
+builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DatabaseMigrator>();
 builder.Services.AddTelemetry(builder.Configuration);
 builder.Services.AddTokenAuthentication(builder.Configuration);

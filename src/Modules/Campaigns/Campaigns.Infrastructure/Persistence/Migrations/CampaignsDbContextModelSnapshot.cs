@@ -24,6 +24,42 @@ namespace Campaigns.Infrastructure.Persistence.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("BuildingBlocks.Infrastructure.Persistence.IdempotencyKey", b =>
+                {
+                    b.Property<Guid>("CallerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("caller_id");
+
+                    b.Property<string>("Key")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("ReplyBody")
+                        .HasColumnType("json")
+                        .HasColumnName("reply_body");
+
+                    b.Property<int?>("ReplyStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("reply_status");
+
+                    b.Property<byte[]>("RequestHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("request_hash");
+
+                    b.HasKey("CallerId", "Key")
+                        .HasName("pk_idempotency_keys");
+
+                    b.ToTable("idempotency_keys", "campaigns");
+                });
+
             modelBuilder.Entity("Campaigns.Domain.Campaign", b =>
                 {
                     b.Property<Guid>("Id")
@@ -37,6 +73,10 @@ namespace Campaigns.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("Deadline")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deadline");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
 
                     b.Property<string>("Status")
                         .IsRequired()

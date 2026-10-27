@@ -15,4 +15,12 @@ internal sealed class EfCampaignRepository(CampaignsDbContext db) : ICampaignRep
 
     public Task<Campaign?> Find(CampaignId id, CancellationToken cancellationToken) =>
         db.Campaigns.AsNoTracking().SingleOrDefaultAsync(c => c.Id == id, cancellationToken);
+
+    // UPDATE campaigns.campaigns SET status = 'LIVE', published_at = @now WHERE id = @id AND status = 'DRAFT'
+    public async Task<bool> TryPublish(CampaignId id, DateTimeOffset publishedAt, CancellationToken cancellationToken) =>
+        await db.Campaigns
+            .Where(c => c.Id == id && c.Status == CampaignStatus.Draft)
+            .ExecuteUpdateAsync(set => set
+                .SetProperty(c => c.Status, CampaignStatus.Live)
+                .SetProperty(c => c.PublishedAt, publishedAt), cancellationToken) == 1;
 }

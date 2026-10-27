@@ -1,3 +1,5 @@
+using BuildingBlocks.Infrastructure.Persistence;
+
 using Campaigns.Domain;
 
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +16,7 @@ internal sealed class CampaignsDbContext(DbContextOptions<CampaignsDbContext> op
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
+        modelBuilder.MapIdempotencyKeys();
 
         modelBuilder.Entity<Campaign>(campaign =>
         {
@@ -21,7 +24,9 @@ internal sealed class CampaignsDbContext(DbContextOptions<CampaignsDbContext> op
             campaign.HasKey(c => c.Id);
             campaign.Property(c => c.Id).HasConversion(id => id.Value, value => new CampaignId(value));
             campaign.Property(c => c.Title).HasMaxLength(120);
-            campaign.Property(c => c.Status).HasConversion<string>().HasMaxLength(20);
+            campaign.Property(c => c.Status)
+                .HasConversion(s => s.ToString().ToUpperInvariant(), s => Enum.Parse<CampaignStatus>(s, true))
+                .HasMaxLength(20);
             campaign.ComplexProperty(c => c.Goal, goal =>
             {
                 goal.Property(m => m.AmountMinor).HasColumnName("goal_minor");

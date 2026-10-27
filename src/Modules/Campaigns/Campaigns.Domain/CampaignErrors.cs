@@ -12,4 +12,8 @@ public static class CampaignErrors
     public static readonly Error TierLimitNotPositive = Error.Validation("tier_limit_not_positive", "A tier's limit must be more than zero, or empty for no limit.");
     public static readonly Error DuplicateTierTitle = Error.Validation("duplicate_tier_title", "Two tiers cannot have the same title.");
     public static readonly Error NotFound = Error.NotFound("campaign_not_found", "No campaign has this id.");
+    public static readonly Error NotYours = Error.Forbidden("not_your_campaign", "Only the campaign's creator may do this.");
+    public static readonly Error NotADraft = Error.Conflict("not_a_draft", "Only a draft can be published.");
+    public static readonly Error DeadlineNotInFuture = Error.Validation("deadline_not_in_future", "The deadline must be in the future to publish.");
+    public static readonly Error NoTiers = Error.Validation("no_tiers", "A campaign needs at least one tier to publish.");
 }

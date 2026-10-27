@@ -1,6 +1,7 @@
 using System.Security.Claims;
 
 using BuildingBlocks.Application;
+using BuildingBlocks.Domain;
 using BuildingBlocks.Infrastructure;
 using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Persistence;
@@ -34,27 +35,47 @@ public static class CampaignsModule
         services.AddSingleton(new ModuleDatabase("Campaigns", CampaignsDbContext.Schema, connectionString));
         return services
             .AddCampaignsApplication()
-            .AddScoped<ICampaignRepository, EfCampaignRepository>();
+            .AddScoped<ICampaignRepository, EfCampaignRepository>()
+            .AddScoped<IdempotentRequests<CampaignsDbContext>>();
     }
 
     public static IEndpointRouteBuilder MapCampaignsEndpoints(this IEndpointRouteBuilder app)
     {
         var campaigns = app.MapGroup("/v1/campaigns").WithTags("Campaigns");
 
-        campaigns.MapPost("/", async (CreateCampaignRequest request, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
-        {
-            var command = new CreateDraft(
-                user.UserId(),
-                request.Title ?? "",
-                request.GoalMinor,
-                request.Currency ?? "",
-                request.Deadline,
-                [.. (request.Tiers ?? []).Select(t => new TierDraft(t.Title ?? "", t.MinPledgeMinor, t.Limit))]);
-            var result = await dispatcher.Send<CreateDraft, CampaignId>(command, ct);
-            return result.IsSuccess
-                ? Results.Created($"/v1/campaigns/{result.Value}", new { campaign_id = result.Value.ToString(), status = "DRAFT" })
-                : result.Errors.ToProblem();
-        }).RequireAuthorization(Policies.Creator);
+        // Every change carries an Idempotency-Key and runs once per key (lesson s1-a04).
+        campaigns.MapPost("/", (CreateCampaignRequest request, ClaimsPrincipal user, HttpContext http,
+            IDispatcher dispatcher, IdempotentRequests<CampaignsDbContext> once) =>
+            once.Run(http, user.UserId(), request, async ct =>
+            {
+                var command = new CreateDraft(
+                    user.UserId(),
+                    request.Title ?? "",
+                    request.GoalMinor,
+                    request.Currency ?? "",
+                    request.Deadline,
+                    [.. (request.Tiers ?? []).Select(t => new TierDraft(t.Title ?? "", t.MinPledgeMinor, t.Limit))]);
+                var result = await dispatcher.Send<CreateDraft, CampaignId>(command, ct);
+                return result.IsSuccess
+                    ? Result.Success(new Reply(StatusCodes.Status201Created,
+                        new { campaign_id = result.Value.ToString(), status = "DRAFT" }, $"/v1/campaigns/{result.Value}"))
+                    : Result.Failure<Reply>(result.Errors);
+            })).RequireAuthorization(Policies.Creator);
+
+        campaigns.MapPost("/{id}/publish", (string id, ClaimsPrincipal user, HttpContext http,
+            IDispatcher dispatcher, IdempotentRequests<CampaignsDbContext> once) =>
+            once.Run(http, user.UserId(), new { id }, async ct =>
+            {
+                if (!CampaignId.TryParse(id, out var campaignId))
+                {
+                    return Result.Failure<Reply>(CampaignErrors.NotFound);
+                }
+
+                var result = await dispatcher.Send<PublishCampaign, CampaignStatus>(new PublishCampaign(campaignId, user.UserId()), ct);
+                return result.IsSuccess
+                    ? Result.Success(new Reply(StatusCodes.Status200OK, new { campaign_id = id, status = "LIVE" }))
+                    : Result.Failure<Reply>(result.Errors);
+            })).RequireAuthorization(Policies.Creator);
 
         // Anyone may read a campaign, signed in or not.
         campaigns.MapGet("/{id}", async (string id, IDispatcher dispatcher, CancellationToken ct) =>

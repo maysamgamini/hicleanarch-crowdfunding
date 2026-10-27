@@ -44,6 +44,32 @@ public sealed class Database : IAsyncLifetime
 
     public ValueTask DisposeAsync() => _container.DisposeAsync();
 
+    /// <summary>A client of the host, signed in with the token if one is given, which sends a fresh
+    /// Idempotency-Key with every change unless the test sets one.</summary>
+    public static HttpClient Client(WebApplicationFactory<Program> host, string? token = null)
+    {
+        var client = host.CreateDefaultClient(new FreshIdempotencyKeys());
+        if (token is not null)
+        {
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        }
+
+        return client;
+    }
+
+    private sealed class FreshIdempotencyKeys : DelegatingHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Method != HttpMethod.Get && !request.Headers.Contains("Idempotency-Key"))
+            {
+                request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+            }
+
+            return base.SendAsync(request, cancellationToken);
+        }
+    }
+
     /// <summary>A fresh host process on this database: a new host is what a restart looks like.</summary>
     public WebApplicationFactory<Program> StartHost() =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(web => web

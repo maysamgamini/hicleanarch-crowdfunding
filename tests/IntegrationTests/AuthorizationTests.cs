@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 
@@ -25,13 +24,7 @@ public sealed class AuthorizationTests(Database database) : IDisposable
 
     private Task<HttpResponseMessage> CreateDraft(string? token)
     {
-        var client = _host.CreateClient();
-        if (token is not null)
-        {
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        }
-
-        return client.PostAsJsonAsync("/v1/campaigns", Draft, TestContext.Current.CancellationToken);
+        return Database.Client(_host, token).PostAsJsonAsync("/v1/campaigns", Draft, TestContext.Current.CancellationToken);
     }
 
     [Fact]

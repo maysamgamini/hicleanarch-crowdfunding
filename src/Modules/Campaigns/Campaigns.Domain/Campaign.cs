@@ -2,9 +2,16 @@ using BuildingBlocks.Domain;
 
 namespace Campaigns.Domain;
 
+/// <summary>The statuses people see. After publishing, they follow what Pledges and Payments decide.</summary>
 public enum CampaignStatus
 {
     Draft,
+    Live,
+    Cancelled,
+    Funded,
+    Unsuccessful,
+    Settled,
+    Released,
 }
 
 /// <summary>A reward tier. <see cref="Limit"/> is null for a tier with no limit.</summary>
@@ -30,7 +37,7 @@ public sealed class Tier
 /// <summary>What a creator asks for when adding a tier, before the rules have checked it.</summary>
 public sealed record TierDraft(string Title, long MinPledgeMinor, int? Limit);
 
-/// <summary>A creator's campaign. In these lessons it can only be created as a draft.</summary>
+/// <summary>A creator's campaign: a draft until it is published.</summary>
 public sealed class Campaign
 {
     private readonly List<Tier> _tiers = [];
@@ -69,6 +76,8 @@ public sealed class Campaign
 
     public CampaignStatus Status { get; private set; }
 
+    public DateTimeOffset? PublishedAt { get; private set; }
+
     /// <summary>Creates a draft, or returns every rule the request breaks.</summary>
     public static Result<Campaign> CreateDraft(Guid creatorId, string title, Money goal, DateTimeOffset deadline, IReadOnlyList<TierDraft> tiers)
     {
@@ -100,5 +109,37 @@ public sealed class Campaign
 
         var created = tiers.Select(t => new Tier(TierId.New(), t.Title.Trim(), t.MinPledgeMinor, t.Limit));
         return Result.Success(new Campaign(CampaignId.New(), creatorId, title.Trim(), goal, deadline.ToUniversalTime(), created));
+    }
+
+    /// <summary>
+    /// Opens the campaign to pledges. Only a draft is published, and only with a deadline still in
+    /// the future and at least one tier. The database makes the same move conditional on DRAFT.
+    /// </summary>
+    public Result<CampaignStatus> Publish(DateTimeOffset now)
+    {
+        if (Status != CampaignStatus.Draft)
+        {
+            return Result.Failure<CampaignStatus>(CampaignErrors.NotADraft);
+        }
+
+        var errors = new List<Error>();
+        if (Deadline <= now)
+        {
+            errors.Add(CampaignErrors.DeadlineNotInFuture);
+        }
+
+        if (_tiers.Count == 0)
+        {
+            errors.Add(CampaignErrors.NoTiers);
+        }
+
+        if (errors.Count > 0)
+        {
+            return Result.Failure<CampaignStatus>(errors);
+        }
+
+        Status = CampaignStatus.Live;
+        PublishedAt = now;
+        return Result.Success(Status);
     }
 }
