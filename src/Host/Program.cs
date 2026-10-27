@@ -19,6 +19,23 @@ using Pledges.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// `dotnet run -- token creator` prints a local token for development: a new user in that group.
+// It runs before any service is built, so standard output carries the token and nothing else, and
+// TOKEN=$(...) captures it whole. Anywhere but Development it refuses, on standard error.
+if (args.FirstOrDefault() == "token")
+{
+    if (!builder.Environment.IsDevelopment())
+    {
+        await Console.Error.WriteLineAsync($"The token command runs only in Development; this is {builder.Environment.EnvironmentName}.");
+        Environment.ExitCode = 2;
+        return;
+    }
+
+    var auth = builder.Configuration.GetSection("Auth");
+    Console.WriteLine(LocalTokens.Issue(auth["LocalSigningKey"]!, auth["ClientId"]!, Guid.NewGuid(), [.. args.Skip(1)]));
+    return;
+}
+
 // The API speaks snake_case JSON: goal_minor, campaign_id.
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 builder.Services.AddProblemDetails();
@@ -48,14 +65,6 @@ if (args.Contains("migrate"))
     var owner = app.Configuration.GetConnectionString("Owner")
         ?? throw new InvalidOperationException("ConnectionStrings:Owner is not set.");
     await app.Services.GetRequiredService<DatabaseMigrator>().Run(owner, CancellationToken.None);
-    return;
-}
-
-// `dotnet run -- token creator` prints a local token for development: a new user in that group.
-if (args.FirstOrDefault() == "token" && app.Environment.IsDevelopment())
-{
-    var auth = app.Configuration.GetSection("Auth");
-    Console.WriteLine(LocalTokens.Issue(auth["LocalSigningKey"]!, auth["ClientId"]!, Guid.NewGuid(), [.. args.Skip(1)]));
     return;
 }
 
