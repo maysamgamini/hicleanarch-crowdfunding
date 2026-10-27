@@ -29,7 +29,7 @@ mock_provider "aws" {
 }
 
 run "service_deploy_roles" {
-  command = plan
+  command = apply
 
   assert {
     condition = alltrue(flatten([for name, doc in data.aws_iam_policy_document.deploy_service : [
