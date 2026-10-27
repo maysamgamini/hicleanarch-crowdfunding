@@ -64,6 +64,9 @@ public static class PaymentsModule
         services.AddOptions<DunningOptions>().Bind(configuration.GetSection("Payments:Dunning"))
             .Validate(d => d.Window > TimeSpan.Zero && d.MaxAttempts > 0 && d.SoftRetries.All(r => r > TimeSpan.Zero && r < d.Window),
                 "Payments:Dunning: the window and attempts must be positive, and every retry inside the window.")
+            // The database refuses an attempt_no above the same constant, so a higher setting would leave charges stuck.
+            .Validate(d => d.MaxAttempts <= ChargeAttempt.MostAttempts,
+                $"Payments:Dunning:MaxAttempts may be at most {ChargeAttempt.MostAttempts}, the database's check on attempt_no.")
             .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<DunningOptions>>().Value.Policy);
         services.AddEventHandler<CampaignPublished, RecordPayee>(PaymentsModuleName.Value);
