@@ -25,8 +25,7 @@ internal static class Packages
     public static bool Updating => Environment.GetEnvironmentVariable("UPDATE_CONTRACT_SNAPSHOTS") == "1";
 
     public static string ContractDirectory(string module) => Path.Combine(
-        new[] { Path.Combine(Root, "src", "Services", module, $"{module}.Contracts"), Path.Combine(Root, "src", "Modules", module, $"{module}.Contracts") }
-            .First(Directory.Exists),
+        Path.Combine(Root, "src", "Services", module, $"{module}.Contracts"),
         "contract");
 
     public static string SnapshotPath(string module) => Path.Combine(ContractDirectory(module), "contract.json");

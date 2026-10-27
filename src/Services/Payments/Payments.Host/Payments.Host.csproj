@@ -8,7 +8,7 @@
   <ItemGroup>
     <!-- Payments, and nothing else of ours: the other modules are reached through their contracts. -->
     <ProjectReference Include="..\Payments.Infrastructure\Payments.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\..\Messaging\Messaging.csproj" />
+    <ProjectReference Include="..\..\..\Platform\Messaging\Messaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>

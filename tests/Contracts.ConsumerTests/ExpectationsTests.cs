@@ -3,7 +3,7 @@ using ContractGate;
 namespace Contracts.ConsumerTests;
 
 /// <summary>
-/// Each module's expectations file (src/Modules/&lt;Module&gt;/expectations.json, checked in) says what it needs
+/// Each module's expectations file (src/Services/&lt;Name&gt;/expectations.json, checked in) says what it needs
 /// from the others. The producers' pipelines check their contracts against these files, and the deploy gate
 /// reads them at every deployed version. The code must match its file; a change is accepted on purpose with
 /// <c>UPDATE_CONTRACT_SNAPSHOTS=1 dotnet test tests/Contracts.ConsumerTests</c>.

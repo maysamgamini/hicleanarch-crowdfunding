@@ -14,7 +14,7 @@ fi
 baseline=$(mktemp -d)
 trap 'rm -rf "$baseline"' EXIT
 # A base from before the snapshots existed has none; then there is nothing to compare.
-git ls-tree -r --name-only "$base" -- src/Modules | { grep '\.Contracts/contract/contract\.json$' || true; } | while read -r snapshot; do
+git ls-tree -r --name-only "$base" -- src/Modules src/Services | { grep '\.Contracts/contract/contract\.json$' || true; } | while read -r snapshot; do
   mkdir -p "$baseline/$(dirname "$snapshot")"
   git show "$base:$snapshot" > "$baseline/$snapshot"
 done

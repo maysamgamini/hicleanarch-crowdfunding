@@ -11,7 +11,7 @@ internal sealed record EndpointExpectation(IReadOnlyDictionary<string, Field> Se
 
 /// <summary>
 /// What one module needs from the others, as it was built, kept beside the module in
-/// src/Services/&lt;Module&gt;/expectations.json (src/Modules/Pledges until s5-l12). Keys are "&lt;Producer&gt;.&lt;Name&gt;". <see cref="InProcess"/>
+/// src/Services/&lt;Module&gt;/expectations.json (src/Services/Pledges until s5-l12). Keys are "&lt;Producer&gt;.&lt;Name&gt;". <see cref="InProcess"/>
 /// lists the other modules' commands, queries and types it uses in the same process: possible only while
 /// both modules run in one service.
 /// </summary>
@@ -21,10 +21,9 @@ internal sealed record Expectations(
     IReadOnlyDictionary<string, EndpointExpectation> Endpoints,
     IReadOnlyList<string> InProcess)
 {
-    /// <summary>Where a module's expectations are at this commit: in its service's folder (src/Services/&lt;Module&gt;/),
-    /// Pledges' under src/Modules until s5-l12 moves it.</summary>
+    /// <summary>Where a module's expectations are at this commit: in its service's folder (src/Services/&lt;Module&gt;/; every module's since s5-l12).</summary>
     public static string PathOf(string module) =>
-        module == "Pledges" ? $"src/Modules/{module}/expectations.json" : $"src/Services/{module}/expectations.json";
+        $"src/Services/{module}/expectations.json";
 
     /// <summary>Every place a module's expectations have been, newest first: a recorded version may predate a move.</summary>
     public static IReadOnlyList<string> PathsOf(string module) =>

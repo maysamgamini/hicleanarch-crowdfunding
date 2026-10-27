@@ -15,11 +15,11 @@ public class TimeFenceRulesTests
 
     private static readonly string[] Allowed =
     [
-        "src/Modules/Pledges/Pledges.Infrastructure/PledgesModule.cs",
-        "src/Modules/Pledges/Pledges.Infrastructure/Persistence/PledgesMigrator.cs",
-        "src/Modules/Pledges/Pledges.Infrastructure/Persistence/TimeFencedFundingWindows.cs",
-        "src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/DatabaseBusy.cs",
-        "src/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/ModuleDatabase.cs",
+        "src/Services/Pledges/Pledges.Infrastructure/PledgesModule.cs",
+        "src/Services/Pledges/Pledges.Infrastructure/Persistence/PledgesMigrator.cs",
+        "src/Services/Pledges/Pledges.Infrastructure/Persistence/TimeFencedFundingWindows.cs",
+        "src/Platform/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/DatabaseBusy.cs",
+        "src/Platform/BuildingBlocks/BuildingBlocks.Infrastructure/Persistence/ModuleDatabase.cs",
     ];
 
     [Fact]

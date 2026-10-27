@@ -2,7 +2,7 @@
   "solution": {
     "path": "CrowdFunding.slnx",
     "projects": [
-      "src\\Messaging\\Messaging.csproj",
+      "src\\Platform\\Messaging\\Messaging.csproj",
       "src\\Services\\Campaigns\\Campaigns.Application\\Campaigns.Application.csproj",
       "src\\Services\\Campaigns\\Campaigns.Domain\\Campaigns.Domain.csproj",
       "src\\Services\\Campaigns\\Campaigns.Infrastructure\\Campaigns.Infrastructure.csproj",

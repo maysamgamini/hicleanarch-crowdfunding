@@ -17,7 +17,7 @@
 <!--#else -->
     <ProjectReference Include="..\Sample.Infrastructure\Sample.Infrastructure.csproj" />
 <!--#endif -->
-    <ProjectReference Include="..\..\..\Messaging\Messaging.csproj" />
+    <ProjectReference Include="..\..\..\Platform\Messaging\Messaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>

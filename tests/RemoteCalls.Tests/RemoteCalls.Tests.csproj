@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\RemoteCalls\RemoteCalls.csproj" />
+    <ProjectReference Include="..\..\src\Platform\RemoteCalls\RemoteCalls.csproj" />
   </ItemGroup>
 
 </Project>

@@ -7,7 +7,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-base=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/BuildingBlocks/Directory.Build.props)
+base=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/Platform/BuildingBlocks/Directory.Build.props)
 version="$base-local.$(date -u +%Y%m%d%H%M%S)"
 
 mkdir -p artifacts/packages

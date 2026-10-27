@@ -19,7 +19,7 @@ Build and pack locally:
 dotnet pack BuildingBlocks.slnx -o artifacts/packages
 ```
 
-Publish: push a tag `bb-v<version>` matching the version in `src/BuildingBlocks/Directory.Build.props`;
+Publish: push a tag `bb-v<version>` matching the version in `src/Platform/BuildingBlocks/Directory.Build.props`;
 the `package` workflow packs and publishes to AWS CodeArtifact.
 
 ## Versions

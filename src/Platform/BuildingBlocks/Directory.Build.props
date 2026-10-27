@@ -1,7 +1,7 @@
 <Project>
   <!-- The BuildingBlocks are a product of their own: versioned, packed and published as packages.
        The repository's settings come first. -->
-  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../../'))" />
 
   <PropertyGroup>
     <!-- The one place the version is set. SemVer: a breaking change to any public type is a new major version. -->

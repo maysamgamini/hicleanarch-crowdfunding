@@ -1,7 +1,7 @@
 name: package
 
 # Publishes the BuildingBlocks packages to AWS CodeArtifact when a tag bb-v<version> is pushed.
-# The tag must match the version in src/BuildingBlocks/Directory.Build.props.
+# The tag must match the version in src/Platform/BuildingBlocks/Directory.Build.props.
 on:
   push:
     tags: ["bb-v*"]
@@ -23,7 +23,7 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
-          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/BuildingBlocks/Directory.Build.props)
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/Platform/BuildingBlocks/Directory.Build.props)
           test "bb-v$version" = "$TAG" || { echo "Tag $TAG does not match version $version"; exit 1; }
 
       - name: Pack

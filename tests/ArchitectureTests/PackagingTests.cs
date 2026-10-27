@@ -14,8 +14,7 @@ public partial class PackagingTests
 
     public static TheoryData<string> ConsumerProjects() =>
         [.. Directory.GetFiles(Path.Combine(Root, "src", "Services", "Pledges", "Pledges.Host"), "*.csproj")
-            .Concat(Directory.GetFiles(Path.Combine(Root, "src", "Modules"), "*.csproj", SearchOption.AllDirectories))
-            // A service's modules, moved into its own folder (s5-l05); its host and tests as before are not consumers here.
+            // Every service's module and client, in its own folder (s5-l12: all of them); its host and tests are not consumers here.
             .Concat(Directory.GetFiles(Path.Combine(Root, "src", "Services"), "*.csproj", SearchOption.AllDirectories)
                 .Where(p => !p.EndsWith(".Host.csproj", StringComparison.Ordinal) && !p.Contains($"{Path.DirectorySeparatorChar}tests{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
             .Select(p => Path.GetRelativePath(Root, p))];
@@ -32,7 +31,7 @@ public partial class PackagingTests
 
     [Fact]
     public void The_main_solution_does_not_build_the_building_blocks_from_source() =>
-        Assert.DoesNotContain("src/BuildingBlocks/", File.ReadAllText(Path.Combine(Root, "CrowdFunding.slnx")), StringComparison.Ordinal);
+        Assert.DoesNotContain("src/Platform/BuildingBlocks/", File.ReadAllText(Path.Combine(Root, "CrowdFunding.slnx")), StringComparison.Ordinal);
 
     [Fact]
     public void Every_building_block_is_pinned_to_the_one_version_property()
@@ -51,7 +50,7 @@ public partial class PackagingTests
     {
         // A local pack is <version>-local.<time>, CI's is <version>: both are the version the BuildingBlocks declare.
         var declared = Version.Parse(Regex.Match(
-            File.ReadAllText(Path.Combine(Root, "src", "BuildingBlocks", "Directory.Build.props")), @"<Version>(\d+\.\d+\.\d+)").Groups[1].Value);
+            File.ReadAllText(Path.Combine(Root, "src", "Platform", "BuildingBlocks", "Directory.Build.props")), @"<Version>(\d+\.\d+\.\d+)").Groups[1].Value);
         var loaded = typeof(BuildingBlocks.Domain.Error).Assembly.GetName().Version!;
 
         Assert.Equal(declared, new Version(loaded.Major, loaded.Minor, loaded.Build));
@@ -59,7 +58,7 @@ public partial class PackagingTests
 
     [Fact]
     public void The_package_version_is_semantic() =>
-        Assert.Matches(SemVer(), File.ReadAllText(Path.Combine(Root, "src", "BuildingBlocks", "Directory.Build.props")));
+        Assert.Matches(SemVer(), File.ReadAllText(Path.Combine(Root, "src", "Platform", "BuildingBlocks", "Directory.Build.props")));
 
     [GeneratedRegex(@"<Version>\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?</Version>")]
     private static partial Regex SemVer();

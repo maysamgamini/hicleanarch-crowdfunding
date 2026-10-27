@@ -55,16 +55,16 @@ docker compose --profile stack down -v        # remove it all, data included
 
 ## Layout
 
-- `src/Services/<Name>/`: each service's outcome in one folder: its host (`<Name>.Host`), its module's projects (Pledges' stay in `src/Modules/Pledges` until s5-l12) and its own tests. A host only composes its one module: the module brings its own services and endpoints (`AddCampaignsModule`, `MapCampaignsEndpoints`).
-- `src/Modules`: Campaigns, Pledges, Payments, Notifications, each with its own layers.
-- `src/BuildingBlocks` (its own solution, `BuildingBlocks.slnx`, versioned and published as NuGet packages; the modules reference a pinned version): what every module shares: the result type, the dispatcher, the HTTP error mapping.
-- `src/Modules/*/*.Contracts` (their own solution, `Contracts.slnx`): each module's events and remote commands, a versioned package per module like the BuildingBlocks, with its checked-in contract snapshot and recorded examples in `contract/`.
+- `src/Services/<Name>/`: each service's outcome in one folder: its host (`<Name>.Host`), its module's layers (Domain, Application, Infrastructure), its Contracts, its `expectations.json` and its own tests. A `<Name>.Client` lives with its callers (`src/Services/Pledges/Payments.Client`). A host only composes its one module: the module brings its own services and endpoints (`AddCampaignsModule`, `MapCampaignsEndpoints`).
+- `src/Platform/`: what every service shares. `BuildingBlocks` (its own solution, `BuildingBlocks.slnx`, versioned and published as NuGet packages; the services reference a pinned version): the result type, the dispatcher, the HTTP error mapping. `Messaging`: the broker adapter (SNS and SQS). `RemoteCalls`: the pipeline for calls between services.
+- `src/Services/*/*.Contracts` (their own solution, `Contracts.slnx`): each module's events and remote commands, a versioned package per module like the BuildingBlocks, with its checked-in contract snapshot and recorded examples in `contract/`.
+- `src/Gateway`: the public entry, routing each path to its service.
 - `tests/`: architecture rules, unit tests per module, integration tests against a real database, and the contract tests: the producers' snapshots (`Contracts.ProducerTests`) and the consumers' reading of the published examples (`Contracts.ConsumerTests`).
 - `infra/bootstrap/`: long-lived AWS resources (OpenTofu state bucket, ECR, CodeArtifact). Applied once and kept. Its own state is local; keep the `terraform.tfstate` file safe.
 - `infra/env/`: the sandbox environment. Applied for a lesson or a test run, destroyed afterwards.
 - `infra/modules/`: OpenTofu modules used by `infra/env/`.
 - `scripts/replay.sh`: re-applies the lesson commits after an earlier lesson changes, and moves the tags.
-- `scripts/split-diff.sh <from> <to>`: lists every change to a module's Domain or Application code between two refs, and fails on any that `split-allowed.yaml` does not cover. CI runs it from `s3-l16`, the last monolith tag, on every push to main and every pull request that touches `src/Modules`. See [Checking the split](#checking-the-split).
+- `scripts/split-diff.sh <from> <to>`: lists every change to a module's Domain or Application code between two refs, and fails on any that `split-allowed.yaml` does not cover. CI runs it from `s3-l16`, the last monolith tag, on every push to main and every pull request that touches `src/Services`. See [Checking the split](#checking-the-split).
 
 ## Checking the split
 

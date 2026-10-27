@@ -33,8 +33,8 @@ public class MonolithRulesTests
     {
         var graph = ProjectClosure("src/Services/Pledges/Pledges.Host/Pledges.Host.csproj");
 
-        Assert.All(graph.Where(p => p.StartsWith("src/Modules/Payments", StringComparison.Ordinal)),
-            project => Assert.Equal("src/Modules/Payments.Client/Payments.Client.csproj", project));
+        Assert.All(graph.Where(p => p.Contains("/Payments.", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal)),
+            project => Assert.Equal("src/Services/Pledges/Payments.Client/Payments.Client.csproj", project));
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal) && !p.StartsWith("src/Services/Pledges/", StringComparison.Ordinal));
     }
 

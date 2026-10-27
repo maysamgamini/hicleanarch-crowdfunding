@@ -3,7 +3,7 @@ name: pledges
 # The Pledges service's pipeline (lesson s5-l10: the old monolith's host, which runs Pledges alone):
 # contract tests, then Pledges built and tested alone from its solution filter, then (on main) its image
 # pushed with its own deploy role and, if a sandbox is up, Pledges deployed into it. Its module stays in
-# src/Modules/Pledges until s5-l12; Payments.Client and the remote-call pipeline are its own callers' code.
+# src/Services/Pledges until s5-l12; Payments.Client and the remote-call pipeline are its own callers' code.
 # The release job runs only where a deploy role is set: without AWS credentials nothing tries to reach AWS.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:
@@ -12,18 +12,17 @@ on:
     tags: ["s*-l*"]
     paths:
       - "src/Services/Pledges/**"
-      - "src/Modules/Pledges/**"
-      - "src/Modules/Payments.Client/**"
-      - "src/RemoteCalls/**"
+      - "src/Services/Pledges/**"
+      - "src/Services/Pledges/Payments.Client/**"
+      - "src/Platform/RemoteCalls/**"
       - "tests/RemoteCalls.Tests/**"
       - "tests/Messaging.Tests/**"
       - "infra/services/pledges/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/pledges-network.tf"
       - "infra/env/messaging.tf"
-      - "src/Modules/*/*.Contracts/**"
       - "src/Services/*/*.Contracts/**"
-      - "src/BuildingBlocks/**"
+      - "src/Platform/BuildingBlocks/**"
       - "events/subscriptions.json"
       - "tests/Directory.Build.props"
       - "Pledges.slnf"
@@ -53,7 +52,7 @@ on:
       - "templates/service/**"
       - "scripts/push-image.sh"
       - ".github/workflows/pledges.yml"
-      - "src/Messaging/**"
+      - "src/Platform/Messaging/**"
       - "tests/Contracts.ProducerTests/**"
       - "Contracts.slnx"
       - "events/broker-subscriptions.json"
@@ -62,18 +61,17 @@ on:
   pull_request:
     paths:
       - "src/Services/Pledges/**"
-      - "src/Modules/Pledges/**"
-      - "src/Modules/Payments.Client/**"
-      - "src/RemoteCalls/**"
+      - "src/Services/Pledges/**"
+      - "src/Services/Pledges/Payments.Client/**"
+      - "src/Platform/RemoteCalls/**"
       - "tests/RemoteCalls.Tests/**"
       - "tests/Messaging.Tests/**"
       - "infra/services/pledges/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/pledges-network.tf"
       - "infra/env/messaging.tf"
-      - "src/Modules/*/*.Contracts/**"
       - "src/Services/*/*.Contracts/**"
-      - "src/BuildingBlocks/**"
+      - "src/Platform/BuildingBlocks/**"
       - "events/subscriptions.json"
       - "tests/Directory.Build.props"
       - "Pledges.slnf"
@@ -103,7 +101,7 @@ on:
       - "templates/service/**"
       - "scripts/push-image.sh"
       - ".github/workflows/pledges.yml"
-      - "src/Messaging/**"
+      - "src/Platform/Messaging/**"
       - "tests/Contracts.ProducerTests/**"
       - "Contracts.slnx"
       - "events/broker-subscriptions.json"
@@ -165,7 +163,7 @@ jobs:
       - name: Every model change has its migration
         run: |
           dotnet tool restore
-          dotnet ef migrations has-pending-model-changes --project src/Modules/Pledges/Pledges.Infrastructure --no-build
+          dotnet ef migrations has-pending-model-changes --project src/Services/Pledges/Pledges.Infrastructure --no-build
       - name: The image builds
         run: docker build -q -f src/Services/Pledges/Pledges.Host/Dockerfile -t crowdfunding-pledges:ci .
 

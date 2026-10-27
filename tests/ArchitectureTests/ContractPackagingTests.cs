@@ -67,10 +67,9 @@ public partial class ContractPackagingTests
 
     private static string PropsOf(string module) => Path.Combine(ContractsOf(module), "Directory.Build.props");
 
-    /// <summary>A module's Contracts: in its service's folder once it has left the monolith (s5-l05), else under src/Modules.</summary>
+    /// <summary>A module's Contracts: in its service's folder (every module's since s5-l12).</summary>
     private static string ContractsOf(string module) =>
-        new[] { Path.Combine(Root, "src", "Services", module, $"{module}.Contracts"), Path.Combine(Root, "src", "Modules", module, $"{module}.Contracts") }
-            .First(Directory.Exists);
+        Path.Combine(Root, "src", "Services", module, $"{module}.Contracts");
 
     [GeneratedRegex(@"<Version>\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?</Version>")]
     private static partial Regex SemVer();

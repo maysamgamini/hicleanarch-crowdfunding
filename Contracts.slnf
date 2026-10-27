@@ -4,7 +4,7 @@
     "projects": [
       "src\\Services\\Campaigns\\Campaigns.Contracts\\Campaigns.Contracts.csproj",
       "src\\Services\\Payments\\Payments.Contracts\\Payments.Contracts.csproj",
-      "src\\Modules\\Pledges\\Pledges.Contracts\\Pledges.Contracts.csproj"
+      "src\\Services\\Pledges\\Pledges.Contracts\\Pledges.Contracts.csproj"
     ]
   }
 }

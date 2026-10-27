@@ -14,7 +14,7 @@ rm -f artifacts/packages/CrowdFunding.*.Contracts.*-local.*
 {
   echo "<Project>"
   echo "  <PropertyGroup>"
-  for project in src/Modules/*/*.Contracts/*.Contracts.csproj src/Services/*/*.Contracts/*.Contracts.csproj; do
+  for project in src/Services/*/*.Contracts/*.Contracts.csproj; do
     dir=$(dirname "$project")
     module=$(basename "$dir" .Contracts)
     base=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$dir/Directory.Build.props")

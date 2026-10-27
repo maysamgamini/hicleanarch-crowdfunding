@@ -40,9 +40,9 @@ internal sealed record Release(
 {
     public const string ServicesPath = "deploy/services.json";
 
-    /// <summary>A module's contract snapshot at this commit: in its service's folder, Pledges' under src/Modules until s5-l12.</summary>
+    /// <summary>A module's contract snapshot at this commit: in its service's folder (every module's since s5-l12).</summary>
     public static string ContractPath(string module) =>
-        module == "Pledges" ? $"src/Modules/{module}/{module}.Contracts/contract/contract.json" : $"src/Services/{module}/{module}.Contracts/contract/contract.json";
+        $"src/Services/{module}/{module}.Contracts/contract/contract.json";
 
     /// <summary>Every place a module's contract has been, newest first: a recorded version may predate a move.</summary>
     public static IReadOnlyList<string> ContractPaths(string module) =>

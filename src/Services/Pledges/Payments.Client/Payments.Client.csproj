@@ -6,7 +6,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\RemoteCalls\RemoteCalls.csproj" />
+    <ProjectReference Include="..\..\..\Platform\RemoteCalls\RemoteCalls.csproj" />
   </ItemGroup>
 
 </Project>

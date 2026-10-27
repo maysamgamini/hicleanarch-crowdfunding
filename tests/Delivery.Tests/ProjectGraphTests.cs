@@ -17,7 +17,7 @@ public class ProjectGraphTests
     /// <summary>The tests that start or load both services (s4-l10); both pipelines run them.</summary>
     private const string SystemFilter = "System.slnf";
 
-    private const string PaymentsClient = "src/Modules/Payments.Client/Payments.Client.csproj";
+    private const string PaymentsClient = "src/Services/Pledges/Payments.Client/Payments.Client.csproj";
 
     /// <summary>This project reads files only; ci.yml runs it on every change.</summary>
     private const string ThisProject = "tests/Delivery.Tests/Delivery.Tests.csproj";
@@ -29,7 +29,7 @@ public class ProjectGraphTests
     private const string ContractProducerTests = "tests/Contracts.ProducerTests/Contracts.ProducerTests.csproj";
 
     /// <summary>The shared platform beside the BuildingBlocks: the broker adapter and the remote-call pipeline (s4-l02, s4-l03).</summary>
-    private static readonly string[] Platform = ["src/Messaging/", "src/RemoteCalls/"];
+    private static readonly string[] Platform = ["src/Platform/Messaging/", "src/Platform/RemoteCalls/"];
 
     public static TheoryData<string> Filters() => [PaymentsFilter, MonolithFilter, SharedFilter, NotificationsFilter, CampaignsFilter, ContractsFilter, SystemFilter];
 
@@ -92,7 +92,7 @@ public class ProjectGraphTests
         var graph = Repository.Closure(Repository.FilterProjects(MonolithFilter));
 
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal) && !p.StartsWith("src/Services/Pledges/", StringComparison.Ordinal));
-        Assert.All(graph.Where(p => p.StartsWith("src/Modules/Payments", StringComparison.Ordinal)), p => Assert.Equal(PaymentsClient, p));
+        Assert.All(graph.Where(p => p.Contains("/Payments.", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal)), p => Assert.Equal(PaymentsClient, p));
         Assert.DoesNotContain(graph, p => p.StartsWith("tests/Payments.", StringComparison.Ordinal));
     }
 

@@ -2,7 +2,7 @@
   "solution": {
     "path": "CrowdFunding.slnx",
     "projects": [
-      "src\\Messaging\\Messaging.csproj",
+      "src\\Platform\\Messaging\\Messaging.csproj",
       "src\\Services\\Notifications\\Notifications\\Notifications.csproj",
       "src\\Services\\Notifications\\Notifications.Host\\Notifications.Host.csproj",
       "src\\Services\\Notifications\\tests\\Notifications.Host.Tests\\Notifications.Host.Tests.csproj"

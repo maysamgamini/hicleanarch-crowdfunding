@@ -79,8 +79,7 @@ public class ConsumerExpectationTests
     }
 
     private static Dictionary<string, Expectations> Consumers() =>
-        Directory.GetFiles(Path.Combine(Packages.Root, "src", "Modules"), "expectations.json", SearchOption.AllDirectories)
-            .Concat(Directory.GetFiles(Path.Combine(Packages.Root, "src", "Services"), "expectations.json", SearchOption.AllDirectories))
+        Directory.GetFiles(Path.Combine(Packages.Root, "src", "Services"), "expectations.json", SearchOption.AllDirectories)
             .Select(f => Expectations.Read(File.ReadAllText(f)))
             .ToDictionary(e => e.Module, StringComparer.Ordinal);
 

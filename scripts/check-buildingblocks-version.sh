@@ -5,12 +5,12 @@
 # Usage: scripts/check-buildingblocks-version.sh <base>     checks the commits base..HEAD
 set -euo pipefail
 base="${1:?usage: check-buildingblocks-version.sh <base commit>}"
-props=src/BuildingBlocks/Directory.Build.props
+props=src/Platform/BuildingBlocks/Directory.Build.props
 version() { git show "$1:$props" 2>/dev/null | sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p'; }
 
 failed=0
 for commit in $(git rev-list --reverse "$base..HEAD"); do
-  changed=$(git diff-tree --no-commit-id --name-only -r "$commit" -- src/BuildingBlocks \
+  changed=$(git diff-tree --no-commit-id --name-only -r "$commit" -- src/Platform/BuildingBlocks \
     | grep -v -e '/README\.md$' -e "^$props\$" || true)
   [ -z "$changed" ] && continue
   before=$(version "$commit^")

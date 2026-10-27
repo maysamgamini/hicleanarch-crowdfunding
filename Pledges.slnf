@@ -3,12 +3,12 @@
     "path": "CrowdFunding.slnx",
     "projects": [
       "src\\Services\\Pledges\\Pledges.Host\\Pledges.Host.csproj",
-      "src\\Messaging\\Messaging.csproj",
-      "src\\Modules\\Payments.Client\\Payments.Client.csproj",
-      "src\\Modules\\Pledges\\Pledges.Application\\Pledges.Application.csproj",
-      "src\\Modules\\Pledges\\Pledges.Domain\\Pledges.Domain.csproj",
-      "src\\Modules\\Pledges\\Pledges.Infrastructure\\Pledges.Infrastructure.csproj",
-      "src\\RemoteCalls\\RemoteCalls.csproj",
+      "src\\Platform\\Messaging\\Messaging.csproj",
+      "src\\Services\\Pledges\\Payments.Client\\Payments.Client.csproj",
+      "src\\Services\\Pledges\\Pledges.Application\\Pledges.Application.csproj",
+      "src\\Services\\Pledges\\Pledges.Domain\\Pledges.Domain.csproj",
+      "src\\Services\\Pledges\\Pledges.Infrastructure\\Pledges.Infrastructure.csproj",
+      "src\\Platform\\RemoteCalls\\RemoteCalls.csproj",
       "tests\\Messaging.Tests\\Messaging.Tests.csproj",
       "tests\\RemoteCalls.Tests\\RemoteCalls.Tests.csproj"
     ]
