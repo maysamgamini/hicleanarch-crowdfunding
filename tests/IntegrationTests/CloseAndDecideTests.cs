@@ -131,7 +131,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
     }
 
     [Fact]
-    public async Task A_pledge_that_started_before_the_deadline_is_counted_and_one_after_is_refused()
+    public async Task A_pledge_open_at_the_deadline_is_in_the_sum_exactly_when_it_commits_and_one_after_is_refused()
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish(50_000);
@@ -155,7 +155,10 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         Assert.Equal(HttpStatusCode.Conflict, late.StatusCode);
         Assert.Equal("campaign_closed", (await late.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
 
-        await transactionA.CommitAsync(Ct);
+        // Two endings are legal, and which one comes depends only on how fast this machine is: A
+        // commits within its two-second limit and is in the sum, or the database has already ended it
+        // at the limit and it is in nothing. Either way the sum is exactly the pledges that committed.
+        var committed = await Record.ExceptionAsync(() => transactionA.CommitAsync(Ct)) is null;
         await close;
         await Scenario.Eventually(async () =>
         {
@@ -163,7 +166,9 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
             return await given.Scalar<bool>("SELECT final_minor IS NOT NULL FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId);
         });
 
-        Assert.Equal(6_000L, await given.Scalar<long>("SELECT final_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        var ledger = await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId);
+        Assert.Equal(committed ? 6_000L : 0L, ledger);
+        Assert.Equal(ledger, await given.Scalar<long>("SELECT final_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal("UNSUCCESSFUL", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
     }
 }
