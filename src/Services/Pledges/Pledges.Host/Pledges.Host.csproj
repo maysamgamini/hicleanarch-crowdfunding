@@ -19,6 +19,7 @@
   <ItemGroup>
     <!-- Every host reads the same list of event consumers, events/subscriptions.json. -->
     <Content Include="..\..\..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\..\events\retired.json" Link="events\retired.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup Label="BuildingBlocks">

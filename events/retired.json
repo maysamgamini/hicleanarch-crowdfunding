@@ -1,0 +1,4 @@
+{
+  "comment": "Event types removed from their contract, as <Producer>.<Name>. replay-events refuses to publish them again, and the contract gate's can-retire requires a type to be listed here before it may be removed.",
+  "retired": []
+}

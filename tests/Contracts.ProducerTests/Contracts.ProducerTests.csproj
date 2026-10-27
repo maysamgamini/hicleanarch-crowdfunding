@@ -7,6 +7,7 @@
     <ProjectReference Include="..\..\src\Services\Payments\Payments.Contracts\Payments.Contracts.csproj" />
     <!-- The broker adapter, for the event_version attribute it puts on each message (s4-l02). -->
     <ProjectReference Include="..\..\src\Messaging\Messaging.csproj" />
+    <ProjectReference Include="..\..\tools\ContractGate\ContractGate.csproj" />
   </ItemGroup>
 
 </Project>

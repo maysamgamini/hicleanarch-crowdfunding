@@ -1,0 +1,291 @@
+{
+  "endpoints": {
+    "Payments.StartCardSetup": {
+      "requires": {
+        "cardSetupId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "clientSecret": {
+          "types": [
+            "string"
+          ]
+        }
+      },
+      "sends": {
+        "backerId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "pledgeId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        }
+      }
+    }
+  },
+  "events": {
+    "Campaigns.CampaignCreatorRecorded": {
+      "requires": {
+        "campaignId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "creatorId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "eventId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "types": [
+            "string"
+          ]
+        }
+      },
+      "version": 1
+    },
+    "Campaigns.CampaignPublished": {
+      "requires": {
+        "campaignId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "creatorId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "currency": {
+          "types": [
+            "string"
+          ]
+        },
+        "deadline": {
+          "format": "date-time",
+          "types": [
+            "string"
+          ]
+        },
+        "eventId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "goalMinor": {
+          "types": [
+            "integer",
+            "string"
+          ]
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "types": [
+            "string"
+          ]
+        },
+        "tiers": {
+          "items": {
+            "fields": {
+              "limitQty": {
+                "types": [
+                  "integer",
+                  "null",
+                  "string"
+                ]
+              },
+              "minPledgeMinor": {
+                "types": [
+                  "integer",
+                  "string"
+                ]
+              },
+              "tierId": {
+                "format": "uuid",
+                "types": [
+                  "string"
+                ]
+              }
+            },
+            "types": [
+              "object"
+            ]
+          },
+          "types": [
+            "array"
+          ]
+        }
+      },
+      "version": 1
+    },
+    "Payments.PaymentMethodSaved": {
+      "requires": {
+        "backerId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "cardSetupId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "eventId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "types": [
+            "string"
+          ]
+        },
+        "paymentMethodRef": {
+          "types": [
+            "string"
+          ]
+        },
+        "pledgeId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "pspMessageId": {
+          "types": [
+            "string"
+          ]
+        }
+      },
+      "version": 1
+    },
+    "Payments.PledgeChargeFailed": {
+      "requires": {
+        "attemptNo": {
+          "types": [
+            "integer",
+            "string"
+          ]
+        },
+        "backerId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "campaignId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "declineCode": {
+          "types": [
+            "string"
+          ]
+        },
+        "eventId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "final": {
+          "types": [
+            "boolean"
+          ]
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "types": [
+            "string"
+          ]
+        },
+        "pledgeId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        }
+      },
+      "version": 1
+    },
+    "Payments.PledgeChargeSucceeded": {
+      "requires": {
+        "amountMinor": {
+          "types": [
+            "integer",
+            "string"
+          ]
+        },
+        "attemptNo": {
+          "types": [
+            "integer",
+            "string"
+          ]
+        },
+        "backerId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "campaignId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "eventId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "types": [
+            "string"
+          ]
+        },
+        "pledgeId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "pspPaymentId": {
+          "types": [
+            "string"
+          ]
+        }
+      },
+      "version": 1
+    }
+  },
+  "inProcess": [],
+  "module": "Pledges"
+}

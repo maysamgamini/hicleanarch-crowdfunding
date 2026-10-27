@@ -1,0 +1,9 @@
+{
+  "comment": "Which modules each deployable runs. The contract gate (tools/ContractGate) reads this file at every recorded version: modules of one service are built and tested together, and only pairs across services are checked. Each extraction moved a module to a service of its own here; since s5-l10 every module has its own.",
+  "services": {
+    "campaigns": ["Campaigns"],
+    "notifications": ["Notifications"],
+    "payments": ["Payments"],
+    "pledges": ["Pledges"]
+  }
+}

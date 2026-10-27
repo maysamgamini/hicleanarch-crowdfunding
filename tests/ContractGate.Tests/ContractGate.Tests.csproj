@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The deploy gate's rules, on versions of the repository built in memory, and its outbox query on PostgreSQL. -->
+  <ItemGroup>
+    <PackageReference Include="Testcontainers.PostgreSql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\tools\ContractGate\ContractGate.csproj" />
+  </ItemGroup>
+
+</Project>

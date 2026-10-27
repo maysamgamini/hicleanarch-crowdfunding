@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The deploy gate for contracts: can-i-deploy in both directions against the deployment record, the
+       record itself, and the conditions for removing an old contract. It reads the repository's files at the
+       recorded versions and, for an event, the producer's outbox; it calls no AWS API itself. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Npgsql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ContractGate.Tests" />
+    <InternalsVisibleTo Include="Contracts.ConsumerTests" />
+    <InternalsVisibleTo Include="Contracts.ProducerTests" />
+  </ItemGroup>
+
+</Project>

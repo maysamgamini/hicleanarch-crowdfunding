@@ -116,6 +116,12 @@ data "aws_iam_policy_document" "deploy_service" {
     actions   = ["ecs:DeleteService", "ecs:DescribeServices"]
     resources = [local.service_access[each.key].service]
   }
+  # The contract gate's check (s5-l11): which version every other service of the cluster runs. Read only.
+  statement {
+    sid       = "ReadTheOtherServices"
+    actions   = ["ecs:DescribeServices"]
+    resources = ["arn:aws:ecs:${var.region}:${local.account_id}:service/${var.project}-sandbox/*"]
+  }
   statement {
     sid       = "ReadItsTags"
     actions   = ["ecs:ListTagsForResource"]

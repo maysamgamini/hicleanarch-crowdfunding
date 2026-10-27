@@ -26,7 +26,8 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           module=$(echo "$TAG" | sed -n 's/^contracts-\([a-z]*\)-v.*$/\1/p')
-          dir=$(find src/Modules -maxdepth 2 -type d -iname "${module}.Contracts" | head -n 1)
+          # A service's Contracts live in src/Services/<Name>/ once it has moved (s5-l06, s5-l09), a module's in src/Modules/.
+          dir=$(find src/Services src/Modules -maxdepth 2 -type d -iname "${module}.Contracts" | head -n 1)
           test -n "$module" && test -n "$dir" || { echo "No Contracts project for tag $TAG"; exit 1; }
           version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' "$dir/Directory.Build.props")
           test "contracts-${module}-v$version" = "$TAG" || { echo "Tag $TAG does not match version $version of $dir"; exit 1; }

@@ -45,9 +45,16 @@ run "service_deploy_roles" {
         || r == "arn:aws:ecs:${var.region}:${local.account_id}:task/${var.project}-sandbox/*"
         || strcontains(r, "/${name}") || strcontains(r, "-${name}") || strcontains(r, "crowdfunding-${name}")
         || r == aws_ecr_repository.service[name].arn
-      ] if st.effect != "Deny"
+      ] if st.effect != "Deny" && st.sid != "ReadTheOtherServices"
     ]]))
     error_message = "A service's deploy role may only allow its own service's names (or account-wide reads, the state bucket's listing, the shared outputs and the cluster's tasks)."
+  }
+
+  assert {
+    condition = alltrue([for name, doc in data.aws_iam_policy_document.deploy_service :
+      one([for st in doc.statement : st.actions if st.sid == "ReadTheOtherServices"]) == toset(["ecs:DescribeServices"])
+    ])
+    error_message = "The contract gate reads which version each service runs: a deploy role may describe the cluster's other services, and do nothing else to them."
   }
 
   assert {

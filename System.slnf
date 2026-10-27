@@ -19,7 +19,9 @@
       "src\\Services\\Campaigns\\Campaigns.Host\\Campaigns.Host.csproj",
       "src\\Services\\Notifications\\Notifications.Host\\Notifications.Host.csproj",
       "src\\Services\\Payments\\Payments.Host\\Payments.Host.csproj",
+      "tools\\ContractGate\\ContractGate.csproj",
       "tests\\ArchitectureTests\\ArchitectureTests.csproj",
+      "tests\\ContractGate.Tests\\ContractGate.Tests.csproj",
       "tests\\Contracts.ConsumerTests\\Contracts.ConsumerTests.csproj",
       "tests\\IntegrationTests\\IntegrationTests.csproj"
     ]

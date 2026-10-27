@@ -123,7 +123,8 @@ public class ProjectGraphTests
         // So a change to any of them runs a pipeline, and every pipeline runs the system tests.
         var services = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter)).Union(Repository.FilterProjects(NotificationsFilter))
             .Union(Repository.FilterProjects(CampaignsFilter));
-        string[] systemTests = ["tests/IntegrationTests/IntegrationTests.csproj", "tests/ArchitectureTests/ArchitectureTests.csproj", "tests/Contracts.ConsumerTests/Contracts.ConsumerTests.csproj"];
+        string[] systemTests = ["tests/IntegrationTests/IntegrationTests.csproj", "tests/ArchitectureTests/ArchitectureTests.csproj", "tests/Contracts.ConsumerTests/Contracts.ConsumerTests.csproj",
+            "tools/ContractGate/ContractGate.csproj", "tests/ContractGate.Tests/ContractGate.Tests.csproj"];
 
         Assert.Empty(Repository.FilterProjects(SystemFilter).Except(services).Except(systemTests));
     }

@@ -1,0 +1,111 @@
+{
+  "endpoints": {},
+  "events": {
+    "Payments.CampaignSettled": {
+      "requires": {
+        "campaignId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "charged": {
+          "types": [
+            "integer",
+            "string"
+          ]
+        },
+        "eventId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "failed": {
+          "types": [
+            "integer",
+            "string"
+          ]
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "types": [
+            "string"
+          ]
+        }
+      },
+      "version": 1
+    },
+    "Pledges.CampaignFundingDecided": {
+      "requires": {
+        "backers": {
+          "types": [
+            "integer",
+            "string"
+          ]
+        },
+        "campaignId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "eventId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "finalMinor": {
+          "types": [
+            "integer",
+            "string"
+          ]
+        },
+        "goalMinor": {
+          "types": [
+            "integer",
+            "string"
+          ]
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "types": [
+            "string"
+          ]
+        },
+        "outcome": {
+          "types": [
+            "string"
+          ]
+        }
+      },
+      "version": 1
+    },
+    "Pledges.FundingCancelled": {
+      "requires": {
+        "campaignId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "eventId": {
+          "format": "uuid",
+          "types": [
+            "string"
+          ]
+        },
+        "occurredAt": {
+          "format": "date-time",
+          "types": [
+            "string"
+          ]
+        }
+      },
+      "version": 1
+    }
+  },
+  "inProcess": [],
+  "module": "Campaigns"
+}

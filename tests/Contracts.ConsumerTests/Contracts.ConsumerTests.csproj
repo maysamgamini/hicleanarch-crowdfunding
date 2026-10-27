@@ -8,6 +8,8 @@
     <ProjectReference Include="..\..\src\Services\Payments\Payments.Host\Payments.Host.csproj" />
     <!-- Campaigns' handlers ship only with its own service from s5-l09. An alias keeps its Program apart. -->
     <ProjectReference Include="..\..\src\Services\Campaigns\Campaigns.Host\Campaigns.Host.csproj" Aliases="CampaignsService" />
+    <ProjectReference Include="..\..\src\Services\Notifications\Notifications.Host\Notifications.Host.csproj" Aliases="NotificationsService" />
+    <ProjectReference Include="..\..\tools\ContractGate\ContractGate.csproj" />
   </ItemGroup>
 
   <ItemGroup>

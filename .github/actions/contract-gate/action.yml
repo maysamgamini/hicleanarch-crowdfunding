@@ -1,0 +1,85 @@
+name: contract gate
+description: >-
+  Checks a service's version against the deployment record before it deploys (both directions, against the
+  running and the previous version of every other service, after checking that the record agrees with what
+  ECS runs), or records the version once ECS reports the deployment complete. The record lives on the
+  repository's deployments branch, one directory per environment and one file per service. The calling job
+  needs `contents: write` (to record) and the AWS credentials of its deploy role (to ask ECS what runs).
+
+inputs:
+  mode:
+    description: check (before the deploy) or record (after ECS reports the deployment COMPLETED)
+    required: true
+  service:
+    description: the service in deploy/services.json
+    required: true
+  version:
+    description: the commit being deployed; the image tag of every service
+    required: true
+  environment:
+    description: the record's directory on the deployments branch
+    default: sandbox
+  cluster:
+    description: the ECS cluster (check mode)
+    default: ""
+  ecs-services:
+    description: space-separated <service>=<ECS service name> pairs for every service in the record (check mode)
+    default: ""
+  first-adoption:
+    description: true for the first deploys after the gate arrives, while recorded versions predate expectations files
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Fetch the deployment record
+      shell: bash
+      run: |
+        dir="$RUNNER_TEMP/deployments"
+        rm -rf "$dir"
+        if git ls-remote --exit-code --heads origin deployments >/dev/null; then
+          git worktree add -q "$dir" origin/deployments
+        else
+          git worktree add -q --detach "$dir"
+          git -C "$dir" checkout -q --orphan deployments
+          git -C "$dir" rm -rq .
+        fi
+        echo "RECORD_ROOT=$dir" >> "$GITHUB_ENV"
+
+    - name: can-i-deploy
+      if: inputs.mode == 'check'
+      shell: bash
+      env:
+        CLUSTER: ${{ inputs.cluster }}
+        ECS_SERVICES: ${{ inputs.ecs-services }}
+        FIRST_ADOPTION: ${{ inputs.first-adoption }}
+      run: |
+        # What ECS runs, from each service's task definition image tag (the commit it was built from).
+        ecs=()
+        for pair in $ECS_SERVICES; do
+          name=${pair%%=*}; service=${pair#*=}
+          task=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --query 'services[0].taskDefinition' --output text)
+          image=$(aws ecs describe-task-definition --task-definition "$task" --query 'taskDefinition.containerDefinitions[0].image' --output text)
+          ecs+=(--ecs "$name=${image##*:}")
+        done
+        if [ "$FIRST_ADOPTION" = "true" ]; then ecs+=(--first-adoption); fi
+        scripts/contract-gate.sh can-i-deploy --record "$RECORD_ROOT/${{ inputs.environment }}" \
+          --service "${{ inputs.service }}" --version "${{ inputs.version }}" "${ecs[@]}"
+
+    - name: Record the deployment
+      if: inputs.mode == 'record'
+      shell: bash
+      run: |
+        # Two services finishing at once write different files; a rejected push is rebased and retried.
+        for attempt in 1 2 3 4 5; do
+          scripts/contract-gate.sh record --record "$RECORD_ROOT/${{ inputs.environment }}" \
+            --service "${{ inputs.service }}" --version "${{ inputs.version }}"
+          git -C "$RECORD_ROOT" add -A
+          git -C "$RECORD_ROOT" -c user.name=github-actions -c user.email=actions@github.com \
+            commit -q -m "${{ inputs.environment }}: ${{ inputs.service }} runs ${{ inputs.version }}" || exit 0
+          if git -C "$RECORD_ROOT" push -q origin HEAD:deployments; then exit 0; fi
+          git -C "$RECORD_ROOT" fetch -q origin deployments
+          git -C "$RECORD_ROOT" reset -q --hard origin/deployments
+        done
+        echo "The deployment record could not be pushed." >&2
+        exit 1

@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="..\Shared\MotoBroker.cs" Link="MotoBroker.cs" />
     <Content Include="..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\events\retired.json" Link="events\retired.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
