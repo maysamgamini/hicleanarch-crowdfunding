@@ -27,23 +27,12 @@ public sealed class SnsEventPublisher(IAmazonSimpleNotificationService sns, Brok
         return [.. accepted.SelectMany(a => a)];
     }
 
-    /// <summary>The attributes a message carries: what the filter policies and the reader need, and the trace.</summary>
-    public static Dictionary<string, string> AttributesOf(OutboxRecord record)
-    {
-        var attributes = new Dictionary<string, string>
-        {
-            [MessageAttributes.EventType] = record.Type,
-            [MessageAttributes.EventVersion] = record.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            [MessageAttributes.Producer] = record.Module,
-        };
-        if (record.TraceParent is { } traceParent)
-        {
-            attributes[MessageAttributes.TraceParent] = traceParent;
-        }
-
-        MessageAttributes.Guard(attributes);
-        return attributes;
-    }
+    /// <summary>
+    /// The attributes a message carries: what the filter policies and the reader need, and the context
+    /// of the change that wrote it (s4-l08), checked against the ten SNS allows.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> AttributesOf(OutboxRecord record) =>
+        EventAttributes.For(record.Type, record.Version, record.Module, record.TraceParent);
 
     private async Task<IEnumerable<Guid>> PublishBatch(string module, OutboxRecord[] batch, CancellationToken cancellationToken)
     {

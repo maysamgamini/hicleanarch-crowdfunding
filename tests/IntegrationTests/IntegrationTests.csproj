@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="OpenTelemetry.Exporter.InMemory" />
     <PackageReference Include="Testcontainers" />
     <PackageReference Include="StackExchange.Redis" />
     <PackageReference Include="Testcontainers.PostgreSql" />

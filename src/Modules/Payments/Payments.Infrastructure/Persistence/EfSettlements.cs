@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 
 using Payments.Application;
 using Payments.Domain;
+using Payments.Infrastructure.Tracing;
 
 namespace Payments.Infrastructure.Persistence;
 
@@ -9,8 +10,8 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
 {
     public Task CreateCharge(Charge charge, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO payments.charges (pledge_id, campaign_id, backer_id, amount_minor, currency, payment_method_ref, status, attempt_no)
-            VALUES ({charge.PledgeId}, {charge.CampaignId}, {charge.BackerId}, {charge.AmountMinor}, {charge.Currency}, {charge.PaymentMethodRef}, 'TO_CHARGE', 0)
+            INSERT INTO payments.charges (pledge_id, campaign_id, backer_id, amount_minor, currency, payment_method_ref, status, attempt_no, trace_parent)
+            VALUES ({charge.PledgeId}, {charge.CampaignId}, {charge.BackerId}, {charge.AmountMinor}, {charge.Currency}, {charge.PaymentMethodRef}, 'TO_CHARGE', 0, {CreationTrace.Current})
             ON CONFLICT (pledge_id) DO NOTHING
             """, cancellationToken);
 
