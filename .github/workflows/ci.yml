@@ -14,6 +14,9 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - name: Pack the BuildingBlocks into the local feed the modules restore from
+        # A clean runner: the release version itself, with no stale package cache to worry about.
+        run: dotnet pack BuildingBlocks.slnx -o artifacts/packages
       - run: dotnet build CrowdFunding.slnx
       - run: dotnet test CrowdFunding.slnx --no-build
       - name: The image builds

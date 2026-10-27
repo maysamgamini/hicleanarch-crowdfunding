@@ -15,11 +15,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BuildingBlocks\BuildingBlocks.Application\BuildingBlocks.Application.csproj" />
     <ProjectReference Include="..\Modules\Campaigns\Campaigns.Infrastructure\Campaigns.Infrastructure.csproj" />
     <ProjectReference Include="..\Modules\Pledges\Pledges.Infrastructure\Pledges.Infrastructure.csproj" />
     <ProjectReference Include="..\Modules\Payments\Payments.Infrastructure\Payments.Infrastructure.csproj" />
     <ProjectReference Include="..\Modules\Notifications\Notifications.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Label="BuildingBlocks">
+    <PackageReference Include="CrowdFunding.BuildingBlocks.Application" />
   </ItemGroup>
 
 </Project>

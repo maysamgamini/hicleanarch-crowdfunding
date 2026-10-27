@@ -3,11 +3,6 @@
     <Project Path="src/Gateway/Gateway.csproj" />
     <Project Path="src/Host/Host.csproj" />
   </Folder>
-  <Folder Name="/src/BuildingBlocks/">
-    <Project Path="src/BuildingBlocks/BuildingBlocks.Application/BuildingBlocks.Application.csproj" />
-    <Project Path="src/BuildingBlocks/BuildingBlocks.Domain/BuildingBlocks.Domain.csproj" />
-    <Project Path="src/BuildingBlocks/BuildingBlocks.Infrastructure/BuildingBlocks.Infrastructure.csproj" />
-  </Folder>
   <Folder Name="/src/Modules/Campaigns/">
     <Project Path="src/Modules/Campaigns/Campaigns.Application/Campaigns.Application.csproj" />
     <Project Path="src/Modules/Campaigns/Campaigns.Contracts/Campaigns.Contracts.csproj" />

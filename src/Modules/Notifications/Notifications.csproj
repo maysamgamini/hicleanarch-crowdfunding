@@ -13,8 +13,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
-    <ProjectReference Include="..\..\BuildingBlocks\BuildingBlocks.Application\BuildingBlocks.Application.csproj" />
+    <PackageReference Include="CrowdFunding.BuildingBlocks.Infrastructure" />
+    <PackageReference Include="CrowdFunding.BuildingBlocks.Application" />
     <ProjectReference Include="..\Campaigns\Campaigns.Contracts\Campaigns.Contracts.csproj" />
     <ProjectReference Include="..\Pledges\Pledges.Contracts\Pledges.Contracts.csproj" />
     <ProjectReference Include="..\Payments\Payments.Contracts\Payments.Contracts.csproj" />

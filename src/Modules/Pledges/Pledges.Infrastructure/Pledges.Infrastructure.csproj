@@ -12,8 +12,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.Infrastructure\BuildingBlocks.Infrastructure.csproj" />
     <ProjectReference Include="..\Pledges.Application\Pledges.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Label="BuildingBlocks">
+    <PackageReference Include="CrowdFunding.BuildingBlocks.Infrastructure" />
   </ItemGroup>
 
 </Project>

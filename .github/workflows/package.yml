@@ -1,0 +1,40 @@
+name: package
+
+# Publishes the BuildingBlocks packages to AWS CodeArtifact when a tag bb-v<version> is pushed.
+# The tag must match the version in src/BuildingBlocks/Directory.Build.props.
+on:
+  push:
+    tags: ["bb-v*"]
+
+permissions:
+  id-token: write   # sign in to AWS with OpenID Connect, no stored keys
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: The tag matches the version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' src/BuildingBlocks/Directory.Build.props)
+          test "bb-v$version" = "$TAG" || { echo "Tag $TAG does not match version $version"; exit 1; }
+
+      - name: Pack
+        run: dotnet pack BuildingBlocks.slnx -c Release -o artifacts/packages -p:ContinuousIntegrationBuild=true
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PACKAGES_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish to CodeArtifact
+        run: |
+          aws codeartifact login --tool dotnet --domain hicleanarch --repository packages
+          dotnet nuget push "artifacts/packages/*.nupkg" --source hicleanarch/packages

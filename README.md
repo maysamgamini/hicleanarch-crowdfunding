@@ -18,6 +18,7 @@ git diff s2-l07              # compare with the reference end state
 ## Run it
 
 ```bash
+scripts/pack-buildingblocks.sh                # the shared BuildingBlocks, packed fresh for the modules to restore
 docker compose up -d                          # PostgreSQL 17 on localhost:5432
 dotnet run --project src/Host -- migrate      # roles, schemas and migrations, then exit (a deploy step)
 dotnet run --project src/Host                 # the API on http://localhost:5080
@@ -34,7 +35,7 @@ Payments runs on a fake PSP in memory. On a laptop, `POST /dev/fake-psp/setups/{
 
 - `src/Host`: the composition root. It only composes modules: each module brings its own services and endpoints (`AddCampaignsModule`, `MapCampaignsEndpoints`), so a module split off later gets a host of its own that calls the same two.
 - `src/Modules`: Campaigns, Pledges, Payments, Notifications, each with its own layers.
-- `src/BuildingBlocks`: what every module shares: the result type, the dispatcher, the HTTP error mapping.
+- `src/BuildingBlocks` (its own solution, `BuildingBlocks.slnx`, versioned and published as NuGet packages; the modules reference a pinned version): what every module shares: the result type, the dispatcher, the HTTP error mapping.
 - `tests/`: architecture rules, unit tests per module, integration tests against a real database.
 - `infra/bootstrap/`: long-lived AWS resources (Terraform state bucket, ECR, CodeArtifact). Applied once and kept. Its own state is local; keep the `terraform.tfstate` file safe.
 - `infra/env/`: the sandbox environment. Applied for a lesson or a test run, destroyed afterwards.

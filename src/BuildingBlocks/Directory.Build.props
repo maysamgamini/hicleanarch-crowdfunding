@@ -1,0 +1,26 @@
+<Project>
+  <!-- The BuildingBlocks are a product of their own: versioned, packed and published as packages.
+       The repository's settings come first. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- The one place the version is set. SemVer: a breaking change to any public type is a new major version. -->
+    <Version>1.0.0</Version>
+    <IsPackable>true</IsPackable>
+    <PackageId>CrowdFunding.$(MSBuildProjectName)</PackageId>
+    <Authors>hicleanarch</Authors>
+    <Description>Shared building blocks of the crowdfunding modules: results and errors, the dispatcher, persistence and HTTP helpers.</Description>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/maysamgamini/hicleanarch-crowdfunding</RepositoryUrl>
+    <!-- Source Link is built into the .NET SDK: the package points at the exact commit it was built from. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="/" Visible="false" />
+  </ItemGroup>
+</Project>

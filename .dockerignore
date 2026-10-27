@@ -3,3 +3,4 @@
 .git/
 infra/
 tests/
+artifacts/

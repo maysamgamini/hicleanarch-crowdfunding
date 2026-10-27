@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 
 using BuildingBlocks.Application;
 
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 using Payments.Application;
@@ -19,7 +20,11 @@ namespace IntegrationTests;
 /// </summary>
 public sealed class RuleTests(Database database) : IDisposable
 {
-    private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host = database.StartHost();
+    // Rule 3 sends thirty pledges at one tier at once and expects every place taken; under a busy
+    // machine some would wait longer than the 300 ms a pledge waits for a tier row in production and
+    // be told to try again. The rules, not that wait, are under test here.
+    private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host =
+        database.StartHost().WithWebHostBuilder(web => web.UseSetting("Pledges:TierWait", "00:00:10"));
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 

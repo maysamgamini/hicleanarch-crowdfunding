@@ -187,6 +187,67 @@ data "aws_iam_policy_document" "deploy_iam" {
   }
 }
 
+# Publishing packages has a role of its own: it may be taken only by workflows started from a
+# bb-v* tag of this repository, and it may do nothing but publish to the course's repository.
+data "aws_iam_policy_document" "packages_assume" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_repository}:ref:refs/tags/bb-v*"]
+    }
+  }
+}
+
+resource "aws_iam_role" "packages" {
+  name               = "${var.project}-github-packages"
+  assume_role_policy = data.aws_iam_policy_document.packages_assume.json
+}
+
+data "aws_iam_policy_document" "packages_publish" {
+  statement {
+    actions   = ["codeartifact:GetAuthorizationToken"]
+    resources = [aws_codeartifact_domain.course.arn]
+  }
+  statement {
+    actions   = ["sts:GetServiceBearerToken"]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "sts:AWSServiceName"
+      values   = ["codeartifact.amazonaws.com"]
+    }
+  }
+  statement {
+    actions   = ["codeartifact:GetRepositoryEndpoint", "codeartifact:ReadFromRepository"]
+    resources = [aws_codeartifact_repository.packages.arn]
+  }
+  statement {
+    # Only the BuildingBlocks packages (NuGet has no namespace, hence the empty segment). Both
+    # spellings, because IAM compares names case-sensitively.
+    actions = ["codeartifact:PublishPackageVersion", "codeartifact:PutPackageMetadata"]
+    resources = [
+      "arn:aws:codeartifact:${var.region}:${data.aws_caller_identity.current.account_id}:package/${aws_codeartifact_domain.course.domain}/${aws_codeartifact_repository.packages.repository}/nuget//CrowdFunding.BuildingBlocks.*",
+      "arn:aws:codeartifact:${var.region}:${data.aws_caller_identity.current.account_id}:package/${aws_codeartifact_domain.course.domain}/${aws_codeartifact_repository.packages.repository}/nuget//crowdfunding.buildingblocks.*",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "packages_publish" {
+  role   = aws_iam_role.packages.id
+  policy = data.aws_iam_policy_document.packages_publish.json
+}
+
 resource "aws_iam_role_policy" "deploy_iam" {
   role   = aws_iam_role.deploy.id
   policy = data.aws_iam_policy_document.deploy_iam.json
