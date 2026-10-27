@@ -226,18 +226,25 @@ public sealed class ChargeOutcomes(
     }
 }
 
-/// <summary>How far a campaign's settlement has got.</summary>
-public sealed record GetSettlementProgress(Guid CampaignId) : IQuery<SettlementProgress>;
+/// <summary>How far a campaign's settlement has got, asked by <see cref="CallerId"/>.</summary>
+public sealed record GetSettlementProgress(Guid CampaignId, Guid CallerId) : IQuery<SettlementProgress>;
 
 /// <summary>
-/// Progress, and an ETA from the charges' share of the budget: the rate is the PSP's, not ours. An
-/// operator's question about work in progress, read from the writer: Payments keeps no read side.
+/// Progress, and an ETA from the charges' share of the budget: the rate is the PSP's, not ours. Only
+/// the campaign's creator may ask, as Payments' own payee record names them, so the answer never
+/// depends on asking Campaigns; anyone else is told there is no settlement, which says nothing about
+/// whether the campaign exists. Read from the writer: Payments keeps no read side.
 /// </summary>
 [ReadsTheWriter]
-public sealed class GetSettlementProgressHandler(ISettlements settlements, PspBudget budget) : IQueryHandler<GetSettlementProgress, SettlementProgress>
+public sealed class GetSettlementProgressHandler(ISettlements settlements, ICampaignPayees payees, PspBudget budget) : IQueryHandler<GetSettlementProgress, SettlementProgress>
 {
     public async Task<Result<SettlementProgress>> Handle(GetSettlementProgress query, CancellationToken cancellationToken)
     {
+        if (await payees.Find(query.CampaignId, cancellationToken) != query.CallerId)
+        {
+            return Result.Failure<SettlementProgress>(PaymentErrors.NoSettlement);
+        }
+
         var progress = await settlements.Progress(query.CampaignId, cancellationToken);
         if (progress is not { } p)
         {

@@ -171,14 +171,15 @@ public static class PaymentsModule
             })).RequireAuthorization(Policies.Backer).WithTags("Payments");
 
         // How far a funded campaign's settlement has got, with an ETA at the PSP's rate (lesson s3-a04).
-        app.MapGet("/v1/campaigns/{id}/settlement", async (string id, IDispatcher dispatcher, CancellationToken ct) =>
+        // Only for the campaign's own creator (OWASP API1:2023); the policy only says the caller is a creator.
+        app.MapGet("/v1/campaigns/{id}/settlement", async (string id, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
         {
             if (!PublicId.TryParse("cmp", id, out var campaignId))
             {
                 return new[] { PaymentErrors.NoSettlement }.ToProblem();
             }
 
-            var progress = await dispatcher.Query<GetSettlementProgress, SettlementProgress>(new GetSettlementProgress(campaignId), ct);
+            var progress = await dispatcher.Query<GetSettlementProgress, SettlementProgress>(new GetSettlementProgress(campaignId, user.UserId()), ct);
             return progress.IsSuccess ? Results.Ok(progress.Value) : progress.Errors.ToProblem();
         }).RequireAuthorization(Policies.Creator).WithTags("Payments");
 

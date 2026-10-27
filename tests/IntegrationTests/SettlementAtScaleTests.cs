@@ -3,12 +3,14 @@ using System.Net.Http.Json;
 using System.Text.Json;
 
 using BuildingBlocks.Application;
+using BuildingBlocks.Infrastructure.Identity;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 using Payments.Application;
+using Payments.Infrastructure.Persistence.Migrations;
 using Payments.Infrastructure.Psp;
 
 using Pledges.Application;
@@ -207,5 +209,42 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
         Assert.Equal("DONE", after.GetProperty("status").GetString());
         Assert.Equal(4, after.GetProperty("charged").GetInt32());
         Assert.Equal(0, after.GetProperty("eta_seconds").GetInt32());
+    }
+
+    [Fact]
+    public async Task Settlement_progress_is_only_for_the_campaigns_own_creator()
+    {
+        await using var host = Host();
+        var (given, campaign) = await Funded(host, 1);
+        var url = $"/v1/campaigns/{campaign.Id}/settlement";
+        var anotherCreator = Database.Client(host, Database.Token(Guid.NewGuid(), Roles.Creator));
+        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM payments.campaign_payees WHERE campaign_id = @id", campaign.CampaignId) == 1);
+
+        var owner = await given.Creator().GetAsync(url, Ct);
+        var someoneElse = await anotherCreator.GetAsync(url, Ct);
+        var backer = await given.Backer(Guid.NewGuid()).GetAsync(url, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, owner.StatusCode);
+        Assert.Equal(1, (await owner.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("expected").GetInt32());
+        Assert.Equal(HttpStatusCode.NotFound, someoneElse.StatusCode); // as if there were no settlement: nothing about another creator's campaign
+        Assert.Equal("settlement_not_found", (await someoneElse.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
+        Assert.Equal(HttpStatusCode.Forbidden, backer.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_campaign_published_before_payees_were_recorded_gets_its_payee_from_the_backfill()
+    {
+        await using var host = Host();
+        var (given, campaign) = await Funded(host, 1);
+        var url = $"/v1/campaigns/{campaign.Id}/settlement";
+        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM payments.campaign_payees WHERE campaign_id = @id", campaign.CampaignId) == 1);
+        await given.Execute("DELETE FROM payments.campaign_payees WHERE campaign_id = @id", campaign.CampaignId); // as before s3-l15
+
+        Assert.Equal(HttpStatusCode.NotFound, (await given.Creator().GetAsync(url, Ct)).StatusCode); // no payee: nobody is its creator yet
+
+        await given.Execute(BackfillCampaignPayees.Backfill, campaign.CampaignId);
+
+        Assert.Equal(given.CreatorId, await given.Scalar<Guid>("SELECT creator_id FROM payments.campaign_payees WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(HttpStatusCode.OK, (await given.Creator().GetAsync(url, Ct)).StatusCode);
     }
 }
