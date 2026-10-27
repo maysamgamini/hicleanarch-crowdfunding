@@ -188,6 +188,81 @@ public sealed class RemoteCardSetupTests(Database database)
         Assert.Single(log.Entries, e => e.StartsWith("Error", StringComparison.Ordinal) && e.Contains($"payments refused StartCardSetup with {status}", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// Payments as s4-l05 shipped it: the body bound with snake_case names and no strictness, the reply in
+    /// snake_case. Or, with <c>Unreadable</c>, a reply no naming of the contract can read.
+    /// </summary>
+    private sealed class S4L05Payments(bool unreadable = false) : HttpMessageHandler
+    {
+        private static readonly JsonSerializerOptions Old = new(JsonSerializerDefaults.Web) { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+
+        public List<Payments.Contracts.StartCardSetup> Received { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Received.Add((await request.Content!.ReadFromJsonAsync<Payments.Contracts.StartCardSetup>(Old, cancellationToken))!);
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = unreadable
+                    ? new StringContent("""{"setup":"?"}""", System.Text.Encoding.UTF8, "application/json")
+                    : JsonContent.Create(new Payments.Contracts.CardSetupStarted(Guid.NewGuid(), "seti_old_secret_x"), options: Old),
+            };
+        }
+    }
+
+    [Fact]
+    public async Task The_client_and_a_payments_task_still_on_s4_l05_read_each_other_while_the_services_roll()
+    {
+        var old = new S4L05Payments();
+        await using var host = database.StartHost(services => services.AddHttpClient<RemoteStartCardSetup>().ConfigurePrimaryHttpMessageHandler(() => old));
+        var given = new Scenario(database, host);
+        var campaign = await given.Publish(1_000);
+
+        var placed = await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", NewCard(5_000), Ct);
+
+        Assert.Equal(HttpStatusCode.Created, placed.StatusCode);
+        Assert.Equal("seti_old_secret_x", (await placed.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("setup").GetProperty("client_secret").GetString());
+        var received = Assert.Single(old.Received);
+        Assert.NotEqual(Guid.Empty, received.PledgeId); // never a card setup for pledge 0000…
+        Assert.NotEqual(Guid.Empty, received.BackerId);
+    }
+
+    [Fact]
+    public async Task A_reply_the_client_cannot_read_is_a_refusal_not_a_500()
+    {
+        await using var host = database.StartHost(services => services.AddHttpClient<RemoteStartCardSetup>()
+            .ConfigurePrimaryHttpMessageHandler(() => new S4L05Payments(unreadable: true)));
+        var given = new Scenario(database, host);
+        var campaign = await given.Publish(1_000);
+
+        var refused = await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", NewCard(5_000), Ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Equal("card_setup_unavailable", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
+    }
+
+    [Fact]
+    public async Task Payments_reads_the_s4_l05_body_by_its_names_and_answers_in_both()
+    {
+        await using var host = database.StartHost();
+        var given = new Scenario(database, host);
+        var (pledgeId, backerId) = (Guid.NewGuid(), Guid.NewGuid());
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/internal/payments/card-setups")
+        {
+            Content = new StringContent($$"""{"pledge_id":"{{pledgeId}}","backer_id":"{{backerId}}"}""", System.Text.Encoding.UTF8, "application/json"),
+        };
+        request.Headers.Authorization = new("Bearer", BuildingBlocks.Infrastructure.Identity.LocalTokens.IssueService(
+            Database.SigningKey, Database.ServiceClientId, DateTime.UtcNow.AddHours(1), Payments.Contracts.PaymentsInternalEndpoints.CommandsScope));
+
+        var answer = await host.Payments().CreateClient().SendAsync(request, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
+        var body = await answer.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        Assert.Equal(body.GetProperty("clientSecret").GetString(), body.GetProperty("client_secret").GetString());
+        Assert.Equal(1, await given.Scalar<long>("SELECT count(*) FROM payments.card_setups WHERE pledge_id = @id", pledgeId));
+        Assert.Equal(0, await given.Scalar<long>("SELECT count(*) FROM payments.card_setups WHERE pledge_id = @id", Guid.Empty));
+    }
+
     [Fact]
     public async Task The_internal_endpoint_does_not_exist_on_the_public_port()
     {

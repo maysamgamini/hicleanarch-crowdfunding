@@ -48,19 +48,33 @@ public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<Remote
 
     public async Task<Result<CardSetupStarted>> Handle(StartCardSetup command, CancellationToken cancellationToken)
     {
-        // The request and the reply are the contract's JSON, read strictly (ContractJson, s4-l06).
+        // The request and the reply are the contract's JSON, read strictly (ContractJson, s4-l06). For one
+        // release the body also carries the s4-l05 snake_case names, so a Payments task still on s4-l05
+        // reads the real ids instead of binding empty ones while the services roll (CQA-1519).
         using var request = new HttpRequestMessage(new HttpMethod(Endpoint.Method), Endpoint.Path)
         {
-            Content = JsonContent.Create(command, options: ContractJson.Options),
+            Content = JsonContent.Create(CardSetupWire.Both(command), options: ContractJson.Options),
         };
         // A card setup is idempotent per pledge, so the pledge is the key: a retried attempt gets the first one's setup.
         request.Headers.Add(RemoteCalls.IdempotencyKeyHeader, command.PledgeId.ToString());
         try
         {
             using var response = await http.SendAsync(request, cancellationToken);
-            return response.IsSuccessStatusCode
-                ? Result.Success((await response.Content.ReadFromJsonAsync<CardSetupStarted>(ContractJson.Options, cancellationToken))!)
-                : Result.Failure<CardSetupStarted>(await ErrorOf(response, cancellationToken));
+            if (!response.IsSuccessStatusCode)
+            {
+                return Result.Failure<CardSetupStarted>(await ErrorOf(response, cancellationToken));
+            }
+
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (CardSetupWire.Read<CardSetupStarted>(body) is { } started)
+            {
+                return Result.Success(started);
+            }
+
+            // A reply this client cannot read is a contract fault, not an outage: refused, counted and logged.
+            refused.Record("payments", nameof(StartCardSetup), response.StatusCode);
+            LogUnreadable(logger, command.PledgeId);
+            return Result.Failure<CardSetupStarted>(PaymentsRefused);
         }
         catch (Exception e) when (e is HttpRequestException or TimeoutRejectedException or BrokenCircuitException)
         {
@@ -102,6 +116,9 @@ public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<Remote
         refused.Record("payments", nameof(StartCardSetup), status);
         return PaymentsRefused;
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Payments' reply to the card setup of pledge {PledgeId} is not a CardSetupStarted this client can read; nothing was kept")]
+    private static partial void LogUnreadable(ILogger logger, Guid pledgeId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Payments did not answer the card setup of pledge {PledgeId}; the pledge keeps its place")]
     private static partial void LogUnavailable(ILogger logger, Exception exception, Guid pledgeId);

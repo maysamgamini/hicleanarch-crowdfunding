@@ -216,15 +216,9 @@ public static class PaymentsModule
         payments.MapMethods(startCardSetup.Path, [startCardSetup.Method], async (HttpContext http,
             [FromKeyedServices(PaymentsModuleName.Value)] ICommandHandler<StartCardSetup, CardSetupStarted> handler, CancellationToken ct) =>
         {
-            StartCardSetup? command;
-            try
-            {
-                command = await http.Request.ReadFromJsonAsync<StartCardSetup>(ContractJson.Options, ct);
-            }
-            catch (JsonException)
-            {
-                command = null;
-            }
+            // Either naming, strictly, for one release (CardSetupWire, CQA-1519).
+            using var reader = new StreamReader(http.Request.Body);
+            var command = CardSetupWire.Read<StartCardSetup>(await reader.ReadToEndAsync(ct));
 
             if (command is null)
             {
@@ -232,7 +226,7 @@ public static class PaymentsModule
             }
 
             var started = await handler.Handle(command, ct);
-            return started.IsSuccess ? Results.Json(started.Value, ContractJson.Options) : started.Errors.ToProblem();
+            return started.IsSuccess ? Results.Json(CardSetupWire.Both(started.Value), ContractJson.Options) : started.Errors.ToProblem();
         }).AddEndpointFilter<InternalPortOnly>().RequirePaymentsCommands().ExcludeFromDescription();
 
         // On a laptop there is no PSP to finish the card form: this plays the backer and the PSP.
