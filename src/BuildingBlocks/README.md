@@ -21,3 +21,13 @@ dotnet pack BuildingBlocks.slnx -o artifacts/packages
 
 Publish: push a tag `bb-v<version>` matching the version in `src/BuildingBlocks/Directory.Build.props`;
 the `package` workflow packs and publishes to AWS CodeArtifact.
+
+## Versions
+
+- **6.0.0**: `ITokenBuckets` gains `TryEnter` and the `Lane` record (a line of waiting callers);
+  `IInFlightSlots` caps calls in flight beside the buckets; `ValkeyTokenBuckets` takes a
+  `DegradedTokenBuckets`, used while Valkey cannot be reached; `ValkeyRegistration.ClientOptions`
+  sets short client timeouts; the query cache serves a stale entry while one caller reloads it;
+  `IdempotentRequests.TryReplay` replays a stored reply without a transaction; `PurgeConnection`
+  points a module's key purge at another connection. The first three break an implementer, so
+  this is a major version.
