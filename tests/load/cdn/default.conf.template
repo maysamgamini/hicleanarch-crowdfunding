@@ -1,0 +1,27 @@
+# The CDN path, locally: an nginx cache in front of the API that keeps the totals reply for as long as
+# its Cache-Control says (2 seconds, decision cdn-totals) and collapses concurrent misses into one origin
+# request, as CloudFront does per edge location. Everything else passes through uncached.
+# The official nginx image fills in ${ORIGIN} when it starts.
+proxy_cache_path /var/cache/nginx/totals keys_zone=totals:10m max_size=64m inactive=1m;
+# One line per totals read: whether it reached the origin is whether it has an upstream address.
+log_format totals '$upstream_cache_status $upstream_addr';
+
+server {
+    listen 8080;
+
+    location ~ ^/v1/campaigns/[^/]+/totals$ {
+        proxy_pass http://${ORIGIN};
+        proxy_cache totals;
+        # While one request for an expired reply is at the origin, the others wait for it, however slow.
+        proxy_cache_lock on;
+        proxy_cache_lock_timeout 30s;
+        proxy_cache_lock_age 30s;
+        add_header X-Cache $upstream_cache_status always;
+        access_log /var/log/nginx/totals.log totals;
+    }
+
+    location / {
+        proxy_pass http://${ORIGIN};
+        add_header X-Cache BYPASS always;
+    }
+}

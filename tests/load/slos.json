@@ -1,0 +1,54 @@
+{
+  "comment": "What each service promises (decision service-slos), read by tests/load/four-services.js for its thresholds and by scripts/measure-services.sh for the server-side numbers in a learner's own AWS account. Pledges' pledge latency and availability are the loop's Round 2 targets (R2.1); the rest are the course's design objectives. scripts/load-local.sh measures them locally; a learner measures them in their own AWS account (tests/load/README.md). ecsService and discoveryName are the names the service module gives each service (infra/modules/service: <name> and <name>-public). lagSeconds is the oldest message its queue may hold.",
+  "windowDays": 30,
+  "services": {
+    "pledges": {
+      "ecsService": "pledges",
+      "discoveryName": "pledges-public",
+      "queue": "pledges",
+      "availability": 0.9999,
+      "latency": {
+        "endpoint": "POST /v1/campaigns/{id}/pledges",
+        "p99Ms": 200
+      },
+      "lagSeconds": 10,
+      "source": "R2.1: 99.99%, pledge P99 < 200 ms; lag: 10 s, as infra/services/pledges pages on (s5-l13): the clients' retries after 1, 2 and 4 s reach a just-published campaign"
+    },
+    "campaigns": {
+      "ecsService": "campaigns",
+      "discoveryName": "campaigns-public",
+      "queue": "campaigns",
+      "availability": 0.999,
+      "latency": {
+        "endpoint": "GET /v1/campaigns/{id}",
+        "p99Ms": 300
+      },
+      "lagSeconds": 60,
+      "source": "design objective: the catalog page, served from its cache"
+    },
+    "payments": {
+      "ecsService": "payments",
+      "discoveryName": "payments-public",
+      "queue": "payments",
+      "availability": 0.999,
+      "latency": {
+        "endpoint": "GET /v1/campaigns/{id}/settlement",
+        "p99Ms": 500
+      },
+      "lagSeconds": 60,
+      "source": "design objective; settlement's pace is the PSP's (s3-a04), measured as the close pass"
+    },
+    "notifications": {
+      "ecsService": "notifications",
+      "discoveryName": "notifications-public",
+      "queue": "notifications",
+      "availability": 0.999,
+      "latency": {
+        "endpoint": "PUT /v1/me/notifications/{kind}",
+        "p99Ms": 300
+      },
+      "lagSeconds": 300,
+      "source": "design objective: an email within five minutes of the event"
+    }
+  }
+}

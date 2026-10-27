@@ -50,4 +50,4 @@ jq -n --arg creator "$creator" --rawfile tokens "$dir/backer-tokens.txt" \
 
 # k6 opens files relative to the script, so the tokens file is given as an absolute path.
 API_URL="$api" PUBLIC_URL="$public" SCALE="$scale" TOKENS_FILE="$PWD/$dir/tokens.json" REPORT_DIR="$dir" \
-  k6 run --summary-export "$dir/k6-summary.json" tests/load/round2.js
+  k6 run --summary-export "$dir/k6-summary.json" "${LOAD_SCRIPT:-tests/load/round2.js}"

@@ -1,0 +1,18 @@
+{
+  "comment": "A design estimate, not a bill: what the tasks of each deployable cost per hour at us-east-1 on-demand list prices, read 2026-10-27 (docs/cost.md lists the sources). The monolith is s3-l16's infra/env (two tasks of 0.5 vCPU and 1 GB). The four services are s5-l15's: each service's root (infra/services/<name>) on the service module, whose default is 0.5 vCPU and 1 GB with room for the Service Connect proxy (CQA-2106); Pledges and Payments at 1 vCPU and 2 GB; the default task counts (Pledges' from infra/env's desired_count, Payments' one task under its PSP budget). Each task has its own public IPv4 address (no NAT gateway). Left out because they do not change with the split or are too small to show: the load balancer, the database, Valkey, CloudFront, and a few secrets and alarms per service.",
+  "prices": {
+    "fargateVcpuHour": 0.0404784,
+    "fargateGbHour": 0.004446,
+    "publicIpv4Hour": 0.005,
+    "source": "https://aws.amazon.com/fargate/pricing/ and https://aws.amazon.com/vpc/pricing/"
+  },
+  "monolith": {
+    "monolith": { "tasks": 2, "vcpu": 0.5, "memoryGb": 1 }
+  },
+  "fourServices": {
+    "pledges": { "tasks": 2, "vcpu": 1, "memoryGb": 2 },
+    "payments": { "tasks": 1, "vcpu": 1, "memoryGb": 2 },
+    "campaigns": { "tasks": 2, "vcpu": 0.5, "memoryGb": 1 },
+    "notifications": { "tasks": 2, "vcpu": 0.5, "memoryGb": 1 }
+  }
+}
