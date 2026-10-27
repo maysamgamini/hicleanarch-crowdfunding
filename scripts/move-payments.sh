@@ -63,7 +63,11 @@ wait_restorable() {
   done
 }
 
+# An apply that changes Payments' connection rolls two services: Payments', and the monolith's, whose
+# tasks keep that connection for the in-process fallback (infra/env/ecs.tf) until s4-l10. The next step
+# runs only once both have finished rolling.
 services_stable() {
+  aws ecs wait services-stable --cluster "$(out cluster)" --services "$(out service)"
   aws ecs wait services-stable --cluster "$(pout cluster)" --services "$(pout service)"
 }
 
