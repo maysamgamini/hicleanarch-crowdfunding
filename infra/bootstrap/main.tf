@@ -115,11 +115,14 @@ data "aws_iam_policy_document" "task_boundary" {
       "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams",
       "xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets",
       "cloudwatch:PutMetricData",
-      "secretsmanager:GetSecretValue",
       "ses:SendEmail", "ses:SendRawEmail", "cognito-idp:ListUsers",
-      "elasticache:Connect",
     ]
     resources = ["*"]
+  }
+  # The project's own secrets only, so a role created under the boundary cannot read anything else.
+  statement {
+    actions   = ["secretsmanager:GetSecretValue"]
+    resources = ["arn:aws:secretsmanager:${var.region}:${data.aws_caller_identity.current.account_id}:secret:${var.project}/*"]
   }
 }
 
@@ -129,7 +132,9 @@ resource "aws_iam_policy" "task_boundary" {
 }
 
 locals {
-  project_roles = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-*"
+  # The environment's roles only. The GitHub roles (hicleanarch-github-*) do not match, so the deploy
+  # role can neither change its own trust policy nor take over the packages role.
+  project_roles = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-sandbox-*"
 }
 
 data "aws_iam_policy_document" "deploy_iam" {
@@ -184,6 +189,25 @@ data "aws_iam_policy_document" "deploy_iam" {
     effect    = "Deny"
     actions   = ["iam:DeleteRolePermissionsBoundary"]
     resources = ["*"]
+  }
+  # Never the GitHub roles themselves, whatever another statement or a later policy allows: a workflow
+  # must not be able to widen who may take a role (the delegation pattern in the IAM guide).
+  statement {
+    effect = "Deny"
+    actions = [
+      "iam:UpdateAssumeRolePolicy", "iam:DeleteRole", "iam:Put*", "iam:Attach*", "iam:Detach*",
+      "iam:DeleteRolePolicy", "iam:TagRole", "iam:UntagRole",
+    ]
+    resources = [aws_iam_role.deploy.arn, aws_iam_role.packages.arn]
+  }
+  # Nor the boundary itself.
+  statement {
+    effect = "Deny"
+    actions = [
+      "iam:CreatePolicyVersion", "iam:DeletePolicy", "iam:DeletePolicyVersion", "iam:SetDefaultPolicyVersion",
+      "iam:TagPolicy", "iam:UntagPolicy",
+    ]
+    resources = [aws_iam_policy.task_boundary.arn]
   }
 }
 
