@@ -136,10 +136,12 @@ public sealed class CardSetupIdempotencyTests(Database database) : IDisposable
     [Fact]
     public async Task Asking_again_for_the_card_form_holds_no_pledges_transaction_while_a_slow_psp_answers()
     {
-        // This host's Pledges sessions carry their own name, so the test sees only its own.
+        // This host's Pledges sessions carry their own name, so the test sees only its own. Its card
+        // setups may take 10 s: this test is about the Pledges transaction, not the setup's own deadline.
         const string Name = "card-setup-resume-test";
-        await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting(
-            "ConnectionStrings:Pledges", new NpgsqlConnectionStringBuilder(database.Pledges) { ApplicationName = Name }.ConnectionString));
+        await using var host = database.StartHost().WithWebHostBuilder(web => web
+            .UseSetting("ConnectionStrings:Pledges", new NpgsqlConnectionStringBuilder(database.Pledges) { ApplicationName = Name }.ConnectionString)
+            .UseSetting("Payments:CardSetup:PspDeadline", "00:00:10"));
         var given = new Scenario(database, host);
         var psp = host.Services.GetRequiredService<FakePaymentProvider>();
         var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));

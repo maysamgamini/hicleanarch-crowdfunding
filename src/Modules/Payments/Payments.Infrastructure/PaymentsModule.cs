@@ -108,10 +108,18 @@ public static class PaymentsModule
                 sp.GetRequiredService<PspBudget>(), sp.GetRequiredService<TimeProvider>()),
             sp.GetRequiredService<CircuitBreaker>()));
 
+        services.AddOptions<CardSetupOptions>().Bind(configuration.GetSection("Payments:CardSetup"))
+            .Validate(o => o.PspDeadline > TimeSpan.Zero, "Payments:CardSetup:PspDeadline must be positive.")
+            .ValidateOnStart();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<CardSetupOptions>>().Value);
+
         services.AddScoped<EfPayments>();
         services.AddScoped<EfMoney>();
         return services
             .AddPaymentsApplication()
+            .AddScoped<StartCardSetupHandler>()
+            .AddScoped<ICommandHandler<StartCardSetup, CardSetupStarted>>(sp => new CardSetupDeadline(
+                sp.GetRequiredService<StartCardSetupHandler>(), sp.GetRequiredService<CardSetupOptions>(), sp.GetRequiredService<TimeProvider>()))
             .AddScoped<IPspCustomers>(sp => sp.GetRequiredService<EfPayments>())
             .AddScoped<ICardSetups>(sp => sp.GetRequiredService<EfPayments>())
             .AddScoped<IWebhookInbox>(sp => sp.GetRequiredService<EfPayments>())
