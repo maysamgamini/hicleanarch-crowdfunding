@@ -191,6 +191,11 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
 
         Assert.Equal(0L, await given.Scalar<long>("SELECT final_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(6_000L, await given.Scalar<long>("SELECT recheck_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+
+        // The alarm's gauge is measured from the rows, by any task: a new host measures as it starts.
+        using var restarted = database.StartHost();
+        _ = restarted.Server;
+        await Scenario.Eventually(() => Task.FromResult(Pledges.Infrastructure.PledgesMonitor.RecheckMismatches.Value >= 1));
     }
 
     [Fact]
