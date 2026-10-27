@@ -8,6 +8,6 @@
 # Usage: hand-over.sh <name>
 set -euo pipefail
 name="${1:?usage: hand-over.sh <name>}"
-task=$(tofu -chdir=infra/env output -json handover_task_definitions | jq -r --arg name "$name" '.[$name] // empty')
+task=$("${IAC:-tofu}" -chdir=infra/env output -json handover_task_definitions | jq -r --arg name "$name" '.[$name] // empty')
 test -n "$task" || { echo "no hand-over task for $name: apply infra/env with ${name}_image set" >&2; exit 2; }
 "$(dirname "$0")/run-migration.sh" infra/env "$task"

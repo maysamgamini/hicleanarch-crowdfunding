@@ -5,7 +5,7 @@
 set -euo pipefail
 name="${1:?usage: destroy-service.sh <name>}"
 bucket="${STATE_BUCKET:?set STATE_BUCKET to the state_bucket output of infra/bootstrap}"
-tf() { tofu -chdir="infra/services/$name" "$@"; }
+tf() { "${IAC:-tofu}" -chdir="infra/services/$name" "$@"; }
 
 tf init -input=false -backend-config="bucket=$bucket" >/dev/null
 if [ -z "$(tf state list)" ]; then

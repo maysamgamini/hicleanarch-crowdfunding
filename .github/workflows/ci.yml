@@ -26,23 +26,31 @@ jobs:
       - name: Every service host still matches the service template
         run: scripts/check-service-template.sh
 
-  # OpenTofu (MPL-2.0), the version in .opentofu-version. No credentials: init without the backend,
-  # and tofu test plans each root against mock providers, so nothing here calls AWS.
-  tofu:
+  # Every root under both tools the course supports: OpenTofu (MPL-2.0, the default) and Terraform
+  # (BUSL-1.1), each at the version its file pins. No credentials: init without the backend, and the
+  # tests plan or apply against mock providers, so nothing here calls AWS.
+  infra:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        iac: [tofu, terraform]
+    env:
+      IAC: ${{ matrix.iac }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        if: matrix.iac == 'tofu'
         with:
           tofu_version_file: .opentofu-version
           tofu_wrapper: false
-      - name: fmt, validate and test every root
-        run: |
-          tofu fmt -check -recursive infra
-          for dir in infra/bootstrap infra/env infra/services/payments infra/services/notifications; do
-            if ls "$dir"/*.tf >/dev/null 2>&1; then
-              tofu -chdir="$dir" init -backend=false -input=false -lockfile=readonly
-              tofu -chdir="$dir" validate
-              tofu -chdir="$dir" test
-            fi
-          done
+      - id: terraform
+        if: matrix.iac == 'terraform'
+        run: echo "version=$(cat .terraform-version)" >> "$GITHUB_OUTPUT"
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        if: matrix.iac == 'terraform'
+        with:
+          terraform_version: ${{ steps.terraform.outputs.version }}
+          terraform_wrapper: false
+      - name: fmt, init, validate and test every root
+        run: scripts/check-infra.sh

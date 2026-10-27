@@ -6,7 +6,7 @@
 set -euo pipefail
 image="${1:?usage: deploy-payments.sh <image>}"
 bucket="${STATE_BUCKET:?set STATE_BUCKET to the state_bucket output of infra/bootstrap}"
-tf() { tofu -chdir=infra/services/payments "$@"; }
+tf() { "${IAC:-tofu}" -chdir=infra/services/payments "$@"; }
 
 tf init -input=false -backend-config="bucket=$bucket" >/dev/null
 current=$(tf output -raw service_image 2>/dev/null || true)

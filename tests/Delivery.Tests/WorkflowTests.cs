@@ -38,35 +38,59 @@ public partial class WorkflowTests
         Assert.True(At("destroy-payments.sh") < At("tofu -chdir=infra/env destroy"));
     }
 
-    public static TheoryData<string> WorkflowsAndScripts() =>
+    [Fact]
+    public void Ci_checks_every_root_with_both_Terraform_and_OpenTofu()
+    {
+        // The course supports both tools: OpenTofu (MPL-2.0) by default, Terraform (BUSL-1.1) too. One
+        // matrix job per tool, each at the version its file pins, runs the same checks on every root.
+        var ci = Repository.Read(".github/workflows/ci.yml");
+        var check = Repository.Read("scripts/check-infra.sh");
+
+        Assert.Matches(IacMatrix(), ci);
+        Assert.Contains("IAC: ${{ matrix.iac }}", ci, StringComparison.Ordinal);
+        Assert.Contains("run: scripts/check-infra.sh", ci, StringComparison.Ordinal);
+        Assert.Matches(SetupOpenTofu(), ci);
+        Assert.Contains("tofu_version_file: .opentofu-version", SetupOpenTofu().Match(ci).Value, StringComparison.Ordinal);
+        Assert.Matches(SetupTerraform(), ci);
+        Assert.Contains("cat .terraform-version", ci, StringComparison.Ordinal);
+        Assert.Matches(@"^\d+\.\d+\.\d+$", Repository.Read(".opentofu-version").Trim());
+        Assert.Matches(@"^\d+\.\d+\.\d+$", Repository.Read(".terraform-version").Trim());
+
+        Assert.Contains("iac=\"${IAC:-tofu}\"", check, StringComparison.Ordinal);
+        foreach (var step in new[] { "fmt -check -recursive infra", "init -backend=false -input=false -lockfile=readonly", "validate", "test" })
+        {
+            Assert.Contains(step, check, StringComparison.Ordinal);
+        }
+    }
+
+    public static TheoryData<string> Scripts() =>
     [
-        .. Workflows.All,
         .. Directory.GetFiles(Path.Combine(Repository.Root, "scripts"), "*.sh")
             .Order(StringComparer.Ordinal)
             .Select(p => Path.GetRelativePath(Repository.Root, p).Replace('\\', '/')),
     ];
 
     [Theory]
-    [MemberData(nameof(WorkflowsAndScripts))]
-    public void Infrastructure_runs_on_OpenTofu_at_the_pinned_version(string file)
+    [MemberData(nameof(Scripts))]
+    public void A_script_runs_the_tool_IAC_names(string script)
     {
-        // Terraform 1.6 and later is BUSL-1.1; the course uses only open-source tools, so OpenTofu
-        // (MPL-2.0). Every setup reads the one pinned version, so CI and a learner's laptop agree.
-        var text = Repository.Read(file);
-
-        Assert.DoesNotMatch(TerraformCommand(), text);
-        Assert.DoesNotContain("hashicorp/setup-terraform", text, StringComparison.Ordinal);
-        foreach (var setup in SetupOpenTofu().Matches(text).Cast<Match>())
-        {
-            Assert.Contains("tofu_version_file: .opentofu-version", setup.Value, StringComparison.Ordinal);
-        }
+        // IAC=terraform runs any script with Terraform; unset, it is tofu. A script that called either
+        // tool by name would ignore the choice.
+        var code = Repository.Read(script).Split('\n').Where(l => !l.TrimStart().StartsWith('#'));
+        Assert.All(code, line => Assert.DoesNotMatch(IacByName(), line));
     }
 
     [GeneratedRegex(@"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")]
     private static partial Regex PinnedToCommit();
 
-    [GeneratedRegex(@"(^|[\s;(|&$])terraform\s", RegexOptions.Multiline)]
-    private static partial Regex TerraformCommand();
+    [GeneratedRegex(@"(^|[\s;(|&{])(terraform|tofu)\s")]
+    private static partial Regex IacByName();
+
+    [GeneratedRegex(@"matrix:\s*\n\s*iac: \[tofu, terraform\]")]
+    private static partial Regex IacMatrix();
+
+    [GeneratedRegex(@"uses:\s*hashicorp/setup-terraform@[0-9a-f]{40}.*?(?=\n\s*- |\z)", RegexOptions.Singleline)]
+    private static partial Regex SetupTerraform();
 
     // The uses: line of opentofu/setup-opentofu and its with: block, up to the next step.
     [GeneratedRegex(@"uses:\s*opentofu/setup-opentofu@\S+.*?(?=\n\s*- |\z)", RegexOptions.Singleline)]

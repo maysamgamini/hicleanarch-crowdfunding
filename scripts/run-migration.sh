@@ -8,7 +8,7 @@ set -euo pipefail
 dir="${1:?usage: run-migration.sh <root dir> [task definition] [command...]}"
 definition="${2:-}"
 shift $(( $# < 2 ? $# : 2 ))
-out() { tofu -chdir="$dir" output -raw "$1"; }
+out() { "${IAC:-tofu}" -chdir="$dir" output -raw "$1"; }
 overrides=()
 if (( $# > 0 )); then
   command=$(printf '"%s",' "$@")

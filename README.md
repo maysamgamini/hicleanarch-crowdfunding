@@ -64,6 +64,10 @@ docker compose --profile stack down -v        # remove it all, data included
 
 ## Requirements
 
-.NET SDK 10, Docker, [OpenTofu](https://opentofu.org) 1.13 or later 1.x (`tofu`; the exact version CI runs is in `.opentofu-version`). An AWS account only for the lessons that deploy.
+.NET SDK 10, Docker, and [OpenTofu](https://opentofu.org) or [Terraform](https://developer.hashicorp.com/terraform), 1.13 or a later 1.x. An AWS account only for the lessons that deploy.
 
-The tags up to s4-l10 were written for Terraform; the commands are the same with `tofu` in place of `terraform`, and OpenTofu reads those tags' `*.tf` and `.terraform.lock.hcl` files as they are. From the tag after s4-l10 the course uses OpenTofu only: Terraform 1.6 and later is under the Business Source License (BUSL-1.1), OpenTofu under the Mozilla Public License 2.0.
+Both tools are supported. OpenTofu (`tofu`, MPL-2.0) is the default; Terraform (`terraform`, BUSL-1.1) works the same. The commands differ only in the program's name. The scripts run `tofu` unless `IAC` names the other: `IAC=terraform scripts/deploy-service.sh ...`. CI checks every root with both, at the versions in `.opentofu-version` and `.terraform-version`; `scripts/check-infra.sh` runs the same checks on your machine (`IAC=terraform scripts/check-infra.sh`).
+
+One `.terraform.lock.hcl` per root serves both tools: the provider sources name the OpenTofu registry (`registry.opentofu.org/hashicorp/aws`), so Terraform and OpenTofu install the same provider builds and check the same hashes. Terraform reports them as "self-signed": the OpenTofu registry signs its copies of HashiCorp's MPL-2.0 providers with its own key.
+
+The tags up to s4-l10 were written for Terraform; OpenTofu runs them too, with `tofu` in place of `terraform`.

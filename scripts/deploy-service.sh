@@ -10,7 +10,7 @@ image="${2:?usage: deploy-service.sh <name> <image>}"
 bucket="${STATE_BUCKET:?set STATE_BUCKET to the state_bucket output of infra/bootstrap}"
 dir="infra/services/$name"
 test -d "$dir" || { echo "no OpenTofu root $dir" >&2; exit 2; }
-tf() { tofu -chdir="$dir" "$@"; }
+tf() { "${IAC:-tofu}" -chdir="$dir" "$@"; }
 
 tf init -input=false -backend-config="bucket=$bucket" >/dev/null
 current=$(tf output -raw service_image 2>/dev/null || true)
