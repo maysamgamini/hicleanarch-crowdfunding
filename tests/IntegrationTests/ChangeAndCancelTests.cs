@@ -45,6 +45,35 @@ public sealed class ChangeAndCancelTests(Database database) : IDisposable
         Assert.Equal(active, ledger);
     }
 
+    /// <summary>
+    /// A change that moves tiers waits only a moment for the tier rows; every statement after them waits
+    /// for its locks as usual. Here the ledger is locked for 0.8 s, longer than the tier wait and well
+    /// inside the request's time limit: the change waits and is made.
+    /// </summary>
+    [Fact]
+    public async Task A_change_into_another_tier_waits_as_usual_for_a_lock_after_the_tier_rows()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 2), ("Founder", 9_900, null));
+        var backer = given.Backer(Guid.NewGuid());
+        var pledge = await Place(backer, campaign, 10_000, campaign.TierIds[1]);
+
+        await using var owner = new Npgsql.NpgsqlConnection(database.Owner);
+        await owner.OpenAsync(Ct);
+        await using var locking = await owner.BeginTransactionAsync(Ct);
+        await using (var lockLedger = new Npgsql.NpgsqlCommand("LOCK TABLE pledges.pledge_ledger IN SHARE MODE", owner, locking))
+        {
+            await lockLedger.ExecuteNonQueryAsync(Ct);
+        }
+
+        var change = Change(backer, pledge, 6_000, campaign.TierIds[0]);
+        await Task.Delay(TimeSpan.FromMilliseconds(800), Ct);
+        await locking.CommitAsync(Ct);
+
+        Assert.Equal(HttpStatusCode.OK, (await change).StatusCode);
+        await AssertTotalIsTheLedger(given, campaign.CampaignId);
+    }
+
     [Fact]
     public async Task The_total_equals_the_ledger_sum_after_any_sequence()
     {

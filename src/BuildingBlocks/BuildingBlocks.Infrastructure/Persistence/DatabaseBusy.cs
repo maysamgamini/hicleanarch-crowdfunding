@@ -19,21 +19,27 @@ public sealed class DatabaseBusyException(string reason, Exception inner)
 public static class DatabaseBusy
 {
     /// <summary>
-    /// Runs one statement under a short lock wait. <c>SET LOCAL</c> lasts until the transaction ends.
-    /// A wait that runs out ends the statement with <c>55P03</c>, the transaction rolls back, and the
-    /// database session stays usable, unlike a <c>transaction_timeout</c>, which ends the session.
+    /// Runs one statement under a short lock wait. A wait that runs out ends the statement with
+    /// <c>55P03</c>, the transaction rolls back, and the database session stays usable, unlike a
+    /// <c>transaction_timeout</c>, which ends the session. <c>SET LOCAL</c> would last until the
+    /// transaction ends, so the wait goes back to the session's own once the statement is done: the
+    /// rest of the transaction (the pledge, the ledger, the outbox) waits for locks as usual.
     /// </summary>
     public static async Task<T> WithLockTimeout<T>(Func<string, Task> execute, TimeSpan wait, string reason, Func<Task<T>> statement)
     {
         await execute($"SET LOCAL lock_timeout = '{(int)wait.TotalMilliseconds}ms'");
+        T result;
         try
         {
-            return await statement();
+            result = await statement();
         }
         catch (PostgresException e) when (e.SqlState == PostgresErrorCodes.LockNotAvailable)
         {
             throw new DatabaseBusyException(reason, e);
         }
+
+        await execute("SET LOCAL lock_timeout = DEFAULT");
+        return result;
     }
 }
 
@@ -74,7 +80,7 @@ public sealed class DatabaseBusyHandler : IExceptionHandler
     {
         for (; exception is not null; exception = exception.InnerException)
         {
-            if (exception is PostgresException { SqlState: TransactionTimeout }
+            if (exception is PostgresException { SqlState: TransactionTimeout or PostgresErrorCodes.LockNotAvailable }
                 or ObjectDisposedException { ObjectName: nameof(NpgsqlTransaction) }
                 || (exception is InvalidOperationException
                     && (exception.Message.StartsWith("Transaction is already completed", StringComparison.Ordinal)
