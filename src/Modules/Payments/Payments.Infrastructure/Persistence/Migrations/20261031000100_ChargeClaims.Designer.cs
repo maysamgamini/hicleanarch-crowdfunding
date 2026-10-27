@@ -12,7 +12,7 @@ using Payments.Infrastructure.Persistence;
 namespace Payments.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PaymentsDbContext))]
-    [Migration("20261029000600_ChargeClaims")]
+    [Migration("20261031000100_ChargeClaims")]
     partial class ChargeClaims
     {
         /// <inheritdoc />

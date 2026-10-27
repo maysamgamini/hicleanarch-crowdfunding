@@ -12,7 +12,7 @@ using Pledges.Infrastructure.Persistence;
 namespace Pledges.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PledgesDbContext))]
-    [Migration("20261029001500_TellUnsuccessful")]
+    [Migration("20261031000100_TellUnsuccessful")]
     partial class TellUnsuccessful
     {
         /// <inheritdoc />

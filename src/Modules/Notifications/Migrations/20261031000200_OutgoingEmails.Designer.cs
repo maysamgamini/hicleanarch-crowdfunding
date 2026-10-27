@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Notifications.Migrations
 {
     [DbContext(typeof(NotificationsDbContext))]
-    [Migration("20261029001200_CampaignPledges")]
-    partial class CampaignPledges
+    [Migration("20261031000200_OutgoingEmails")]
+    partial class OutgoingEmails
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -175,7 +175,7 @@ namespace Notifications.Migrations
                     b.ToTable("notification_preferences", "notifications");
                 });
 
-            modelBuilder.Entity("Notifications.SentNotification", b =>
+            modelBuilder.Entity("Notifications.OutgoingEmail", b =>
                 {
                     b.Property<Guid>("EventId")
                         .HasColumnType("uuid")
@@ -186,21 +186,81 @@ namespace Notifications.Migrations
                         .HasColumnName("recipient_id");
 
                     b.Property<string>("Kind")
-                        .IsRequired()
                         .HasMaxLength(40)
                         .HasColumnType("character varying(40)")
                         .HasColumnName("kind");
 
-                    b.Property<DateTimeOffset>("SentAt")
+                    b.Property<int>("Attempts")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempts");
+
+                    b.Property<string>("Body")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("body");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
-                        .HasColumnName("sent_at")
+                        .HasColumnName("created_at")
                         .HasDefaultValueSql("now()");
 
-                    b.HasKey("EventId", "RecipientId")
-                        .HasName("pk_sent_notifications");
+                    b.Property<string>("LastError")
+                        .HasColumnType("text")
+                        .HasColumnName("last_error");
 
-                    b.ToTable("sent_notifications", "notifications");
+                    b.Property<DateTimeOffset>("NextAttemptAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTimeOffset?>("SentAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("sent_at");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)")
+                        .HasDefaultValue("PENDING")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("subject");
+
+                    b.HasKey("EventId", "RecipientId", "Kind")
+                        .HasName("pk_outgoing_emails");
+
+                    b.HasIndex("NextAttemptAt")
+                        .HasDatabaseName("outgoing_emails_due")
+                        .HasFilter("status = 'PENDING'");
+
+                    b.ToTable("outgoing_emails", "notifications");
+                });
+
+            modelBuilder.Entity("Notifications.RecipientAddress", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.Property<string>("Address")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("address");
+
+                    b.Property<DateTimeOffset>("LookedUpAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("looked_up_at");
+
+                    b.HasKey("UserId")
+                        .HasName("pk_recipient_addresses");
+
+                    b.ToTable("recipient_addresses", "notifications");
                 });
 #pragma warning restore 612, 618
         }
