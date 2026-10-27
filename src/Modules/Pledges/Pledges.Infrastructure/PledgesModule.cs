@@ -68,6 +68,7 @@ public static class PledgesModule
         services.AddPublishedEvent<PledgeChanged>();
         services.AddPublishedEvent<PledgeCancelled>();
         services.AddPublishedEvent<FundingCancelled>();
+        services.AddPublishedEvent<PledgeReleased>();
         services.AddPublishedEvent<CampaignFundingDecided>();
         services.AddPublishedEvent<PledgeChargeRequested>();
         services.AddKeyedScoped<ITransactionScope>(PledgesModuleName.Value, (sp, _) => new ModuleTransaction<PledgesDbContext>(sp.GetRequiredService<PledgesDbContext>()));
@@ -86,7 +87,8 @@ public static class PledgesModule
             configuration.GetConnectionString("PledgesRead") ?? connectionString, PledgesDbOptions.Configure);
         services.AddScoped<EfPledges>();
         services.AddOptions<MarkingOptions>().Bind(configuration.GetSection("Pledges"))
-            .Validate(m => m.MarkBatchSize > 0 && m.MarkBatchesPerPass > 0, "Pledges: MarkBatchSize and MarkBatchesPerPass must be positive.")
+            .Validate(m => m.MarkBatchSize > 0 && m.MarkBatchesPerPass > 0 && m.CancelReleaseBatchSize > 0,
+                "Pledges: MarkBatchSize, MarkBatchesPerPass and CancelReleaseBatchSize must be positive.")
             .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<MarkingOptions>>().Value);
         services.AddSharedValkey(configuration);

@@ -21,6 +21,7 @@ internal sealed class Handlers(Notifier notifier) :
     IIntegrationEventHandler<PledgeCancelled>,
     IIntegrationEventHandler<CampaignFundingDecided>,
     IIntegrationEventHandler<CampaignCancelled>,
+    IIntegrationEventHandler<PledgeReleased>,
     IIntegrationEventHandler<PledgeChargeSucceeded>,
     IIntegrationEventHandler<PledgeChargeFailed>
 {
@@ -56,13 +57,19 @@ internal sealed class Handlers(Notifier notifier) :
         }
     }
 
-    public async Task Handle(CampaignCancelled e, CancellationToken ct)
+    /// <summary>The creator only: each backer is told by their own pledge's <see cref="PledgeReleased"/>.</summary>
+    public Task Handle(CampaignCancelled e, CancellationToken ct) =>
+        notifier.Tell(e.EventId, e.CreatorId, "campaign_cancelled", "Your campaign is cancelled", "Nobody was charged.", ct);
+
+    /// <summary>
+    /// One per pledge of a cancelled campaign, published with its release, so a pledge that committed
+    /// just after the cancel is told too, whatever order the events arrive in.
+    /// </summary>
+    public async Task Handle(PledgeReleased e, CancellationToken ct)
     {
-        await notifier.Tell(e.EventId, e.CreatorId, "campaign_cancelled", "Your campaign is cancelled", "Nobody was charged.", ct);
-        foreach (var backer in await notifier.BackersOf(e.CampaignId, ct))
-        {
-            await notifier.Tell(e.EventId, backer, "campaign_cancelled", "A campaign you back was cancelled", "You were not charged, and you will not be.", ct);
-        }
+        await notifier.Forget(e.CampaignId, e.BackerId, ct);
+        await notifier.Tell(e.EventId, e.BackerId, "campaign_cancelled", "A campaign you back was cancelled",
+            "Its creator cancelled it, so your pledge was released. You were not charged, and you will not be.", ct);
     }
 
     public Task Handle(PledgeChargeSucceeded e, CancellationToken ct) =>

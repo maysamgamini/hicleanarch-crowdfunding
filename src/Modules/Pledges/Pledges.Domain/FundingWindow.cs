@@ -42,12 +42,16 @@ public sealed class FundingWindow
     /// <summary>The exact sum after the close, which decides the campaign.</summary>
     public long? FinalMinor { get; private set; }
 
+    /// <summary>When pledging stopped: the close's ENDED, or the creator's cancel. The fence's wait starts here.</summary>
     public DateTimeOffset? EndedAt { get; private set; }
 
     /// <summary>The last pledge marked TO_CHARGE so far: the cursor a resumed marking starts after (lesson s3-a04).</summary>
     public Guid? MarkedThrough { get; private set; }
 
-    /// <summary>When every pledge of a decided campaign was marked; null while a funded campaign's marking is unfinished.</summary>
+    /// <summary>
+    /// When every pledge of a decided or cancelled campaign was marked TO_CHARGE or released; null while
+    /// a funded campaign's marking, or a cancelled one's release, is unfinished.
+    /// </summary>
     public DateTimeOffset? MarkingFinishedAt { get; private set; }
 
     /// <summary>When pledging opened. Every ledger entry of the campaign is at or after it, so sums can name the months to read.</summary>

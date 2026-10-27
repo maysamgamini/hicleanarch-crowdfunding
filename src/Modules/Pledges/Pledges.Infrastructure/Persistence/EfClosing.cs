@@ -156,6 +156,50 @@ internal sealed partial class EfClosing(PledgesDbContext db, TimeFence fence, IL
             """, cancellationToken);
         return expired;
     }
+
+    // marking_finished_at says, for a cancelled window as for an unsuccessful one, that its pledges are released.
+    public async Task<IReadOnlyList<Guid>> CancelledToRelease(int batchSize, Guid? campaignId, CancellationToken cancellationToken)
+    {
+        var any = campaignId is null;
+        var only = campaignId ?? Guid.Empty;
+        return await db.Database.SqlQuery<Guid>($"""
+            SELECT campaign_id AS "Value" FROM pledges.funding_windows
+            WHERE status = 'CANCELLED' AND marking_finished_at IS NULL AND ({any} OR campaign_id = {only})
+            ORDER BY deadline LIMIT {batchSize}
+            """).ToListAsync(cancellationToken);
+    }
+
+    // Each waiting pledge gives back the place it held, as the sweeper's expiry does; the sweeper and
+    // this batch both move only PENDING_SETUP rows, so a place is given back once. SKIP LOCKED: a
+    // pledge a change or an activation holds is left for the next batch, never waited for.
+    public async Task<IReadOnlyList<ReleasedPledge>> ReleaseNextBatch(Guid campaignId, int batchSize, CancellationToken cancellationToken) =>
+        await db.Database.SqlQuery<ReleasedPledge>($"""
+            WITH next AS (
+                SELECT id FROM pledges.pledges
+                WHERE campaign_id = {campaignId} AND status IN ('ACTIVE', 'PENDING_SETUP')
+                LIMIT {batchSize}
+                FOR UPDATE SKIP LOCKED),
+            moved AS (
+                UPDATE pledges.pledges p SET status = CASE WHEN p.status = 'ACTIVE' THEN 'RELEASED' ELSE 'EXPIRED' END
+                FROM next WHERE p.id = next.id
+                RETURNING p.id, p.backer_id, p.tier_id, p.status),
+            given_back AS (
+                UPDATE pledges.tier_counters t SET held = t.held - waiting.places
+                FROM (SELECT tier_id, count(*)::int AS places FROM moved WHERE status = 'EXPIRED' AND tier_id IS NOT NULL GROUP BY tier_id) waiting
+                WHERE t.tier_id = waiting.tier_id AND t.limit_qty IS NOT NULL)
+            SELECT id AS pledge_id, backer_id FROM moved
+            """).ToListAsync(cancellationToken);
+
+    public async Task<bool> TryFinishRelease(Guid campaignId, CancellationToken cancellationToken)
+    {
+        var wait = fence.WaitAfterEnd;
+        return await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.funding_windows SET marking_finished_at = now()
+            WHERE campaign_id = {campaignId} AND status = 'CANCELLED' AND marking_finished_at IS NULL
+              AND coalesce(ended_at, '-infinity') <= now() - {wait}
+              AND NOT EXISTS (SELECT 1 FROM pledges.pledges WHERE campaign_id = {campaignId} AND status IN ('ACTIVE', 'PENDING_SETUP'))
+            """, cancellationToken) == 1;
+    }
 }
 
 /// <summary>One campaign's recorded sum beside its sum a minute later.</summary>

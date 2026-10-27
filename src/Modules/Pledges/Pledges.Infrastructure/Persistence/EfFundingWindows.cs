@@ -46,8 +46,9 @@ internal sealed class EfFundingWindows(PledgesDbContext db) : IFundingWindows
     public async Task<CancelOutcome> TryCancel(Guid campaignId, CancellationToken cancellationToken)
     {
         // The close's own condition: still LIVE, and before the deadline by the database's clock.
+        // ended_at starts the fence's wait, as the close's does: the release finishes only after it.
         var cancelled = await db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE pledges.funding_windows SET status = 'CANCELLED'
+            UPDATE pledges.funding_windows SET status = 'CANCELLED', ended_at = clock_timestamp()
             WHERE campaign_id = {campaignId} AND status = 'LIVE' AND now() < deadline
             """, cancellationToken);
         if (cancelled == 1)

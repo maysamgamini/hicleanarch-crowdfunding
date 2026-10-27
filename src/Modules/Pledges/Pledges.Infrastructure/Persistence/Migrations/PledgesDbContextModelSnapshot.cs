@@ -224,6 +224,10 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("funding_windows_marking")
                         .HasFilter("status = 'FUNDED' AND marking_finished_at IS NULL");
 
+                    b.HasIndex(new[] { "Deadline" }, "funding_windows_to_release")
+                        .HasDatabaseName("funding_windows_to_release")
+                        .HasFilter("status = 'CANCELLED' AND marking_finished_at IS NULL");
+
                     b.ToTable("funding_windows", "pledges");
                 });
 

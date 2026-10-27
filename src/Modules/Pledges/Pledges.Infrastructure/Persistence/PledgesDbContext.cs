@@ -49,6 +49,8 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
             window.HasIndex("DecidedAt").HasFilter("rechecked_at IS NULL").HasDatabaseName("funding_windows_to_recheck");
             // ... and funded windows whose marking is unfinished on this one (lesson s3-l08).
             window.HasIndex(w => w.Deadline, "funding_windows_marking").HasFilter("status = 'FUNDED' AND marking_finished_at IS NULL").HasDatabaseName("funding_windows_marking");
+            // ... and cancelled windows whose pledges are not all released yet.
+            window.HasIndex(w => w.Deadline, "funding_windows_to_release").HasFilter("status = 'CANCELLED' AND marking_finished_at IS NULL").HasDatabaseName("funding_windows_to_release");
         });
 
         modelBuilder.Entity<TierCounter>(tier =>

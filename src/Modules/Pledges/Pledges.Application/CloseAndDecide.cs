@@ -64,14 +64,35 @@ public interface IClosing
 
     /// <summary>Every pledge still waiting for its card to EXPIRED, and its places given back: it never counted.</summary>
     Task<int> ExpireWaiting(Guid campaignId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Cancelled campaigns whose release is unfinished. With <paramref name="campaignId"/>, only that one.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> CancelledToRelease(int batchSize, Guid? campaignId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The next batch of a cancelled campaign's live pledges let go: ACTIVE to RELEASED, PENDING_SETUP
+    /// to EXPIRED with its tier hold given back. A pledge another transaction holds is skipped, not
+    /// waited for: the next batch takes it. Nothing was charged, so nothing is undone at the PSP.
+    /// </summary>
+    Task<IReadOnlyList<ReleasedPledge>> ReleaseNextBatch(Guid campaignId, int batchSize, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Records a cancelled campaign's release as finished, once the fence's wait after the cancel is
+    /// behind (no pledge that read LIVE can still commit) and no live pledge is left. False: not yet.
+    /// </summary>
+    Task<bool> TryFinishRelease(Guid campaignId, CancellationToken cancellationToken);
 }
 
 public sealed record ChargeablePledge(Guid PledgeId, Guid BackerId, long AmountMinor, string PaymentMethodRef, string Currency);
 
+/// <summary>A pledge let go because its campaign was cancelled.</summary>
+public sealed record ReleasedPledge(Guid PledgeId, Guid BackerId);
+
 /// <summary>One pass of the close job. With <see cref="CampaignId"/>, only that campaign (an operator's or a test's pass).</summary>
 public sealed record CloseDueCampaigns(Guid? CampaignId = null) : ICommand<int>;
 
-/// <summary>Configuration section <c>Pledges</c>: how a funded campaign's pledges are marked TO_CHARGE.</summary>
+/// <summary>Configuration section <c>Pledges</c>: how a funded campaign's pledges are marked TO_CHARGE, and a cancelled one's released.</summary>
 public sealed class MarkingOptions
 {
     /// <summary>Pledges marked per transaction: a million in one would hold their locks for minutes.</summary>
@@ -79,6 +100,13 @@ public sealed class MarkingOptions
 
     /// <summary>Batches one pass of the close job marks before it moves on; the next pass continues from the cursor.</summary>
     public int MarkBatchesPerPass { get; set; } = 200;
+
+    /// <summary>
+    /// Pledges released inside the cancel's own transaction. It runs on the request path, under its
+    /// two-second limit, so a large campaign's other pledges are released by the close job, in
+    /// batches of <see cref="MarkBatchSize"/>.
+    /// </summary>
+    public int CancelReleaseBatchSize { get; set; } = 1_000;
 }
 
 /// <summary>
@@ -87,7 +115,8 @@ public sealed class MarkingOptions
 /// sum; then, for a funded campaign, its pledges marked TO_CHARGE in batches, each its own transaction
 /// with its events and the window's cursor (lesson s3-a04). A campaign left ENDED, or funded with its
 /// marking unfinished, by a pass that died is picked up by the next pass. Every step is conditional,
-/// so two passes at once decide and mark a campaign once.
+/// so two passes at once decide and mark a campaign once. A cancelled campaign's pledges are released
+/// the same way, batch by batch, until the fence's wait after the cancel is behind.
 /// </summary>
 public sealed class CloseDueCampaignsHandler(
     IClosing closing,
@@ -126,8 +155,35 @@ public sealed class CloseDueCampaignsHandler(
             await MarkToCharge(campaignId, cancellationToken);
         }
 
+        foreach (var campaignId in await closing.CancelledToRelease(50, command.CampaignId, cancellationToken))
+        {
+            await ReleaseCancelled(campaignId, cancellationToken);
+        }
+
         await closing.RecheckDecided(50, cancellationToken);
         return Result.Success(decided);
+    }
+
+    /// <summary>
+    /// Releases a cancelled campaign's pledges batch by batch, each with its events, then records the
+    /// release finished once no pledge that saw the campaign LIVE can still commit.
+    /// </summary>
+    private async Task ReleaseCancelled(Guid campaignId, CancellationToken cancellationToken)
+    {
+        for (var batch = 0; batch < marking.MarkBatchesPerPass; batch++)
+        {
+            var released = await transaction.Run(ct => CancelledPledges.ReleaseBatch(closing, outbox, clock, campaignId, marking.MarkBatchSize, ct), cancellationToken);
+            if (!released.IsSuccess)
+            {
+                return;
+            }
+
+            if (released.Value < marking.MarkBatchSize)
+            {
+                await transaction.Run(async ct => Result.Success(await closing.TryFinishRelease(campaignId, ct)), cancellationToken);
+                return;
+            }
+        }
     }
 
     /// <summary>Marks a funded campaign's pledges batch by batch, from its cursor, until done or this pass's share is spent.</summary>
