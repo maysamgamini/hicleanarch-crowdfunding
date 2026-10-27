@@ -56,6 +56,7 @@ public static class NotificationsModule
                 "Notifications: sending through SES needs FromAddress and UserPoolId.")
             .Validate(o => o.SendsPerSecond > 0 && o.MaxConcurrentSends > 0 && o.BatchSize > 0 && o.MaxAttempts > 0
                     && o.PollEvery > TimeSpan.Zero && o.RetryAfter > TimeSpan.Zero && o.AddressFreshFor > TimeSpan.Zero
+                    && o.DigestEvery > TimeSpan.Zero && o.DigestSettle >= TimeSpan.Zero
                     && o.Lease > TimeSpan.FromSeconds(2 * o.BatchSize / o.SendsPerSecond),
                 "Notifications: the send rate, sizes and waits must be positive, and a batch sent at SendsPerSecond must take less than half the Lease.")
             .ValidateOnStart();
@@ -78,6 +79,8 @@ public static class NotificationsModule
         services.AddSingleton<EmailWorker>();
         services.AddHostedService(sp => sp.GetRequiredService<EmailWorker>());
         services.AddSingleton<IStopParticipant>(sp => sp.GetRequiredService<EmailWorker>());
+        services.AddScoped<PledgeDigests>();
+        services.AddHostedService<PledgeDigestJob>();
 
         return services;
     }
