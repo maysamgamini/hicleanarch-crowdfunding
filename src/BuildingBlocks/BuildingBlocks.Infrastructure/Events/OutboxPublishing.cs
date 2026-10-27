@@ -30,6 +30,16 @@ public sealed class OutboxPublishingOptions
     public TimeSpan Claim { get; set; } = TimeSpan.FromMinutes(2);
 }
 
+/// <summary>
+/// A module whose events stop moving for a while, during a data move (lesson s4-l07): its rows are not
+/// published and its queue is not read until it resumes. Nothing is lost; the rows and messages wait.
+/// A program without one never pauses.
+/// </summary>
+public interface IEventFlowPause
+{
+    Task<bool> IsPaused(string module, CancellationToken cancellationToken);
+}
+
 /// <summary>Committed rows that owe a publish, on their way from the commit to the publisher. Bounded.</summary>
 public sealed class PublishHandoff(IOptions<OutboxPublishingOptions> options)
 {
@@ -52,6 +62,7 @@ public sealed partial class OutboxPublisher(
     PublishHandoff queue,
     IEventPublisher publisher,
     IEnumerable<IModuleEvents> modules,
+    IEnumerable<IEventFlowPause> pauses,
     IOptions<OutboxPublishingOptions> options,
     ILogger<OutboxPublisher> logger) : BackgroundService, IStopParticipant
 {
@@ -149,6 +160,25 @@ public sealed partial class OutboxPublisher(
     {
         try
         {
+            // A paused module's rows stay unpublished; recovery sends them once it resumes.
+            var paused = new HashSet<string>();
+            foreach (var module in records.Select(r => r.Module).Distinct())
+            {
+                foreach (var pause in pauses)
+                {
+                    if (await pause.IsPaused(module, cancellationToken))
+                    {
+                        paused.Add(module);
+                    }
+                }
+            }
+
+            records = [.. records.Where(r => !paused.Contains(r.Module))];
+            if (records.Count == 0)
+            {
+                return;
+            }
+
             var accepted = await publisher.Publish(records, cancellationToken);
             foreach (var byModule in records.Where(r => accepted.Contains(r.EventId)).GroupBy(r => r.Module))
             {

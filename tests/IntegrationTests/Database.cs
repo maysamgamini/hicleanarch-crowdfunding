@@ -94,6 +94,9 @@ public sealed class Database : IAsyncLifetime
         await _container.DisposeAsync();
     }
 
+    /// <summary>Runs a program inside the database's container, such as pg_dump.</summary>
+    public Task<DotNet.Testcontainers.Containers.ExecResult> Exec(IList<string> command, CancellationToken ct) => _container.ExecAsync(command, ct);
+
     /// <summary>A client of the host, signed in with the token if one is given, which sends a fresh
     /// Idempotency-Key with every change unless the test sets one.</summary>
     public static HttpClient Client(WebApplicationFactory<Program> host, string? token = null)

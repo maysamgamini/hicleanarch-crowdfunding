@@ -5,14 +5,16 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using Payments.Application;
+using Payments.Infrastructure.Cutover;
 
 namespace Payments.Infrastructure;
 
 /// <summary>
 /// On every task, the money pass runs on a timer: reconcile, then pay out. Each step is a
-/// conditional move and every PSP call has its own key, so two tasks never do a step twice.
+/// conditional move and every PSP call has its own key, so two tasks never do a step twice. No pass
+/// runs while a data move pauses Payments.
 /// </summary>
-internal sealed partial class MoneyWorker(IServiceScopeFactory scopes, MoneyOptions options, ILogger<MoneyWorker> logger) : BackgroundService
+internal sealed partial class MoneyWorker(IServiceScopeFactory scopes, MoneyOptions options, IPaymentsPause pause, ILogger<MoneyWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -21,6 +23,11 @@ internal sealed partial class MoneyWorker(IServiceScopeFactory scopes, MoneyOpti
         {
             try
             {
+                if (await pause.IsSet(stoppingToken))
+                {
+                    continue;
+                }
+
                 await using var scope = scopes.CreateAsyncScope();
                 var pass = (await scope.ServiceProvider.GetRequiredService<IDispatcher>()
                     .Send<RunMoneyPass, MoneyPass>(new RunMoneyPass(), stoppingToken)).Value;
