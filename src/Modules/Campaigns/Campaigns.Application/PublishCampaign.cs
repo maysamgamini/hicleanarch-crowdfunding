@@ -1,7 +1,10 @@
 using BuildingBlocks.Application;
 using BuildingBlocks.Domain;
 
+using Campaigns.Contracts;
 using Campaigns.Domain;
+
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Campaigns.Application;
 
@@ -9,10 +12,13 @@ public sealed record PublishCampaign(CampaignId Id, Guid CallerId) : ICommand<Ca
 
 /// <summary>
 /// The domain decides whether the campaign may be published; the database makes the move only if
-/// the campaign is still a draft, so two publishes at once cannot both succeed.
+/// the campaign is still a draft, so two publishes at once cannot both succeed. CampaignPublished
+/// is written to the outbox in the same transaction as the move.
 /// </summary>
-public sealed class PublishCampaignHandler(ICampaignRepository campaigns, TimeProvider clock)
-    : ICommandHandler<PublishCampaign, CampaignStatus>
+public sealed class PublishCampaignHandler(
+    ICampaignRepository campaigns,
+    TimeProvider clock,
+    [FromKeyedServices(CampaignsModuleName.Value)] IOutbox outbox) : ICommandHandler<PublishCampaign, CampaignStatus>
 {
     public async Task<Result<CampaignStatus>> Handle(PublishCampaign command, CancellationToken cancellationToken)
     {
@@ -34,8 +40,20 @@ public sealed class PublishCampaignHandler(ICampaignRepository campaigns, TimePr
             return published;
         }
 
-        return await campaigns.TryPublish(campaign.Id, now, cancellationToken)
-            ? published
-            : Result.Failure<CampaignStatus>(CampaignErrors.NotADraft);
+        if (!await campaigns.TryPublish(campaign.Id, now, cancellationToken))
+        {
+            return Result.Failure<CampaignStatus>(CampaignErrors.NotADraft);
+        }
+
+        await outbox.Add(new CampaignPublished(
+            Guid.CreateVersion7(),
+            now,
+            campaign.Id.Value,
+            campaign.CreatorId,
+            campaign.Goal.AmountMinor,
+            campaign.Goal.Currency,
+            campaign.Deadline,
+            [.. campaign.Tiers.Select(t => new PublishedTier(t.Id.Value, t.MinPledgeMinor, t.Limit))]), cancellationToken);
+        return published;
     }
 }

@@ -10,6 +10,8 @@ public class LayerRulesTests
 {
     private static readonly string[] Modules = ["Campaigns", "Pledges", "Payments", "Notifications"];
 
+    private static readonly string[] SharedBlocks = ["BuildingBlocks.Domain", "BuildingBlocks.Application"];
+
     /// <summary>Every assembly of ours that ships with the host.</summary>
     private static readonly Assembly[] Ours = LoadOurs();
 
@@ -18,7 +20,7 @@ public class LayerRulesTests
     [Fact]
     public void The_host_and_every_layer_of_the_first_module_are_checked() =>
         Assert.Superset(
-            new HashSet<string> { "CrowdFunding.Host", "Campaigns.Domain", "Campaigns.Application", "Campaigns.Infrastructure",
+            new HashSet<string> { "CrowdFunding.Host", "Campaigns.Domain", "Campaigns.Application", "Campaigns.Infrastructure", "Campaigns.Contracts",
                 "BuildingBlocks.Domain", "BuildingBlocks.Application", "BuildingBlocks.Infrastructure" },
             Ours.Select(a => a.GetName().Name!).ToHashSet());
 
@@ -43,8 +45,20 @@ public class LayerRulesTests
             return;
         }
 
-        var allowed = new[] { "BuildingBlocks.Domain", "BuildingBlocks.Application", ModuleOf(name) + ".Domain" };
+        var allowed = new[] { "BuildingBlocks.Domain", "BuildingBlocks.Application", ModuleOf(name) + ".Domain", ModuleOf(name) + ".Contracts" };
         Assert.All(ReferencesOf(name), r => Assert.Contains(r, allowed));
+    }
+
+    [Theory]
+    [MemberData(nameof(OurAssemblies))]
+    public void A_contract_depends_only_on_the_shared_blocks(string name)
+    {
+        if (!name.EndsWith(".Contracts", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        Assert.All(ReferencesOf(name), r => Assert.Contains(r, SharedBlocks));
     }
 
     [Theory]

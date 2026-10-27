@@ -1,6 +1,7 @@
 using BuildingBlocks.Infrastructure.Identity;
 
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -71,8 +72,9 @@ public sealed class Database : IAsyncLifetime
     }
 
     /// <summary>A fresh host process on this database: a new host is what a restart looks like.</summary>
-    public WebApplicationFactory<Program> StartHost() =>
+    public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(web => web
+            .ConfigureTestServices(s => services?.Invoke(s))
             .UseEnvironment("Testing")
             // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.
             .UseSetting("ConnectionStrings:Owner", Owner)

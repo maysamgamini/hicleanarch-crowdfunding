@@ -1,3 +1,4 @@
+using BuildingBlocks.Infrastructure.Events;
 using BuildingBlocks.Infrastructure.Persistence;
 
 using Campaigns.Domain;
@@ -17,6 +18,7 @@ internal sealed class CampaignsDbContext(DbContextOptions<CampaignsDbContext> op
     {
         modelBuilder.HasDefaultSchema(Schema);
         modelBuilder.MapIdempotencyKeys();
+        modelBuilder.MapOutboxAndInbox();
 
         modelBuilder.Entity<Campaign>(campaign =>
         {

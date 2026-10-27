@@ -9,6 +9,7 @@
   </Folder>
   <Folder Name="/src/Modules/Campaigns/">
     <Project Path="src/Modules/Campaigns/Campaigns.Application/Campaigns.Application.csproj" />
+    <Project Path="src/Modules/Campaigns/Campaigns.Contracts/Campaigns.Contracts.csproj" />
     <Project Path="src/Modules/Campaigns/Campaigns.Domain/Campaigns.Domain.csproj" />
     <Project Path="src/Modules/Campaigns/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj" />
   </Folder>

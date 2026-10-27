@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using BuildingBlocks.Application;
+using BuildingBlocks.Infrastructure.Events;
 using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Persistence;
 
@@ -18,6 +19,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DatabaseMigrator>();
 builder.Services.AddTelemetry(builder.Configuration);
 builder.Services.AddTokenAuthentication(builder.Configuration);
+builder.Services.AddInProcessEvents();
 
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);

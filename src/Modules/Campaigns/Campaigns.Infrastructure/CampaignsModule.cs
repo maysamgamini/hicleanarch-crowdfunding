@@ -3,10 +3,12 @@ using System.Security.Claims;
 using BuildingBlocks.Application;
 using BuildingBlocks.Domain;
 using BuildingBlocks.Infrastructure;
+using BuildingBlocks.Infrastructure.Events;
 using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Persistence;
 
 using Campaigns.Application;
+using Campaigns.Contracts;
 using Campaigns.Domain;
 using Campaigns.Infrastructure.Persistence;
 
@@ -30,7 +32,11 @@ public static class CampaignsModule
     {
         var connectionString = configuration.GetConnectionString("Campaigns")
             ?? throw new InvalidOperationException("ConnectionStrings:Campaigns is not set.");
-        services.AddDbContext<CampaignsDbContext>(db => CampaignsDbOptions.Configure((DbContextOptionsBuilder<CampaignsDbContext>)db, connectionString));
+        services.AddDbContext<CampaignsDbContext>((sp, db) => CampaignsDbOptions
+            .Configure((DbContextOptionsBuilder<CampaignsDbContext>)db, connectionString)
+            .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor>()));
+        services.AddModuleEvents<CampaignsDbContext>(CampaignsModuleName.Value);
+        services.AddPublishedEvent<CampaignPublished>();
         services.AddSingleton<IModuleMigrator, CampaignsMigrator>();
         services.AddSingleton(new ModuleDatabase("Campaigns", CampaignsDbContext.Schema, connectionString));
         return services
