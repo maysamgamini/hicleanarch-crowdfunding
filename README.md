@@ -17,25 +17,26 @@ git diff s2-l07              # compare with the reference end state
 
 ## Run it
 
+Since s4-l10 the monolith no longer runs Payments, since s5-l04 it no longer runs Notifications, and since s5-l09 it no longer runs Campaigns. Started alone, it refuses to start, because no route reaches the modules that consume its events. So the way to run the system on a laptop is the local stack below: every host, the gateway and the broker, in Docker (CQA-2107). Up to s4-l09, `dotnet run --project src/Host` started the whole system in one process.
+
 ```bash
 scripts/pack-contracts.sh                     # the BuildingBlocks and each module's Contracts, packed fresh for the modules to restore
-docker compose up -d                          # PostgreSQL 17 on localhost:5432
-dotnet run --project src/Host -- migrate      # roles, schemas and migrations, then exit (a deploy step)
-dotnet run --project src/Host                 # the API on http://localhost:5080
-TOKEN=$(dotnet run --project src/Host -- token creator)   # a local creator's token (Development only)
+scripts/local-up.sh                           # PostgreSQL, Valkey, Moto, every migrate step, every host and the gateway on http://localhost:8080
+TOKEN=$(docker compose --profile stack run --rm -T -e ASPNETCORE_ENVIRONMENT=Development api token creator)   # a local creator's token
 # a deadline 30 days from now: a campaign's deadline is at most 60 days away (CQA-014); BSD date, then GNU date
 DEADLINE=$(date -u -v+30d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)
-curl -X POST localhost:5080/v1/campaigns -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
+curl -X POST localhost:8080/v1/campaigns -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
   -H "Idempotency-Key: $(uuidgen)" \
   -d '{"title":"Harbor Lights","goal_minor":5000000,"currency":"USD","deadline":"'"$DEADLINE"'","tiers":[]}'
+scripts/local-smoke.sh                        # one campaign from draft to settled, through the gateway
 dotnet test                                   # every test; the integration tests start their own PostgreSQL in Docker
 ```
 
-Each module connects as its own database role (`campaigns_app`, `pledges_app`, `payments_app`, `notifications_app`), which can use only its own schema. Pledges' background jobs (the close and the totals aggregator) connect as `pledges_jobs`, with the same rights but without the two-second `transaction_timeout` that `migrate` sets on `pledges_app` and checks is enforced. `migrate` connects as the owner, creates the roles and schemas, applies each module's EF Core migrations and grants the module's role its tables.
+Each module connects as its own database role (`campaigns_app`, `pledges_app`, `payments_app`, `notifications_app`), which can use only its own schema. Payments' role is on Payments' own database, and each host's `migrate` step creates the roles and schemas of the modules it runs. Pledges' background jobs (the close and the totals aggregator) connect as `pledges_jobs`, with the same rights but without the two-second `transaction_timeout` that `migrate` sets on `pledges_app` and checks is enforced. `migrate` connects as the owner, creates the roles and schemas, applies each module's EF Core migrations and grants the module's role its tables.
 
-Emails are kept in memory, not sent: each one is logged, and `GET /dev/emails` (optionally `?to=<user id>`) lists them, newest first. Both exist only on a laptop (the Development environment).
+Emails are not sent: each one is logged and kept as a row in `notifications.sent_notifications`.
 
-Payments runs on a fake PSP in memory. On a laptop, `POST /dev/fake-psp/setups/{setup_id}/complete` plays the backer finishing the card form: the setup id is the start of the `client_secret` a new-card pledge returns.
+Payments runs on a fake PSP in memory. In the Development environment, Payments' own host (`dotnet run --project src/Services/Payments/Payments.Host`) maps `POST /dev/fake-psp/setups/{setup_id}/complete`, which plays the backer finishing the card form; the setup id is the start of the `client_secret` a new-card pledge returns. The local stack runs as Production and has no such endpoint: `scripts/local-smoke.sh` plays the PSP instead, posting its signed webhook to the gateway.
 
 ## Run it locally
 
