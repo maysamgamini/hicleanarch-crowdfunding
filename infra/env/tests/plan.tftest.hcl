@@ -66,6 +66,22 @@ run "plans_with_the_defaults" {
   command = plan
 }
 
+# CQA-2103: deploy-monolith.sh prepare keeps the service on the task definition it runs, so the old
+# image never starts with the release's settings; roll passes none, and the service takes the new one.
+run "prepare_keeps_the_running_task_definition" {
+  command = plan
+
+  variables {
+    service_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-api:running"
+    service_task_definition = "arn:aws:ecs:us-east-1:123456789012:task-definition/hicleanarch-api:41"
+  }
+
+  assert {
+    condition     = aws_ecs_service.api[0].task_definition == "arn:aws:ecs:us-east-1:123456789012:task-definition/hicleanarch-api:41"
+    error_message = "The first apply must keep the API service on the task definition it runs."
+  }
+}
+
 # A running service, with its autoscaling and a scheduled launch.
 run "plans_a_running_service_with_a_launch" {
   command = plan

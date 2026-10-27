@@ -22,6 +22,12 @@ variable "service_image" {
   default     = ""
 }
 
+variable "service_task_definition" {
+  description = "The task definition the API service keeps while the release is migrated (deploy-monolith.sh prepare passes the one it runs). Empty: this layer's own api task definition."
+  type        = string
+  default     = ""
+}
+
 variable "zone_count" {
   description = "Availability Zones the subnets, load balancers and tasks span. Two keep the sandbox cheap; production runs three, so losing one leaves two thirds of the capacity, not half."
   type        = number

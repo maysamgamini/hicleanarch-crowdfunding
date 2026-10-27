@@ -16,6 +16,11 @@ output "service_image" {
   value       = var.service_image
 }
 
+output "service_task_definition" {
+  description = "The task definition the API service runs; deploy-monolith.sh prepare keeps it (CQA-2103)."
+  value       = one(aws_ecs_service.api[*].task_definition)
+}
+
 output "migrate_task_definition" {
   value = aws_ecs_task_definition.migrate.arn
 }

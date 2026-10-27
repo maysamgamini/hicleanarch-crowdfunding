@@ -135,11 +135,18 @@ resource "aws_ecs_task_definition" "migrate" {
 # Deploying is two full applies, never a targeted one: the first with service_image unchanged, so
 # the service keeps its image while `migrate` runs; the second with service_image = image. A new
 # environment has no image to keep, so the service is created only by the second apply.
+#
+# CQA-2103: the first apply keeps the service's task definition too, not only its image. A release
+# that removes a setting the running image still reads (s4-l10 removed Modules__Payments__Mode, which
+# s4-l09's image read as InProcess) would otherwise pair the old image with the new settings, and every
+# task ECS replaced before the second apply would fail to start. The old revision is deregistered by
+# then; ECS keeps running and replacing a service's tasks on an inactive revision. The roles are not
+# versioned: a release narrows a role only once no image that needs the right still runs.
 resource "aws_ecs_service" "api" {
   count           = var.service_image == "" ? 0 : 1
   name            = local.api_service
   cluster         = aws_ecs_cluster.main.id
-  task_definition = aws_ecs_task_definition.api.arn
+  task_definition = coalesce(var.service_task_definition, aws_ecs_task_definition.api.arn)
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
   # ECS moves tasks back into a zone that lost them, once it recovers.

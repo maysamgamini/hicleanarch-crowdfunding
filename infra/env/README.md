@@ -17,9 +17,11 @@ Normally the `sandbox` GitHub workflow runs all of it. By hand:
 
 ```bash
 tofu -chdir=infra/env init -backend-config="bucket=$(tofu -chdir=infra/bootstrap output -raw state_bucket)"
-# 1. everything, with the API service on the image it runs now (empty in a new environment: no service yet)
+# 1. everything, with the API service on the image and task definition it runs now (empty in a new
+#    environment: no service yet)
 current=$(tofu -chdir=infra/env output -raw service_image 2>/dev/null || true)
-tofu -chdir=infra/env apply -var image=<ecr url>:<tag> -var gateway_image=<gateway url>:<tag> -var service_image="$current"
+running=$(tofu -chdir=infra/env output -raw service_task_definition 2>/dev/null || true)
+tofu -chdir=infra/env apply -var image=<ecr url>:<tag> -var gateway_image=<gateway url>:<tag> -var service_image="$current" -var service_task_definition="$running"
 # 2. run the migration task (see .github/workflows/sandbox.yml), then 3. roll the service onto the release:
 tofu -chdir=infra/env apply -var image=<ecr url>:<tag> -var gateway_image=<gateway url>:<tag> -var service_image=<ecr url>:<tag>
 STATE_BUCKET=<state bucket> scripts/destroy-payments.sh   # first: Payments runs in this layer's network

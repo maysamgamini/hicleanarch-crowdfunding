@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Deploys the shared layer and the monolith (infra/env), as the deploy role. Two complete applies,
 # never a targeted one:
-#   prepare  everything, with the API service kept on the image it runs now; then the migration task
+#   prepare  everything, with the API service kept on the task definition it runs now; then the migration task
 #            runs the release (it prepares every module's schema the monolith compiles)
 #   roll     first the release's `open-sinks --module Notifications` (s5-l04): it fails while a row of the
 #            monolith's outboxes still owes Notifications an in-process delivery, which the release,
@@ -32,7 +32,9 @@ fi
 case "$step" in
   prepare)
     current=$(tf output -raw service_image 2>/dev/null || true)
-    tf apply -input=false -auto-approve -lock-timeout=15m -var "service_image=$current"
+    # The service keeps the task definition it runs, settings included, until roll (CQA-2103).
+    running=$(tf output -raw service_task_definition 2>/dev/null || true)
+    tf apply -input=false -auto-approve -lock-timeout=15m -var "service_image=$current" -var "service_task_definition=$running"
     "$(dirname "$0")/run-migration.sh" infra/env
     ;;
   roll)
