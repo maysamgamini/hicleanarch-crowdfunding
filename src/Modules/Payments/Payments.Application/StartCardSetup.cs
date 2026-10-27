@@ -7,10 +7,13 @@ using Payments.Domain;
 namespace Payments.Application;
 
 /// <summary>
-/// Finds or creates the backer's customer at the PSP, starts a card setup and records it. Each step
-/// commits on its own: a setup left behind by a pledge that rolled back is never completed by a
-/// backer, and a completed one for a pledge that no longer waits activates nothing. A setup first
-/// takes its turn in the card-setup lane (lesson s3-a04); a full lane answers 429 with the wait.
+/// Finds or creates the backer's customer at the PSP, starts the pledge's card setup and records it.
+/// Each step commits on its own and is idempotent: the PSP calls carry the backer's and the pledge's
+/// keys, and a pledge has one setup row, so the same command sent twice, or twice at once, ends with
+/// one customer, one setup and the same client secret. A setup left behind by a pledge that rolled
+/// back is never completed by a backer, and a completed one for a pledge that no longer waits
+/// activates nothing. A setup first takes its turn in the card-setup lane (lesson s3-a04); a full
+/// lane answers 429 with the wait.
 /// </summary>
 public sealed class StartCardSetupHandler(IPaymentProvider psp, IPspCustomers customers, ICardSetups setups, ITokenBuckets buckets, PspBudget budget)
     : ICommandHandler<StartCardSetup, CardSetupStarted>
@@ -25,12 +28,10 @@ public sealed class StartCardSetupHandler(IPaymentProvider psp, IPspCustomers cu
 
         try
         {
-            var customer = await customers.Find(command.BackerId, cancellationToken)
-                ?? await customers.Add(PspCustomer.For(command.BackerId, await psp.CreateCustomer(command.BackerId, cancellationToken)), cancellationToken);
-            var intent = await psp.StartCardSetup(customer, cancellationToken);
-            var setup = CardSetup.Start(command.PledgeId, command.BackerId, intent.PspSetupId);
-            await setups.Add(setup, cancellationToken);
-            return Result.Success(new CardSetupStarted(setup.Id, intent.ClientSecret));
+            var customer = await customers.FindOrCreate(psp, command.BackerId, cancellationToken);
+            var intent = await psp.StartCardSetup(customer, PspKeys.CardSetup(command.PledgeId), cancellationToken);
+            var kept = await setups.Add(CardSetup.Start(command.PledgeId, command.BackerId, intent.PspSetupId), cancellationToken);
+            return Result.Success(new CardSetupStarted(kept.Id, intent.ClientSecret));
         }
         catch (HttpRequestException)
         {

@@ -12,11 +12,11 @@ namespace Payments.Infrastructure.Psp;
 /// </summary>
 internal sealed class BudgetedPaymentProvider(IPaymentProvider psp, ITokenBuckets buckets, PspBudget budget, TimeProvider clock) : IPaymentProvider
 {
-    public Task<string> CreateCustomer(Guid backerId, CancellationToken ct) =>
-        Call(PspCall.Customer, c => psp.CreateCustomer(backerId, c), ct);
+    public Task<string> CreateCustomer(Guid backerId, string idempotencyKey, CancellationToken ct) =>
+        Call(PspCall.Customer, c => psp.CreateCustomer(backerId, idempotencyKey, c), ct);
 
-    public Task<CardSetupIntent> StartCardSetup(string pspCustomerId, CancellationToken ct) =>
-        psp.StartCardSetup(pspCustomerId, ct);
+    public Task<CardSetupIntent> StartCardSetup(string pspCustomerId, string idempotencyKey, CancellationToken ct) =>
+        psp.StartCardSetup(pspCustomerId, idempotencyKey, ct);
 
     public Task<ChargeOutcome> Charge(ChargeRequest request, string idempotencyKey, CancellationToken ct) =>
         Call(PspCall.Charge, c => psp.Charge(request, idempotencyKey, c), ct);

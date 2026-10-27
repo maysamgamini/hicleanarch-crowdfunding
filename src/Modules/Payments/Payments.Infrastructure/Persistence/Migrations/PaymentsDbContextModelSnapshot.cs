@@ -181,6 +181,7 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasName("pk_card_setups");
 
                     b.HasIndex("PledgeId")
+                        .IsUnique()
                         .HasDatabaseName("ix_card_setups_pledge_id");
 
                     b.HasIndex("PspSetupId")

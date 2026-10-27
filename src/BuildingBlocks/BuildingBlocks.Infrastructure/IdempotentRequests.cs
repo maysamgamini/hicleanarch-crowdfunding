@@ -29,14 +29,31 @@ public sealed class IdempotentRequests<TContext>(TContext db, IOptions<JsonOptio
     public const string Header = "Idempotency-Key";
     public const string ReplayedHeader = "Idempotent-Replayed";
 
+    /// <summary>
+    /// A read-only look for this caller's key before work that must not be repeated is started (a
+    /// PSP call, say): the stored reply if the first request with this key has finished, or the
+    /// refusal <see cref="Run"/> would give (no key; the key used for another request). Null: nothing
+    /// is stored yet, so the caller does its work and stores the reply with <see cref="Run"/>, which
+    /// still settles a race between two first requests. It opens no transaction and writes nothing.
+    /// </summary>
+    public async Task<IResult?> TryReplay(HttpContext http, Guid callerId, object request)
+    {
+        if (KeyOf(http) is not { } key)
+        {
+            return MissingKey();
+        }
+
+        var stored = await db.Set<IdempotencyKey>().AsNoTracking()
+            .SingleOrDefaultAsync(k => k.CallerId == callerId && k.Key == key, http.RequestAborted);
+        return stored is null ? null : Replay(http, stored, Hash(http.Request, request));
+    }
+
     public async Task<IResult> Run(HttpContext http, Guid callerId, object request, Func<CancellationToken, Task<Result<Reply>>> change)
     {
         var ct = http.RequestAborted;
-        var key = http.Request.Headers[Header].ToString();
-        if (key.Length is 0 or > 100)
+        if (KeyOf(http) is not { } key)
         {
-            return new[] { Error.Validation("idempotency_key_required", $"Send an {Header} header of 1 to 100 characters.") }
-                .ToProblem(StatusCodes.Status400BadRequest);
+            return MissingKey();
         }
 
         var hash = Hash(http.Request, request);
@@ -69,14 +86,26 @@ public sealed class IdempotentRequests<TContext>(TContext db, IOptions<JsonOptio
             db.ChangeTracker.Clear();
             var stored = await db.Set<IdempotencyKey>().AsNoTracking()
                 .SingleAsync(k => k.CallerId == callerId && k.Key == key, ct);
-            if (!stored.RequestHash.AsSpan().SequenceEqual(hash))
-            {
-                return new[] { Error.Validation("idempotency_key_reused", "This key was used for a different request.") }.ToProblem();
-            }
-
-            http.Response.Headers[ReplayedHeader] = "true";
-            return Send(stored.ReplyStatus!.Value, stored.ReplyBody!, stored.ReplyLocation);
+            return Replay(http, stored, hash);
         }
+    }
+
+    private static string? KeyOf(HttpContext http) =>
+        http.Request.Headers[Header].ToString() is { Length: > 0 and <= 100 } key ? key : null;
+
+    private static IResult MissingKey() =>
+        new[] { Error.Validation("idempotency_key_required", $"Send an {Header} header of 1 to 100 characters.") }
+            .ToProblem(StatusCodes.Status400BadRequest);
+
+    private static IResult Replay(HttpContext http, IdempotencyKey stored, byte[] hash)
+    {
+        if (!stored.RequestHash.AsSpan().SequenceEqual(hash))
+        {
+            return new[] { Error.Validation("idempotency_key_reused", "This key was used for a different request.") }.ToProblem();
+        }
+
+        http.Response.Headers[ReplayedHeader] = "true";
+        return Send(stored.ReplyStatus!.Value, stored.ReplyBody!, stored.ReplyLocation);
     }
 
     private static IResult Send(int status, string body, string? location) =>

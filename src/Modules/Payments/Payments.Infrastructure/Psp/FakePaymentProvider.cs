@@ -28,7 +28,8 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     /// <summary>A generic decline whose advice is to try again later.</summary>
     public const string CardTryAgainLater = "pm_card_try_again_later";
 
-    private readonly ConcurrentDictionary<string, string> _setups = new();
+    private readonly ConcurrentDictionary<string, string> _customersByKey = new();
+    private readonly ConcurrentDictionary<string, (string Customer, CardSetupIntent Intent)> _setupsByKey = new();
     private readonly ConcurrentDictionary<string, ChargeOutcome> _byKey = new();
     private readonly ConcurrentDictionary<string, (ChargeRequest Request, ChargeOutcome Outcome)> _payments = new();
     private readonly ConcurrentDictionary<string, ChargeOutcome> _onSession = new();
@@ -45,6 +46,12 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
 
     /// <summary>How many charge calls the PSP has actually carried out (a stored replay is not one).</summary>
     public int ChargesMade => _payments.Count;
+
+    /// <summary>How many customers the PSP has created (a stored replay is not one).</summary>
+    public int CustomersMade => _customersByKey.Count;
+
+    /// <summary>How many card setups the PSP has started (a stored replay is not one).</summary>
+    public int CardSetupsMade => _setupsByKey.Count;
 
     /// <summary>The next <paramref name="count"/> charges are carried out, but their replies never arrive.</summary>
     public void LoseNextReplies(int count) => Interlocked.Exchange(ref _loseNextReplies, count);
@@ -65,18 +72,25 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     /// <summary>Every call that was made, reachable or not: what an open circuit saves.</summary>
     public int Attempts => Volatile.Read(ref _attempts);
 
-    public Task<string> CreateCustomer(Guid backerId, CancellationToken ct)
+    public Task<string> CreateCustomer(Guid backerId, string idempotencyKey, CancellationToken ct)
     {
         Reach("customer");
-        return Task.FromResult($"cus_{backerId:N}");
+        return Task.FromResult(_customersByKey.GetOrAdd(idempotencyKey, _ => $"cus_{Guid.NewGuid():N}"));
     }
 
-    public Task<CardSetupIntent> StartCardSetup(string pspCustomerId, CancellationToken ct)
+    public Task<CardSetupIntent> StartCardSetup(string pspCustomerId, string idempotencyKey, CancellationToken ct)
     {
         Reach("card-setup");
-        var id = $"seti_{Guid.NewGuid():N}";
-        _setups[id] = pspCustomerId;
-        return Task.FromResult(new CardSetupIntent(id, $"{id}_secret_{Guid.NewGuid():N}"));
+        var (customer, intent) = _setupsByKey.GetOrAdd(idempotencyKey, _ =>
+        {
+            var id = $"seti_{Guid.NewGuid():N}";
+            return (pspCustomerId, new CardSetupIntent(id, $"{id}_secret_{Guid.NewGuid():N}"));
+        });
+
+        // As at Stripe, a key sent again with other parameters is an error, not a new setup.
+        return customer == pspCustomerId
+            ? Task.FromResult(intent)
+            : throw new InvalidOperationException($"Idempotency key {idempotencyKey} was used with another customer.");
     }
 
     public Task<ChargeOutcome> Charge(ChargeRequest request, string idempotencyKey, CancellationToken ct)

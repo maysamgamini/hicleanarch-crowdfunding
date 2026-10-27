@@ -54,7 +54,8 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             setup.Property(s => s.Id).ValueGeneratedNever();
             setup.Property(s => s.PspSetupId).HasMaxLength(100);
             setup.HasIndex(s => s.PspSetupId).IsUnique();
-            setup.HasIndex(s => s.PledgeId);
+            // One setup per pledge: the handler finds or inserts by it.
+            setup.HasIndex(s => s.PledgeId).IsUnique();
             setup.Property(s => s.Status)
                 .HasConversion(s => s.ToString().ToUpperInvariant(), s => Enum.Parse<CardSetupStatus>(s, true))
                 .HasMaxLength(20);

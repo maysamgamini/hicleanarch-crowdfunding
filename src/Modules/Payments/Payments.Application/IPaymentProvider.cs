@@ -6,9 +6,11 @@ namespace Payments.Application;
 /// </summary>
 public interface IPaymentProvider
 {
-    Task<string> CreateCustomer(Guid backerId, CancellationToken ct);
+    /// <summary>The backer as the PSP's customer. The same key returns the same customer (Stripe keeps a key's reply for 24 hours).</summary>
+    Task<string> CreateCustomer(Guid backerId, string idempotencyKey, CancellationToken ct);
 
-    Task<CardSetupIntent> StartCardSetup(string pspCustomerId, CancellationToken ct);
+    /// <summary>A card form for one pledge. The same key returns the same setup and client secret, so a retry starts nothing new.</summary>
+    Task<CardSetupIntent> StartCardSetup(string pspCustomerId, string idempotencyKey, CancellationToken ct);
 
     /// <summary>An off-session charge of a saved card. The PSP stores the first result for a key and returns it to every retry.</summary>
     Task<ChargeOutcome> Charge(ChargeRequest request, string idempotencyKey, CancellationToken ct);

@@ -152,14 +152,19 @@ public static class PledgesModule
     {
         // Every change carries an Idempotency-Key and runs once per key (lesson s1-a04).
         // A new card's setup is started at the PSP before the pledge's transaction opens, so no PSP
-        // call ever runs while that transaction holds the funding window or a tier row. A retry of the
-        // same request may start a second setup, which nobody completes and which costs nothing.
+        // call ever runs while that transaction holds the funding window or a tier row. A retry of a
+        // request that has finished gets its stored reply first and never reaches Payments.
         app.MapPost("/v1/campaigns/{id}/pledges", async (string id, PledgeRequest request, ClaimsPrincipal user, HttpContext http,
             IDispatcher dispatcher, IdempotentRequests<PledgesDbContext> once) =>
         {
             NewCard? newCard = null;
             if (request.PaymentMethodId is null)
             {
+                if (await once.TryReplay(http, user.UserId(), new { id, request }) is { } replayed)
+                {
+                    return replayed;
+                }
+
                 var pledgeId = Guid.CreateVersion7();
                 var setup = await dispatcher.Send<StartCardSetup, CardSetupStarted>(new StartCardSetup(pledgeId, user.UserId()), http.RequestAborted);
                 if (setup.IsSuccess)

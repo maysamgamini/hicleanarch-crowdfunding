@@ -108,9 +108,9 @@ public sealed partial class CircuitBreaker
 /// <summary>The PSP port behind the circuit: an open circuit refuses before the budget is spent.</summary>
 internal sealed class CircuitBreakingPaymentProvider(IPaymentProvider psp, CircuitBreaker breaker) : IPaymentProvider
 {
-    public Task<string> CreateCustomer(Guid backerId, CancellationToken ct) => breaker.Execute(c => psp.CreateCustomer(backerId, c), ct);
+    public Task<string> CreateCustomer(Guid backerId, string idempotencyKey, CancellationToken ct) => breaker.Execute(c => psp.CreateCustomer(backerId, idempotencyKey, c), ct);
 
-    public Task<CardSetupIntent> StartCardSetup(string pspCustomerId, CancellationToken ct) => breaker.Execute(c => psp.StartCardSetup(pspCustomerId, c), ct);
+    public Task<CardSetupIntent> StartCardSetup(string pspCustomerId, string idempotencyKey, CancellationToken ct) => breaker.Execute(c => psp.StartCardSetup(pspCustomerId, idempotencyKey, c), ct);
 
     public Task<ChargeOutcome> Charge(ChargeRequest request, string idempotencyKey, CancellationToken ct) =>
         breaker.Execute(c => psp.Charge(request, idempotencyKey, c), ct);

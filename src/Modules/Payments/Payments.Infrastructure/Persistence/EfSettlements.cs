@@ -245,9 +245,7 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
             WHERE pledge_id = {pledgeId} AND status = 'PAYMENT_FAILED' AND attempt_no = {attemptNo}
             """, cancellationToken) == 1;
 
-    public async Task<string> CustomerOf(Guid backerId, CancellationToken cancellationToken) =>
-        await customers.Find(backerId, cancellationToken)
-            ?? await customers.Add(PspCustomer.For(backerId, await psp.CreateCustomer(backerId, cancellationToken)), cancellationToken);
+    public Task<string> CustomerOf(Guid backerId, CancellationToken cancellationToken) => customers.FindOrCreate(psp, backerId, cancellationToken);
 }
 
 /// <summary>A charge row with its latest attempt's kind, as raw SQL returns it.</summary>
