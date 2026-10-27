@@ -7,6 +7,14 @@ resource "aws_appautoscaling_target" "api" {
   scalable_dimension = "ecs:service:DesiredCount"
   min_capacity       = var.desired_count
   max_capacity       = var.max_count
+
+  # More tasks means more pools: the most they can open must fit under Aurora's max_connections.
+  lifecycle {
+    precondition {
+      condition     = local.db_writer_connections <= local.db_max_connections - local.db_reserved_connections
+      error_message = "max_count tasks could open ${local.db_writer_connections} connections to the writer, more than its ${local.db_max_connections - local.db_reserved_connections}: raise the database's maximum ACU, lower the pools, or put a pooler (RDS Proxy) in front."
+    }
+  }
 }
 
 resource "aws_appautoscaling_policy" "cpu" {
