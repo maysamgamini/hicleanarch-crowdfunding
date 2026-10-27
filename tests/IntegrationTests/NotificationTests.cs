@@ -205,7 +205,8 @@ public sealed class NotificationTests(Database database) : IDisposable
     [Fact]
     public async Task Outside_Development_there_is_no_dev_emails()
     {
-        var response = await _host.CreateClient().GetAsync("/dev/emails", Ct);
+        // Signed in, so the answer is about the route, not the deny-by-default policy.
+        var response = await Database.Client(_host, Database.Token(BuildingBlocks.Infrastructure.Identity.Roles.Backer)).GetAsync("/dev/emails", Ct);
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
