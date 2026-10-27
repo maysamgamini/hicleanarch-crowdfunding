@@ -38,7 +38,9 @@ than one NAT gateway for a sandbox (see lesson s2-l03).
 
 ## Per hour
 
-**Idle** (deployed, no traffic, the database paused):
+**Idle** (deployed, no traffic). The database does not pause while the tasks run: their jobs ask it
+something every few seconds (settlement every 5 s, the hold sweeper every 10 s, the close every 30 s,
+the outbox and the monitors every minute), so both instances stay at their smallest running capacity.
 
 | Item | Math | Per hour |
 |---|---|---|
@@ -46,11 +48,15 @@ than one NAT gateway for a sandbox (see lesson s2-l03).
 | Gateway tasks | 2 × (0.25 × $0.0404784 + 0.5 × $0.004446) = 2 × $0.01234 | $0.0247 |
 | Public IPv4 | 6 × $0.005 | $0.0300 |
 | Load balancers | 2 × $0.0225 (LCUs near zero) | $0.0450 |
-| Aurora | paused: no instance charge | $0.0000 |
+| Aurora | 2 instances × 0.5 ACU × $0.12, polled by the tasks so never paused | $0.1200 |
 | Valkey | 2 × $0.0128 | $0.0256 |
 | Secrets | 11 × $0.40 / 720 h | $0.0061 |
-| CloudWatch alarms | about 18 alarm metrics, 8 above the free 10: 8 × $0.10 / 720 h | $0.0011 |
-| **Total** | | **≈ $0.19** |
+| CloudWatch alarms | about 23 alarm metrics, 13 above the free 10: 13 × $0.10 / 720 h | $0.0018 |
+| **Total** | | **≈ $0.31** |
+
+With the API service removed (an apply with `service_image` empty, which keeps the database, Valkey
+and the load balancers), no task polls the database: it pauses after five minutes and costs storage
+only, so the hour falls to about $0.12 (the gateway tasks, which never touch the database, keep running).
 
 **Under the load profile** (6 monolith tasks, both database instances at their 2-ACU ceiling,
 about 2 LCUs per load balancer):
@@ -64,7 +70,7 @@ about 2 LCUs per load balancer):
 | Aurora | 2 instances × 2 ACU × $0.12 | $0.4800 |
 | Valkey | | $0.0256 |
 | Secrets | | $0.0061 |
-| CloudWatch alarms | | $0.0011 |
+| CloudWatch alarms | | $0.0018 |
 | **Total** | | **≈ $0.82** |
 
 Everything else stays inside the free tiers at the sandbox's scale: CloudFront (a run at scale 0.02
@@ -74,7 +80,7 @@ runs in a month add up toward the 10,000 free monthly active users). Aurora stor
 $0.10 per GB-month, under a cent an hour.
 
 A one-hour lesson with a load test therefore costs well under a dollar, and an environment
-forgotten for a month while idle about $0.19 × 730 ≈ $139, which is why the nightly sweep destroys
+forgotten for a month while idle about $0.31 × 730 ≈ $226, which is why the nightly sweep destroys
 anything left up.
 
 ## Compared with the loop

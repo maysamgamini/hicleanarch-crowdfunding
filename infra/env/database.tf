@@ -1,5 +1,9 @@
-# Aurora PostgreSQL Serverless v2 at its smallest: it pauses at 0 capacity units after five idle
-# minutes and resumes on the next connection. Everything is set so that destroy is complete.
+# Aurora PostgreSQL Serverless v2 at its smallest: it pauses at 0 capacity units after five minutes
+# with no connection and resumes on the next one. While any task runs it never pauses: every task's
+# jobs ask the database every few seconds (settlement every 5 s, the hold sweeper every 10 s, the
+# close every 30 s, the outbox sweep, the monitors and the totals' drift pass every minute). It
+# pauses once no task runs: after the API service is removed (an apply with service_image empty)
+# or the environment destroyed. Everything is set so that destroy is complete.
 
 resource "aws_db_subnet_group" "main" {
   name       = "${var.project}-sandbox"
