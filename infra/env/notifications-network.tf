@@ -4,10 +4,25 @@
 # root, infra/services/notifications, applied by its own deploy role (lesson s5-l03). The monolith keeps
 # nothing of it since s5-l04.
 
+moved {
+  from = aws_vpc_security_group_ingress_rule.notifications_from_tasks
+  to   = aws_vpc_security_group_ingress_rule.notifications_from_gateway
+}
+
+variable "notifications_serves_preferences" {
+  description = "Whether the gateway sends PUT /v1/me/notifications/{kind} to the Notifications service. Set it only after infra/services/notifications has deployed the service (scripts/deploy-service.sh), so the route always has a target; until then the gateway sends it to the monolith, which answers 404 since s5-l04."
+  type        = bool
+  default     = false
+}
+
 variable "notifications_image" {
   description = "The Notifications.Host image the one-time hand-over runs; empty until the release that gives Notifications its own host (s5-l03). The service itself is deployed from infra/services/notifications."
   type        = string
   default     = ""
+}
+
+locals {
+  notifications_public_address = var.notifications_serves_preferences ? "http://notifications:8080/" : "http://${aws_lb.internal.dns_name}/"
 }
 
 resource "aws_security_group" "notifications" {
@@ -16,10 +31,11 @@ resource "aws_security_group" "notifications" {
   vpc_id      = aws_vpc.main.id
 }
 
-# 8080 (PUT /v1/me/notifications/{kind}) from the gateway, which runs in the tasks security group.
-resource "aws_vpc_security_group_ingress_rule" "notifications_from_tasks" {
+# 8080 (PUT /v1/me/notifications/{kind}) from the gateway's tasks, in the gateway's security group, as
+# Payments' public port is (payments-network.tf). No other caller reaches Notifications.
+resource "aws_vpc_security_group_ingress_rule" "notifications_from_gateway" {
   security_group_id            = aws_security_group.notifications.id
-  referenced_security_group_id = aws_security_group.tasks.id
+  referenced_security_group_id = aws_security_group.gateway.id
   ip_protocol                  = "tcp"
   from_port                    = 8080
   to_port                      = 8080

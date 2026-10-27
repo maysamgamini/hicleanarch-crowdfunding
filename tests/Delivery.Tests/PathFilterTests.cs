@@ -11,48 +11,54 @@ namespace Delivery.Tests;
 /// </summary>
 public class PathFilterTests
 {
-    public static TheoryData<string, bool, bool> Changes() => new()
+    public static TheoryData<string, bool, bool, bool> Changes() => new()
     {
-        // changed file, runs payments, runs monolith
-        { "src/Services/Payments.Host/Program.cs", true, false },
-        { "src/Services/Payments.Host/Dockerfile", true, false },
-        { "infra/services/payments/service.tf", true, false },
-        { "tests/Payments.UnitTests/SettlementTests.cs", true, false },
-        { "src/Messaging/SqsEventReader.cs", true, true },
-        { "tests/Contracts.ProducerTests/SnapshotTests.cs", true, true },
-        { "src/RemoteCalls/RemoteCalls.cs", false, true },
-        { "Payments.slnf", true, false },
-        { "src/Modules/Payments/Payments.Application/StartCardSetup.cs", true, false },
-        { "src/Modules/Payments/Payments.Infrastructure/Migrations/Snapshot.cs", true, false },
-        { "src/Modules/Payments/Payments.Client/RemoteStartCardSetup.cs", false, true },
-        { "src/Modules/Payments/Payments.Contracts/CardSetup.cs", true, true },
-        { "System.slnf", true, true },
-        { "src/Modules/Pledges/Pledges.Contracts/PledgeChargeRequested.cs", true, true },
-        { "src/Modules/Campaigns/Campaigns.Contracts/CampaignPublished.cs", true, true },
-        { "src/BuildingBlocks/BuildingBlocks.Application/Dispatcher.cs", true, true },
-        { "events/subscriptions.json", true, true },
-        { "Directory.Packages.props", true, true },
-        { "infra/env/shared-outputs.tf", true, true },
-        { "src/Host/Program.cs", false, true },
-        { "src/Gateway/Program.cs", false, true },
-        { "src/Modules/Pledges/Pledges.Application/PlacePledge.cs", false, true },
-        { "src/Modules/Notifications/Templates.cs", false, false },
-        { "infra/env/ecs.tf", false, true },
-        { "Dockerfile", false, true },
-        { "tests/IntegrationTests/PledgeTests.cs", true, true },
-        { "tests/ArchitectureTests/MonolithRulesTests.cs", true, true },
-        { "docs/cost.md", false, false },
-        { "infra/bootstrap/main.tf", false, false },
+        // changed file, runs payments, runs monolith, runs notifications
+        { "src/Services/Payments.Host/Program.cs", true, false, false },
+        { "src/Services/Payments.Host/Dockerfile", true, false, false },
+        { "infra/services/payments/service.tf", true, false, false },
+        { "tests/Payments.UnitTests/SettlementTests.cs", true, false, false },
+        { "src/Messaging/SqsEventReader.cs", true, true, true },
+        { "tests/Contracts.ProducerTests/SnapshotTests.cs", true, true, true },
+        { "src/RemoteCalls/RemoteCalls.cs", false, true, false },
+        { "Payments.slnf", true, false, false },
+        { "src/Modules/Payments/Payments.Application/StartCardSetup.cs", true, false, false },
+        { "src/Modules/Payments/Payments.Infrastructure/Migrations/Snapshot.cs", true, false, false },
+        { "src/Modules/Payments/Payments.Client/RemoteStartCardSetup.cs", false, true, false },
+        { "src/Modules/Payments/Payments.Contracts/CardSetup.cs", true, true, true },
+        { "System.slnf", true, true, true },
+        { "src/Modules/Pledges/Pledges.Contracts/PledgeChargeRequested.cs", true, true, true },
+        { "src/Modules/Campaigns/Campaigns.Contracts/CampaignPublished.cs", true, true, true },
+        { "src/BuildingBlocks/BuildingBlocks.Application/Dispatcher.cs", true, true, true },
+        { "events/subscriptions.json", true, true, true },
+        { "Directory.Packages.props", true, true, true },
+        { "infra/env/shared-outputs.tf", true, true, true },
+        { "src/Host/Program.cs", false, true, false },
+        { "src/Gateway/Program.cs", false, true, false },
+        { "src/Modules/Pledges/Pledges.Application/PlacePledge.cs", false, true, false },
+        { "src/Modules/Notifications/Templates.cs", false, false, true },
+        { "infra/env/ecs.tf", false, true, false },
+        { "Dockerfile", false, true, false },
+        { "tests/IntegrationTests/PledgeTests.cs", true, true, true },
+        { "tests/ArchitectureTests/MonolithRulesTests.cs", true, true, true },
+        { "src/Services/Notifications.Host/Program.cs", false, false, true },
+        { "infra/services/notifications/main.tf", false, false, true },
+        { "infra/env/notifications-network.tf", false, true, true },
+        { "tests/Notifications.Host.Tests/NotificationsServiceTests.cs", false, false, true },
+        { "Notifications.slnf", false, false, true },
+        { "docs/cost.md", false, false, false },
+        { "infra/bootstrap/main.tf", false, false, false },
     };
 
-    public static TheoryData<string> Pipelines() => [Workflows.Payments, Workflows.Monolith];
+    public static TheoryData<string> Pipelines() => [Workflows.Payments, Workflows.Monolith, Workflows.Notifications];
 
     [Theory]
     [MemberData(nameof(Changes))]
-    public void A_change_runs_the_pipelines_whose_image_it_is_in(string changedFile, bool payments, bool monolith)
+    public void A_change_runs_the_pipelines_whose_image_it_is_in(string changedFile, bool payments, bool monolith, bool notifications)
     {
         Assert.Equal(payments, Workflows.Triggers(Workflows.Paths(Workflows.Payments, "push"), changedFile));
         Assert.Equal(monolith, Workflows.Triggers(Workflows.Paths(Workflows.Monolith, "push"), changedFile));
+        Assert.Equal(notifications, Workflows.Triggers(Workflows.Paths(Workflows.Notifications, "push"), changedFile));
     }
 
     [Theory]

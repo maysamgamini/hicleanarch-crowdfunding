@@ -47,7 +47,7 @@ public sealed class OpenSinks(IEnumerable<ModuleDatabase> databases, EventSubscr
 
     /// <summary>
     /// <c>open-sinks --module Notifications</c>: prints the open rows and exits 0 when there are none, 1 when
-    /// there are. The pipeline runs it before the release that stops running the module.
+    /// there are. scripts/deploy-monolith.sh runs it as a one-off task before it rolls the monolith (s5-l04).
     /// </summary>
     public static async Task<int> Run(IServiceProvider services, IReadOnlyList<string> args, TextWriter output, CancellationToken cancellationToken)
     {

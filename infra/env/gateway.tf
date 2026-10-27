@@ -115,9 +115,9 @@ resource "aws_ecs_task_definition" "gateway" {
       { name = "ReverseProxy__Clusters__monolith__Destinations__monolith__Address", value = "http://${aws_lb.internal.dns_name}/" },
       # Payments' four public paths: the Payments service through Service Connect, or the monolith (payments-split.tf).
       { name = "ReverseProxy__Clusters__payments__Destinations__payments__Address", value = local.payments_public_address },
-      # A user's notification preference: the Notifications service through Service Connect (s5-l03), or
-      # the monolith while the service is not deployed.
-      { name = "ReverseProxy__Clusters__notifications__Destinations__notifications__Address", value = var.notifications_image == "" ? "http://${aws_lb.internal.dns_name}/" : "http://notifications:8080/" },
+      # A user's notification preference: the Notifications service through Service Connect (s5-l03), once
+      # it is deployed (notifications_serves_preferences); the monolith before that.
+      { name = "ReverseProxy__Clusters__notifications__Destinations__notifications__Address", value = local.notifications_public_address },
       { name = "EdgeLimits__GatewayTasks", value = tostring(var.gateway_count) },
       { name = "EdgeLimits__PerSecond", value = tostring(var.edge_limit_per_second) },
       { name = "EdgeLimits__Burst", value = tostring(var.edge_limit_per_second * 2) },

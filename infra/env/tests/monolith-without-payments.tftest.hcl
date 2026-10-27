@@ -296,3 +296,39 @@ run "the_monolith_holds_nothing_of_notifications" {
     error_message = "No policy of the monolith's task role may send email or read users."
   }
 }
+
+# The gateway reaches Notifications' 8080 from its own security group, as it reaches Payments'; and it
+# sends the preference there only once the service is deployed.
+run "the_gateway_alone_reaches_notifications_and_only_once_it_serves" {
+  command = apply
+
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.notifications_from_gateway.referenced_security_group_id == aws_security_group.gateway.id
+    error_message = "Notifications' 8080 is open to the gateway's security group, where the gateway's tasks run."
+  }
+
+  assert {
+    condition     = aws_vpc_security_group_ingress_rule.notifications_from_gateway.referenced_security_group_id != aws_security_group.tasks.id
+    error_message = "The monolith's tasks have no business with Notifications' endpoint."
+  }
+
+  assert {
+    condition = [for e in jsondecode(aws_ecs_task_definition.gateway.container_definitions)[0].environment : e.value
+    if e.name == "ReverseProxy__Clusters__notifications__Destinations__notifications__Address"] == ["http://${aws_lb.internal.dns_name}/"]
+    error_message = "Before Notifications is deployed, the preference route goes to the monolith, never to a service with no tasks."
+  }
+}
+
+run "the_preference_goes_to_notifications_once_it_is_deployed" {
+  command = apply
+
+  variables {
+    notifications_serves_preferences = true
+  }
+
+  assert {
+    condition = [for e in jsondecode(aws_ecs_task_definition.gateway.container_definitions)[0].environment : e.value
+    if e.name == "ReverseProxy__Clusters__notifications__Destinations__notifications__Address"] == ["http://notifications:8080/"]
+    error_message = "Once deployed, the gateway sends the preference to the Notifications service through Service Connect."
+  }
+}

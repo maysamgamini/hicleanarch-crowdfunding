@@ -23,9 +23,11 @@ docker compose up -d                          # PostgreSQL 17 on localhost:5432
 dotnet run --project src/Host -- migrate      # roles, schemas and migrations, then exit (a deploy step)
 dotnet run --project src/Host                 # the API on http://localhost:5080
 TOKEN=$(dotnet run --project src/Host -- token creator)   # a local creator's token (Development only)
+# a deadline 30 days from now: a campaign's deadline is at most 60 days away (CQA-014); BSD date, then GNU date
+DEADLINE=$(date -u -v+30d +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ)
 curl -X POST localhost:5080/v1/campaigns -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
   -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"title":"Harbor Lights","goal_minor":5000000,"currency":"USD","deadline":"2027-03-31T23:59:00-04:00","tiers":[]}'
+  -d '{"title":"Harbor Lights","goal_minor":5000000,"currency":"USD","deadline":"'"$DEADLINE"'","tiers":[]}'
 dotnet test                                   # every test; the integration tests start their own PostgreSQL in Docker
 ```
 
