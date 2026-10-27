@@ -18,7 +18,7 @@ public sealed class ReaderTests
 {
     public sealed record Spoken(Guid EventId, DateTimeOffset OccurredAt) : IntegrationEvent(EventId, OccurredAt);
 
-    private const string QueueUrl = "http://queue/payments";
+    private const string QueueUrl = "https://sqs.us-east-1.amazonaws.com/123456789012/hicleanarch-sandbox-payments";
 
     /// <summary>A queue in memory: it hands out as many messages as a receive asks for, and records every call.</summary>
     private sealed class FakeQueue
@@ -154,5 +154,34 @@ public sealed class ReaderTests
         Assert.InRange(queue.Extended.Count, 2, 3);
         Assert.All(queue.Extended, e => Assert.Equal((deleted.Receipt, 3), (e.Receipt, e.Seconds)));
         Assert.All(queue.Extended, e => Assert.True(e.At <= deleted.At));
+    }
+
+    [Fact]
+    public async Task The_receive_is_a_client_span_and_both_spans_name_the_operation_and_the_queue()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var spans = new ConcurrentQueue<System.Diagnostics.Activity>();
+        using var listener = new System.Diagnostics.ActivityListener
+        {
+            ShouldListenTo = source => source.Name == MessageTraces.ActivitySourceName,
+            Sample = (ref System.Diagnostics.ActivityCreationOptions<System.Diagnostics.ActivityContext> _) => System.Diagnostics.ActivitySamplingResult.AllDataAndRecorded,
+            ActivityStopped = spans.Enqueue,
+        };
+        System.Diagnostics.ActivitySource.AddActivityListener(listener);
+        var queue = new FakeQueue(messages: 1);
+        using var reader = Reader(queue.Client(ct), new BrokerOptions(), _ => Task.CompletedTask);
+
+        await reader.StartAsync(ct);
+        await Within(TimeSpan.FromSeconds(5), () => queue.Deleted.Count == 1 && spans.Any(s => s.OperationName.StartsWith("process ", StringComparison.Ordinal)));
+        await reader.StopAsync(ct);
+
+        var receive = spans.First(s => s.OperationName.StartsWith("receive ", StringComparison.Ordinal));
+        var process = spans.First(s => s.OperationName.StartsWith("process ", StringComparison.Ordinal));
+        Assert.Equal(System.Diagnostics.ActivityKind.Client, receive.Kind);
+        Assert.Equal(System.Diagnostics.ActivityKind.Consumer, process.Kind);
+        Assert.Equal("receive", receive.GetTagItem("messaging.operation.name"));
+        Assert.Equal("process", process.GetTagItem("messaging.operation.name"));
+        Assert.Equal("hicleanarch-sandbox-payments", receive.GetTagItem("messaging.destination.name"));
+        Assert.Equal("hicleanarch-sandbox-payments", process.GetTagItem("messaging.destination.name"));
     }
 }

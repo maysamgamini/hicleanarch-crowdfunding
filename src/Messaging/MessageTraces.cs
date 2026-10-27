@@ -69,6 +69,9 @@ public static class MessageTraces
     /// Starts the span of one handler's run on one message. <paramref name="received"/> is the span that
     /// received the batch, if any. Disposing the result ends the span and makes the caller's span current again.
     /// </summary>
+    /// <summary>A queue's name, the last segment of its URL or ARN, as messaging.destination.name wants it.</summary>
+    public static string QueueName(string urlOrArn) => urlOrArn.TrimEnd('/').Split('/', ':')[^1];
+
     public static ProcessingSpan StartProcessing(
         string eventType, string handler, IReadOnlyDictionary<string, string> attributes, ActivityContext received = default,
         string? messageId = null, string? queue = null)
@@ -90,6 +93,7 @@ public static class MessageTraces
         {
             new("messaging.system", "aws_sqs"),
             new("messaging.operation.type", "process"),
+            new("messaging.operation.name", "process"),
             new("messaging.destination.name", queue),
             new("messaging.message.id", messageId),
             new("crowdfunding.event_type", eventType),

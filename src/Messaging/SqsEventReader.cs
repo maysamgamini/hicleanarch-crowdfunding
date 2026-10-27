@@ -121,10 +121,14 @@ public sealed partial class SqsEventReader(
                 }
 
                 // One span for the batch; each handler's run on each message gets its own (s4-l08).
-                using var receive = Source.StartActivity($"receive {service}", ActivityKind.Consumer);
+                // OpenTelemetry's messaging conventions: a pull-based receive is a CLIENT span, and the
+                // destination is the queue's own name (CQA-1522).
+                var queueName = MessageTraces.QueueName(queueUrl);
+                using var receive = Source.StartActivity($"receive {queueName}", ActivityKind.Client);
                 receive?.SetTag("messaging.system", "aws_sqs");
                 receive?.SetTag("messaging.operation.type", "receive");
-                receive?.SetTag("messaging.destination.name", service);
+                receive?.SetTag("messaging.operation.name", "receive");
+                receive?.SetTag("messaging.destination.name", queueName);
                 receive?.SetTag("messaging.batch.message_count", received.Count);
                 var context = receive?.Context ?? default;
                 foreach (var message in received)
@@ -301,7 +305,8 @@ public sealed partial class SqsEventReader(
         foreach (var handler in owed)
         {
             // A child of the change that wrote it for one pledge's story, a new linked trace otherwise (MessageTraces).
-            using var span = MessageTraces.StartProcessing(type, handler.Handler, attributes, received, message.MessageId, service);
+            using var span = MessageTraces.StartProcessing(type, handler.Handler, attributes, received, message.MessageId,
+                MessageTraces.QueueName(options.Queues[service].Url));
             var target = modules.Single(m => m.Module == handler.Module);
             await target.HandleOnce(handler.Handler, integrationEvent.EventId,
                 (scope, ct) => handler.Invoke(scope, integrationEvent, ct), cancellationToken);
