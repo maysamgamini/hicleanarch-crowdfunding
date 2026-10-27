@@ -148,7 +148,7 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
             (await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString() == "FUNDED");
         await CachedNow(reader, campaign.Id, connection);
 
-        await using (var scope = host.Services.CreateAsyncScope())
+        await using (var scope = host.Payments().Services.CreateAsyncScope())
         {
             await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<RunSettlement, bool>(new RunSettlement("cache-test", campaign.CampaignId), Ct);
         }

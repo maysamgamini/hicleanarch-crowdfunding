@@ -179,10 +179,10 @@ public sealed class CardSetupTests(Database database) : IDisposable
         var (pledgeId, setupId, _) = await PledgeWithNewCard(given.Backer(Guid.NewGuid()), campaign);
         await given.Execute("UPDATE pledges.pledges SET hold_expires_at = now() - interval '1 second' WHERE id = @id", pledgeId);
 
-        var webhook = host.Services.GetRequiredService<FakePaymentProvider>().CompleteSetup(setupId);
+        var webhook = host.Payments().Services.GetRequiredService<FakePaymentProvider>().CompleteSetup(setupId);
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(webhook.Body, Encoding.UTF8, "application/json") };
         request.Headers.Add(WebhookSignature.Header, webhook.Signature);
-        Assert.Equal(HttpStatusCode.OK, (await host.CreateClient().SendAsync(request, Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Database.Client(host).SendAsync(request, Ct)).StatusCode);
 
         await Scenario.Eventually(async () => await given.Scalar<long>("""
             SELECT count(*) FROM payments.outbox o

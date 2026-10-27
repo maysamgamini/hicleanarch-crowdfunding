@@ -292,7 +292,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
         await using var host = Host(("Payments:Budget:ChargesPerSecond", $"{perSecond}"), ("Payments:Settlement:BatchSize", "15"),
             ("Payments:Settlement:CallsInFlight", $"{inFlightPerWorker}"), ("Pledges:MarkBatchSize", "100"));
         var (given, campaign) = await Funded(host, pledges);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         psp.TakesToAnswer(latency);
         var started = DateTimeOffset.UtcNow;
 
@@ -323,7 +323,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
         await using var host = Host(("Payments:Budget:ChargesPerSecond", "4"), ("Payments:Settlement:BatchSize", "3"));
         var (firstGiven, first) = await Funded(host, 6);
         var (secondGiven, second) = await Funded(host, 6);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         Guid[] both = [first.CampaignId, second.CampaignId];
         var started = DateTimeOffset.UtcNow;
 
@@ -345,7 +345,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
     {
         await using var host = Host(("Payments:Settlement:PauseWhenPspFails", "01:00:00"));
         var (given, campaign) = await Funded(host, 2);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         Guid[] only = [campaign.CampaignId];
         psp.Unreachable(true);
 
@@ -384,7 +384,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
     {
         await using var host = Host(("Payments:Settlement:BatchSize", "3"), ("Payments:Settlement:CallsInFlight", "1"));
         var (given, campaign) = await Funded(host, 3);
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         psp.TakesToAnswer(TimeSpan.FromSeconds(1));
         var before = psp.Calls.Count(c => c.Call == "charge");
 

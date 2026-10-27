@@ -203,7 +203,7 @@ public sealed class DunningTests(Database database) : IDisposable
     {
         // One charge per turn, so a waiting confirmation taken first would leave the retry behind.
         await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("Payments:Settlement:BatchSize", "1"));
-        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         var given = new Scenario(database, host);
         var campaign = await given.Publish(1_000);
         var confirming = Guid.NewGuid();
@@ -220,7 +220,7 @@ public sealed class DunningTests(Database database) : IDisposable
 
         async Task Settle()
         {
-            await using var scope = host.Services.CreateAsyncScope();
+            await using var scope = host.Payments().Services.CreateAsyncScope();
             await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<RunSettlement, bool>(new RunSettlement("waiting", campaign.CampaignId), Ct);
         }
 

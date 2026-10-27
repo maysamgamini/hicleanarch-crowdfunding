@@ -247,7 +247,7 @@ public sealed class SettlementTests(Database database) : IDisposable
 
         async Task<int?> Start()
         {
-            await using var scope = _host.Services.CreateAsyncScope();
+            await using var scope = _host.Payments().Services.CreateAsyncScope();
             return await scope.ServiceProvider.GetRequiredService<ISettlements>().TryStartAttempt(pledge, publicId, onSession: false, lookUpAt: null, Ct);
         }
 
