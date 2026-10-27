@@ -295,4 +295,18 @@ public sealed class DunningTests(Database database) : IDisposable
         Assert.Equal("CHARGED", await ChargeStatus(given, campaign));
         Assert.Equal(FakePaymentProvider.CardSucceeds, await given.Scalar<string>("SELECT payment_method_ref FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
     }
+
+    [Fact]
+    public async Task A_new_card_for_a_decline_that_asks_for_confirmation_is_refused_with_what_to_do_instead()
+    {
+        var (given, campaign, backerId, pledgeId) = await FailedOnce(FakePaymentProvider.CardNeedsAuthentication);
+        var due = await given.Scalar<DateTime>("SELECT next_attempt_at FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId);
+
+        var refused = await given.Backer(backerId).PutAsJsonAsync($"/v1/pledges/{pledgeId}/payment-method", new { payment_method_id = FakePaymentProvider.CardSucceeds }, Ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Equal("charge_needs_confirmation", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
+        Assert.Equal(FakePaymentProvider.CardNeedsAuthentication, await given.Scalar<string>("SELECT payment_method_ref FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(due, await given.Scalar<DateTime>("SELECT next_attempt_at FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
+    }
 }

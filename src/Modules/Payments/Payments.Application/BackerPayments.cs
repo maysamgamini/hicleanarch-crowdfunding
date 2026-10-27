@@ -11,7 +11,11 @@ public sealed record ChargeView(string PledgeId, string Status, DateTimeOffset? 
 /// <summary>What the backer's browser needs to confirm a payment with the bank's check.</summary>
 public sealed record PaymentToConfirm(string PledgeId, string PspPaymentId, string ClientSecret);
 
-/// <summary>A hard decline: the backer gives a new saved card, and it is tried at once (lesson s3-a04).</summary>
+/// <summary>
+/// A hard decline: the backer gives a new saved card, and it is tried at once (lesson s3-a04). A
+/// decline that asks for the cardholder's confirmation is refused with <c>charge_needs_confirmation</c>:
+/// the backer confirms the payment instead.
+/// </summary>
 public sealed record UseNewCard(Guid PledgeId, Guid BackerId, string PaymentMethodRef) : ICommand<ChargeView>;
 
 /// <summary>The bank wanted the cardholder: the backer confirms the payment on our page (lesson s3-a04).</summary>
@@ -30,6 +34,12 @@ public sealed class UseNewCardHandler(ISettlements settlements, TimeProvider clo
         if (charge is null)
         {
             return Result.Failure<ChargeView>(PaymentErrors.ChargeNotFound);
+        }
+
+        // The bank wants the cardholder to confirm, not another card: a new one would meet the same check.
+        if (charge.Status == ChargeStatus.PaymentFailed && DunningPolicy.Classify(charge.LastDeclineCode ?? "", charge.LastAdviceCode) == DeclineKind.AuthenticationRequired)
+        {
+            return Result.Failure<ChargeView>(PaymentErrors.NeedsConfirmationNotCard);
         }
 
         if (!await settlements.TryUseNewCard(command.PledgeId, command.PaymentMethodRef, cancellationToken))
