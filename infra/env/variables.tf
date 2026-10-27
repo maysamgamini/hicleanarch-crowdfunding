@@ -11,9 +11,15 @@ variable "project" {
 }
 
 variable "image" {
-  description = "The API image to run, as repository URL and tag, for example <account>.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-api:<git sha>."
+  description = "The release: the API image the migration task runs, as repository URL and tag, for example <account>.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-api:<git sha>."
   type        = string
   default     = "public.ecr.aws/docker/library/nginx:stable" # only so that destroy needs no argument
+}
+
+variable "service_image" {
+  description = "The API image the service runs: the current one until the release is migrated, then the release. Empty: no service yet (a new environment, before its first migration)."
+  type        = string
+  default     = ""
 }
 
 variable "zone_count" {

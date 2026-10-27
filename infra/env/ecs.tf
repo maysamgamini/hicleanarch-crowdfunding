@@ -85,6 +85,8 @@ locals {
   }
 }
 
+# The service's task definition runs service_image, which moves to the new release only after
+# `migrate` has run it (see aws_ecs_service.api).
 resource "aws_ecs_task_definition" "api" {
   family                   = "${var.project}-api"
   requires_compatibilities = ["FARGATE"]
@@ -93,7 +95,7 @@ resource "aws_ecs_task_definition" "api" {
   memory                   = 1024
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
-  container_definitions    = jsonencode([local.api_container, local.collector_container])
+  container_definitions    = jsonencode([merge(local.api_container, { image = coalesce(var.service_image, var.image) }), local.collector_container])
 
   runtime_platform {
     operating_system_family = "LINUX"
@@ -101,8 +103,9 @@ resource "aws_ecs_task_definition" "api" {
   }
 }
 
-# The same image, run once per deploy with the argument `migrate`. The sandbox workflow creates this
-# task first, runs it, and only then lets the service take the new image.
+# The release image, run once per deploy with the argument `migrate`. The sandbox workflow applies
+# everything with the service still on its current image, runs this task, and only then applies
+# again with service_image set to the release.
 resource "aws_ecs_task_definition" "migrate" {
   family                   = "${var.project}-migrate"
   requires_compatibilities = ["FARGATE"]
@@ -128,8 +131,12 @@ resource "aws_ecs_task_definition" "migrate" {
   }
 }
 
+# Deploying is two full applies, never a targeted one: the first with service_image unchanged, so
+# the service keeps its image while `migrate` runs; the second with service_image = image. A new
+# environment has no image to keep, so the service is created only by the second apply.
 resource "aws_ecs_service" "api" {
-  name            = "api"
+  count           = var.service_image == "" ? 0 : 1
+  name            = local.api_service
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = var.desired_count
@@ -159,7 +166,15 @@ resource "aws_ecs_service" "api" {
     ignore_changes = [desired_count]
   }
 
-  # The workflow applies everything else, including this service's new image, only after `migrate`;
-  # the service waits for the internal listener the gateway sends it requests through.
+  # The service waits for the internal listener the gateway sends it requests through.
   depends_on = [aws_lb_listener.internal]
+}
+
+moved {
+  from = aws_ecs_service.api
+  to   = aws_ecs_service.api[0]
+}
+
+locals {
+  api_service = "api"
 }

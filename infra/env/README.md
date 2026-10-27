@@ -15,13 +15,21 @@ Normally the `sandbox` GitHub workflow runs all of it. By hand:
 
 ```bash
 terraform -chdir=infra/env init -backend-config="bucket=$(terraform -chdir=infra/bootstrap output -raw state_bucket)"
-# 1. only what the migration task needs, 2. migrate, 3. everything else (the service takes the new image)
-terraform -chdir=infra/env apply -var image=<ecr url>:<tag> \
-  -target=aws_ecs_cluster.main -target=aws_ecs_task_definition.migrate -target=aws_security_group.tasks -target=aws_subnet.public
-# run the migration task (see .github/workflows/sandbox.yml), then:
-terraform -chdir=infra/env apply -var image=<ecr url>:<tag>
+# 1. everything, with the API service on the image it runs now (empty in a new environment: no service yet)
+current=$(terraform -chdir=infra/env output -raw service_image 2>/dev/null || true)
+terraform -chdir=infra/env apply -var image=<ecr url>:<tag> -var gateway_image=<gateway url>:<tag> -var service_image="$current"
+# 2. run the migration task (see .github/workflows/sandbox.yml), then 3. roll the service onto the release:
+terraform -chdir=infra/env apply -var image=<ecr url>:<tag> -var gateway_image=<gateway url>:<tag> -var service_image=<ecr url>:<tag>
 terraform -chdir=infra/env destroy
 ```
+
+Both applies are complete plans; neither uses `-target`. The service's image is the only thing the
+first apply holds back, so the migration never runs against a half-built stack.
+
+For a known launch, `-var 'launch={start="2026-11-02T15:00:00Z",end="2026-11-02T18:00:00Z",min_count=6}'`
+schedules a higher minimum task count for the window, started well before the crowd: target tracking
+alone reacts only after the load has arrived. The load balancer also scales gradually; production
+reserves load balancer capacity units (LCU reservation) for the same window.
 
 ## Database connections
 

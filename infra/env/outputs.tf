@@ -8,7 +8,12 @@ output "cluster" {
 }
 
 output "service" {
-  value = aws_ecs_service.api.name
+  value = local.api_service
+}
+
+output "service_image" {
+  description = "What the API service runs; the next deploy keeps it until its migration has run."
+  value       = var.service_image
 }
 
 output "migrate_task_definition" {

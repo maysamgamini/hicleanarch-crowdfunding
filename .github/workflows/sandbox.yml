@@ -59,21 +59,31 @@ jobs:
           docker push "$gateway"
           echo "gateway=$gateway" >> "$GITHUB_OUTPUT"
 
-      # The database must be migrated before any task runs the new image. So the first apply creates
-      # only what the migration task needs (Terraform adds their dependencies: network, database,
-      # secrets, roles); the second applies the rest, including the service's new image.
-      - name: Apply what the migration needs
-        id: apply
+      # The database must be migrated before any task runs the new image, without a targeted apply:
+      # the first apply is complete but keeps the API service on the image it runs now (none in a new
+      # environment, whose service the second apply creates); the second moves it to the release.
+      - name: Apply, with the service on its current image
         env:
           IMAGE: ${{ steps.image.outputs.image }}
           GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          LOAD_SCALE: ${{ inputs.load_scale || '0' }}
         run: |
           start=$(date +%s)
+          # A load run comes from this one runner, which the gateway would limit as a single client:
+          # the run measures the system behind the edge, so it lifts the per-client limit.
+          edge_limit=20
+          if [ "$LOAD_SCALE" != "0" ]; then edge_limit=100000; fi
+          # The same values for both applies (and the destroy).
+          {
+            echo "TF_VAR_image=$IMAGE"
+            echo "TF_VAR_gateway_image=$GATEWAY_IMAGE"
+            echo "TF_VAR_edge_limit_per_second=$edge_limit"
+          } >> "$GITHUB_ENV"
           terraform -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
-          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE" -var "gateway_image=$GATEWAY_IMAGE" \
-            -target=aws_ecs_cluster.main -target=aws_ecs_task_definition.migrate \
-            -target=aws_security_group.tasks -target=aws_subnet.public
+          current=$(terraform -chdir=infra/env output -raw service_image 2>/dev/null || true)
+          TF_VAR_image="$IMAGE" TF_VAR_gateway_image="$GATEWAY_IMAGE" TF_VAR_edge_limit_per_second="$edge_limit" \
+            terraform -chdir=infra/env apply -input=false -auto-approve -var "service_image=$current"
           echo "First apply took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Migrate
@@ -87,19 +97,10 @@ jobs:
           code=$(aws ecs describe-tasks --cluster "$(out cluster)" --tasks "$task" --query 'tasks[0].containers[0].exitCode' --output text)
           test "$code" = "0"
 
-      - name: Apply the rest and roll the service onto the new image
-        env:
-          IMAGE: ${{ steps.image.outputs.image }}
-          GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
-          LOAD_SCALE: ${{ inputs.load_scale || '0' }}
+      - name: Roll the service onto the new image
         run: |
           start=$(date +%s)
-          # A load run comes from this one runner, which the gateway would limit as a single client:
-          # the run measures the system behind the edge, so it lifts the per-client limit.
-          edge_limit=20
-          if [ "$LOAD_SCALE" != "0" ]; then edge_limit=100000; fi
-          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE" -var "gateway_image=$GATEWAY_IMAGE" \
-            -var "edge_limit_per_second=$edge_limit"
+          terraform -chdir=infra/env apply -input=false -auto-approve -var "service_image=$TF_VAR_image"
           aws ecs wait services-stable --cluster "$(terraform -chdir=infra/env output -raw cluster)" \
             --services "$(terraform -chdir=infra/env output -raw service)"
           echo "Second apply and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
