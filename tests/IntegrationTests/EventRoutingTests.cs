@@ -3,6 +3,7 @@ using BuildingBlocks.Infrastructure.Events;
 
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -38,7 +39,10 @@ public sealed class EventRoutingTests(Database database)
             .UseSetting("Payments:Settlement:PollEvery", "01:00:00")
             .UseSetting("Payments:Money:PollEvery", "01:00:00")
             .UseSetting("Auth:ClientId", Database.ClientId)
-            .UseSetting("Auth:LocalSigningKey", Database.SigningKey));
+            .UseSetting("Auth:LocalSigningKey", Database.SigningKey)
+            // The routing check alone: a publisher that is never called keeps the owed-publishes check, which
+            // runs first, from refusing on rows other tests' hosts left owing the broker in this database.
+            .ConfigureTestServices(services => services.AddSingleton<IEventPublisher, NeverCalled>()));
 
         var message = Refusals.Of(host);
 
@@ -192,5 +196,11 @@ public sealed class EventRoutingTests(Database database)
             Handled++;
             return Task.CompletedTask;
         }
+    }
+
+    private sealed class NeverCalled : IEventPublisher
+    {
+        public Task<IReadOnlyCollection<Guid>> Publish(IReadOnlyList<OutboxRecord> records, CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("A program that refuses to start publishes nothing.");
     }
 }
