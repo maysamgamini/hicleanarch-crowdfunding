@@ -21,6 +21,13 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>
+    /// The class's Valkey with a database of the test's own. The webhook route has one bucket for every
+    /// gateway task (gateway:route:webhook), so a test that drains it would otherwise leave it empty for
+    /// whichever test runs next.
+    /// </summary>
+    private string OwnBuckets(int database) => $"{valkey.Configuration},defaultDatabase={database}";
+
     private static WebApplicationFactory<Program> Start(EchoService monolith, EchoService payments, string valkey = "",
         int perSecond = 20, int burst = 40, double webhookPerSecond = 1000, int webhookBurst = 1000, string pspSources = PspSources) =>
         GatewayHost.Start(monolith.Address, valkey, perSecond, burst).WithWebHostBuilder(web => web
@@ -100,7 +107,7 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
         await using var monolith = await EchoService.Start("monolith");
         await using var payments = await EchoService.Start("payments");
         // The production limits: 20 a second per address with a burst of 40, shared through Valkey.
-        await using var gateway = Start(monolith, payments, valkey.Configuration);
+        await using var gateway = Start(monolith, payments, OwnBuckets(3));
         var client = gateway.CreateClient();
         const string psp = "198.51.100.30";
 
@@ -138,7 +145,7 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
     {
         await using var monolith = await EchoService.Start("monolith");
         await using var payments = await EchoService.Start("payments");
-        await using var gateway = Start(monolith, payments, valkey.Configuration, webhookPerSecond: 0.5, webhookBurst: 5);
+        await using var gateway = Start(monolith, payments, OwnBuckets(1), webhookPerSecond: 0.5, webhookBurst: 5);
         var client = gateway.CreateClient();
 
         var codes = new List<HttpStatusCode>();
@@ -171,7 +178,7 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
         await using var monolith = await EchoService.Start("monolith");
         await using var payments = await EchoService.Start("payments");
         // The production limits: 20 a second per address with a burst of 40; the route's bucket for the PSP: 50 at once.
-        await using var gateway = Start(monolith, payments, valkey.Configuration, webhookPerSecond: 0.5, webhookBurst: 50);
+        await using var gateway = Start(monolith, payments, OwnBuckets(2), webhookPerSecond: 0.5, webhookBurst: 50);
         var client = gateway.CreateClient();
 
         var flood = await Task.WhenAll(Enumerable.Range(0, 200).Select(async _ =>
