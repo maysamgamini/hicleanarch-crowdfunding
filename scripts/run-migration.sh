@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Runs a Terraform root's migration task once and fails unless it exits 0. The root's outputs name the
+# Runs an OpenTofu root's migration task once and fails unless it exits 0. The root's outputs name the
 # cluster, the task definition, the subnets and the security group (infra/env and infra/services/payments).
-# Usage: run-migration.sh <terraform dir>
+# Usage: run-migration.sh <root dir>
 set -euo pipefail
-dir="${1:?usage: run-migration.sh <terraform dir>}"
-out() { terraform -chdir="$dir" output -raw "$1"; }
+dir="${1:?usage: run-migration.sh <root dir>}"
+out() { tofu -chdir="$dir" output -raw "$1"; }
 
 cluster=$(out cluster)
 task=$(aws ecs run-task --cluster "$cluster" --launch-type FARGATE \

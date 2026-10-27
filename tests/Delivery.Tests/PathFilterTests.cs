@@ -2,7 +2,7 @@ namespace Delivery.Tests;
 
 /// <summary>
 /// The path filters follow what each image is built from, and what each pipeline's tests run. A change
-/// under Payments' Terraform root runs Payments' pipeline only; a change to the monolith's own paths runs
+/// under Payments' OpenTofu root runs Payments' pipeline only; a change to the monolith's own paths runs
 /// the monolith's only; a change to shared code, a contract or the subscriptions file runs both. Since
 /// s4-l10 the monolith compiles nothing of Payments but its client, so a change to the Payments module or
 /// its host runs Payments' pipeline only, and a change to Payments.Client the monolith's only. The tests

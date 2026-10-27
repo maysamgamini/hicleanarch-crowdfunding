@@ -41,9 +41,10 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
-          terraform_wrapper: false
+          tofu_version_file: .opentofu-version
+          tofu_wrapper: false
       - id: ecr
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
       - uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
@@ -134,8 +135,8 @@ jobs:
       - name: Sign in a test creator
         id: creator
         run: |
-          pool=$(terraform -chdir=infra/env output -raw user_pool_id)
-          client=$(terraform -chdir=infra/env output -raw user_pool_client_id)
+          pool=$(tofu -chdir=infra/env output -raw user_pool_id)
+          client=$(tofu -chdir=infra/env output -raw user_pool_client_id)
           email="smoke-${GITHUB_RUN_ID}@example.com"
           password="Smoke-${GITHUB_RUN_ID}-$(openssl rand -hex 8)"
           aws cognito-idp admin-create-user --user-pool-id "$pool" --username "$email" --message-action SUPPRESS >/dev/null
@@ -149,7 +150,7 @@ jobs:
       - name: Smoke test
         env:
           TOKEN: ${{ steps.creator.outputs.token }}
-        run: ./scripts/smoke.sh "$(terraform -chdir=infra/env output -raw api_url)"
+        run: ./scripts/smoke.sh "$(tofu -chdir=infra/env output -raw api_url)"
 
       - name: Load test
         if: inputs.load_scale != '0'
@@ -203,8 +204,8 @@ jobs:
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
         run: |
           start=$(date +%s)
-          terraform -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
-          terraform -chdir=infra/env destroy -input=false -auto-approve
+          tofu -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
+          tofu -chdir=infra/env destroy -input=false -auto-approve
           echo "Destroy took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 
   sweep:
@@ -212,9 +213,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
         with:
-          terraform_wrapper: false
+          tofu_version_file: .opentofu-version
+          tofu_wrapper: false
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN }}
@@ -231,5 +233,5 @@ jobs:
         env:
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
         run: |
-          terraform -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
-          terraform -chdir=infra/env destroy -input=false -auto-approve
+          tofu -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
+          tofu -chdir=infra/env destroy -input=false -auto-approve

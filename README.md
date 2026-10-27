@@ -38,11 +38,13 @@ Payments runs on a fake PSP in memory. On a laptop, `POST /dev/fake-psp/setups/{
 - `src/BuildingBlocks` (its own solution, `BuildingBlocks.slnx`, versioned and published as NuGet packages; the modules reference a pinned version): what every module shares: the result type, the dispatcher, the HTTP error mapping.
 - `src/Modules/*/*.Contracts` (their own solution, `Contracts.slnx`): each module's events and remote commands, a versioned package per module like the BuildingBlocks, with its checked-in contract snapshot and recorded examples in `contract/`.
 - `tests/`: architecture rules, unit tests per module, integration tests against a real database, and the contract tests: the producers' snapshots (`Contracts.ProducerTests`) and the consumers' reading of the published examples (`Contracts.ConsumerTests`).
-- `infra/bootstrap/`: long-lived AWS resources (Terraform state bucket, ECR, CodeArtifact). Applied once and kept. Its own state is local; keep the `terraform.tfstate` file safe.
+- `infra/bootstrap/`: long-lived AWS resources (OpenTofu state bucket, ECR, CodeArtifact). Applied once and kept. Its own state is local; keep the `terraform.tfstate` file safe.
 - `infra/env/`: the sandbox environment. Applied for a lesson or a test run, destroyed afterwards.
-- `infra/modules/`: Terraform modules used by `infra/env/`.
+- `infra/modules/`: OpenTofu modules used by `infra/env/`.
 - `scripts/replay.sh`: re-applies the lesson commits after an earlier lesson changes, and moves the tags.
 
 ## Requirements
 
-.NET SDK 10, Docker, Terraform 1.11 or later (S3 state locking). An AWS account only for the lessons that deploy.
+.NET SDK 10, Docker, [OpenTofu](https://opentofu.org) 1.13 or later 1.x (`tofu`; the exact version CI runs is in `.opentofu-version`). An AWS account only for the lessons that deploy.
+
+The tags up to s4-l10 were written for Terraform; the commands are the same with `tofu` in place of `terraform`, and OpenTofu reads those tags' `*.tf` and `.terraform.lock.hcl` files as they are. From the tag after s4-l10 the course uses OpenTofu only: Terraform 1.6 and later is under the Business Source License (BUSL-1.1), OpenTofu under the Mozilla Public License 2.0.

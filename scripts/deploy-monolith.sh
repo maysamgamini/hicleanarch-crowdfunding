@@ -12,7 +12,7 @@ step="${1:?usage: deploy-monolith.sh prepare|roll <image> <gateway image>}"
 image="${2:?usage: deploy-monolith.sh prepare|roll <image> <gateway image>}"
 gateway="${3:?usage: deploy-monolith.sh prepare|roll <image> <gateway image>}"
 bucket="${STATE_BUCKET:?set STATE_BUCKET to the state_bucket output of infra/bootstrap}"
-tf() { terraform -chdir=infra/env "$@"; }
+tf() { tofu -chdir=infra/env "$@"; }
 
 export TF_VAR_image="$image" TF_VAR_gateway_image="$gateway"
 tf init -input=false -backend-config="bucket=$bucket" >/dev/null

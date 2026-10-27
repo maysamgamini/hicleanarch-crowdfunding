@@ -4,10 +4,10 @@
 # pool: one live pledge per backer per campaign means a launch of N pledges needs N backers.
 #
 # Usage: scripts/load.sh <scale>        (0.02 = 60 pledges a second; 1 = the loop's full 3,000)
-# Needs: AWS credentials for the sandbox, Terraform outputs of infra/env, k6, jq.
+# Needs: AWS credentials for the sandbox, OpenTofu outputs of infra/env, k6, jq.
 set -euo pipefail
 scale="${1:?usage: load.sh <scale>}"
-out() { terraform -chdir=infra/env output -raw "$1"; }
+out() { tofu -chdir=infra/env output -raw "$1"; }
 
 api=$(out api_url)
 public=$(out public_reads_url 2>/dev/null || echo "$api")

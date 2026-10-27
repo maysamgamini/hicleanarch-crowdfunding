@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace Delivery.Tests;
 
 /// <summary>
-/// Payments' Terraform root reads the shared layer's outputs from one JSON document. Terraform cannot check
+/// Payments' OpenTofu root reads the shared layer's outputs from one JSON document. OpenTofu cannot check
 /// a key of a decoded document before an apply, so this test does: every key Payments reads is published.
 /// </summary>
 public partial class SharedOutputsTests

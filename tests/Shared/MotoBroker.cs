@@ -66,7 +66,7 @@ public sealed class MotoBroker : IAsyncDisposable
     }
 
     /// <summary>
-    /// What Terraform builds from the plan, under a fresh <paramref name="prefix"/>: a topic per producing
+    /// What OpenTofu builds from the plan, under a fresh <paramref name="prefix"/>: a topic per producing
     /// module, a queue and a dead-letter queue per service, the plan's filtered subscriptions. Returns the
     /// <c>Events:Broker</c> settings for a host that reads <paramref name="read"/>, and the dead-letter queues' URLs.
     /// </summary>

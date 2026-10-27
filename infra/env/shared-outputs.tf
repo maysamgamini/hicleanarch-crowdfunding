@@ -1,4 +1,4 @@
-# What the shared layer hands to the services' own Terraform roots (s4-l09). Payments' stack reads this
+# What the shared layer hands to the services' own OpenTofu roots (s4-l09). Payments' stack reads this
 # one document, not this layer's state: the state holds values Payments must not see, such as the
 # monolith's service client secret, and reading it would need the right to read all of it.
 #

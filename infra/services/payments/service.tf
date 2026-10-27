@@ -74,7 +74,7 @@ locals {
   }
 }
 
-# Task definitions are never deregistered by Terraform (skip_destroy): deregistering is the one ECS
+# Task definitions are never deregistered by OpenTofu (skip_destroy): deregistering is the one ECS
 # action IAM cannot limit to a family, and allowing it would let Payments' deploy role retire the
 # monolith's. A registered revision that nothing runs costs nothing.
 resource "aws_ecs_task_definition" "payments" {

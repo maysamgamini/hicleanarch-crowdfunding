@@ -64,7 +64,7 @@ locals {
       metric      = "broker.subscription_problems"
       meter       = "CrowdFunding.Messaging"
       threshold   = 0
-      description = "A Broker route has no subscription, or its filter leaves out an event type: SNS drops what it publishes there. See the task's error log; apply Terraform, then replay-events for the gap."
+      description = "A Broker route has no subscription, or its filter leaves out an event type: SNS drops what it publishes there. See the task's error log; apply infra/env again, then replay-events for the gap."
     }
   }
 }

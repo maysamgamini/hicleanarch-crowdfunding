@@ -30,7 +30,7 @@ resource "aws_s3_bucket_public_access_block" "state" {
   restrict_public_buckets = true
 }
 
-# The state holds every secret Terraform knows; it may travel over TLS only.
+# The state holds every secret OpenTofu knows; it may travel over TLS only.
 data "aws_iam_policy_document" "state_tls_only" {
   statement {
     sid     = "DenyInsecureTransport"

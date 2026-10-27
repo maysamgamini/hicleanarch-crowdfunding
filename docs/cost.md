@@ -1,6 +1,6 @@
 # What the sandbox costs per hour
 
-Derived from the Terraform in `infra/env` (the shape after lesson s3-l12: the monolith, the
+Derived from the OpenTofu configuration in `infra/env` (the shape after lesson s3-l12: the monolith, the
 gateway, an Aurora writer and reader, Valkey, CloudFront) and AWS's us-east-1 on-demand list prices,
 read on 2026-10-27. These are design estimates from list prices, not a bill: the course never runs
 this stack on AWS. A learner who applies it in their own account reads what an hour actually cost
@@ -23,7 +23,7 @@ in Cost Explorer, and that figure, not these, is the one to trust for that accou
 
 ## What runs
 
-| Resource | Terraform | Count | Size |
+| Resource | OpenTofu | Count | Size |
 |---|---|---|---|
 | The monolith | `aws_ecs_service.api` | 2, autoscaling up to 6 | 0.5 vCPU, 1 GB (the API and its OpenTelemetry collector share it) |
 | The gateway | `aws_ecs_service.gateway` | 2 | 0.25 vCPU, 0.5 GB |

@@ -1,5 +1,5 @@
 {
-  "comment": "Every event type, the module that produces it and the modules that consume it. Every host loads this file and routes each consumer InProcess (the module runs in this host) or Broker (the producer's SNS topic and the consumer's SQS queue); a host with a consumer it cannot route refuses to start. Each service has one SQS queue, read by the modules it runs; Terraform builds the topics, queues and subscriptions from the file events/broker-subscriptions.json, which is generated from this one (BrokerPlanTests).",
+  "comment": "Every event type, the module that produces it and the modules that consume it. Every host loads this file and routes each consumer InProcess (the module runs in this host) or Broker (the producer's SNS topic and the consumer's SQS queue); a host with a consumer it cannot route refuses to start. Each service has one SQS queue, read by the modules it runs; OpenTofu builds the topics, queues and subscriptions from the file events/broker-subscriptions.json, which is generated from this one (BrokerPlanTests).",
   "services": {
     "payments": [
       "Payments"

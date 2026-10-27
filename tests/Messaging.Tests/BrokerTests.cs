@@ -119,7 +119,7 @@ public sealed class BrokerTests(Aws aws)
 
         Assert.Empty(await Check(sns, options, plan).Problems(ct));
 
-        // Terraform has not built the Pledges topic's subscription to the payments queue yet.
+        // OpenTofu has not built the Pledges topic's subscription to the payments queue yet.
         var pledges = provisioned.Topics["Pledges"];
         foreach (var subscription in (await sns.ListSubscriptionsByTopicAsync(pledges, ct)).Subscriptions
                      .Where(s => s.Endpoint == options.Queues["payments"].Arn))

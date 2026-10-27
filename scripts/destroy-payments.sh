@@ -4,7 +4,7 @@
 # Usage: STATE_BUCKET=<bucket> destroy-payments.sh
 set -euo pipefail
 bucket="${STATE_BUCKET:?set STATE_BUCKET to the state_bucket output of infra/bootstrap}"
-tf() { terraform -chdir=infra/services/payments "$@"; }
+tf() { tofu -chdir=infra/services/payments "$@"; }
 
 tf init -input=false -backend-config="bucket=$bucket" >/dev/null
 if [ -z "$(tf state list)" ]; then

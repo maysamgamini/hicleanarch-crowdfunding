@@ -13,7 +13,7 @@ public sealed record BrokerSubscription(string Topic, string Queue, IReadOnlyLis
 /// <summary>
 /// The topics, queues and subscriptions that <c>events/subscriptions.json</c> implies: a topic per
 /// producing module, a queue per service, and a subscription wherever a service consumes events a module
-/// of another service produces. Rendered to <c>events/broker-subscriptions.json</c>, which Terraform reads;
+/// of another service produces. Rendered to <c>events/broker-subscriptions.json</c>, which OpenTofu reads;
 /// the hosts' subscription check and the tests use the same plan.
 /// </summary>
 public sealed class BrokerPlan(IReadOnlyDictionary<string, IReadOnlyList<string>> services, IReadOnlyList<(string Type, string Producer, IReadOnlyList<string> Consumers)> events)
@@ -62,7 +62,7 @@ public sealed class BrokerPlan(IReadOnlyDictionary<string, IReadOnlyList<string>
         return new BrokerPlan(services, events);
     }
 
-    /// <summary>What Terraform reads: names in lower case, as the topics and queues are named.</summary>
+    /// <summary>What OpenTofu reads: names in lower case, as the topics and queues are named.</summary>
     public string Render() => JsonSerializer.Serialize(new
     {
         comment = "Generated from events/subscriptions.json by BrokerPlanTests (REGENERATE_BROKER_PLAN=1). Do not edit.",

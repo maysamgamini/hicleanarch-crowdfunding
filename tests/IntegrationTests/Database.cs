@@ -131,7 +131,7 @@ public sealed class Database : IAsyncLifetime
     /// <summary>
     /// A fresh monolith on this database, with a Payments service of its own beside it (lesson s4-l10:
     /// Payments runs nowhere else): a new pair is what a restart looks like. The two get topics and queues
-    /// of their own (what Terraform builds, under a fresh prefix), so no other test's hosts read their
+    /// of their own (what OpenTofu builds, under a fresh prefix), so no other test's hosts read their
     /// messages. <see cref="PaymentsBeside"/> says how the pair is wired; <c>host.Payments()</c> is the other one.
     /// <paramref name="payments"/> configures the Payments service (its services, or settings it alone reads).
     /// </summary>

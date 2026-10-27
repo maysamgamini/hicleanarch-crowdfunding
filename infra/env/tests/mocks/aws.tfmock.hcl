@@ -1,4 +1,4 @@
-# Values the AWS provider would compute, for `terraform test` with a mocked provider: no AWS account,
+# Values the AWS provider would compute, for `tofu test` with a mocked provider: no AWS account,
 # no credentials, no calls. Only attributes the provider validates need a real shape; every other
 # computed value (secret ARNs among them) is a distinct generated string.
 

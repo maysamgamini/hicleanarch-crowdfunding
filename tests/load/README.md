@@ -15,7 +15,7 @@ a learner's own run in their own account.
 burst on one campaign, a hot limited tier, totals read through CloudFront, and a funded campaign
 settled at its deadline. Its thresholds are the loop's targets, so a run that misses one fails.
 
-Against the sandbox (after `terraform apply` of `infra/env`):
+Against the sandbox (after `tofu apply` of `infra/env`):
 
 ```bash
 scripts/load.sh 0.02    # 0.02 × the loop's rates: 60 pledges a second; 1 is the full 3,000

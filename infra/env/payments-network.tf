@@ -1,7 +1,7 @@
 # Payments' place in the shared network: its Service Connect namespace and security group, and the
 # rules that let it reach the database and Valkey. The network has one owner, this layer; everything
 # else of the Payments service (its roles, task definitions, ECS service and log group) is its own
-# Terraform root, infra/services/payments, deployed by its own role (s4-l09). Until s4-l10 the
+# OpenTofu root, infra/services/payments, deployed by its own role (s4-l09). Until s4-l10 the
 # monolith keeps its own access for its InProcess fallback.
 
 # Service Connect: services find each other by name (payments:8080, payments:8081) inside this namespace.

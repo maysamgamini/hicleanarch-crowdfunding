@@ -13,7 +13,7 @@ permissions:
 jobs:
   # The .NET build, tests and images run in each service's pipeline (monolith.yml, payments.yml), for
   # the paths that service is built from. What runs here is cheap and checks every change: the
-  # delivery rules themselves, and every Terraform root.
+  # delivery rules themselves, and every OpenTofu root.
   delivery:
     runs-on: ubuntu-latest
     steps:
@@ -24,21 +24,23 @@ jobs:
       - name: Solution filters, project graphs, path filters and pinned actions
         run: dotnet test tests/Delivery.Tests
 
-  terraform:
+  # OpenTofu (MPL-2.0), the version in .opentofu-version. No credentials: init without the backend,
+  # and tofu test plans each root against mock providers, so nothing here calls AWS.
+  tofu:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
-      - name: fmt, validate and the offline tests of every layer that has Terraform files
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        with:
+          tofu_version_file: .opentofu-version
+          tofu_wrapper: false
+      - name: fmt, validate and test every root
         run: |
-          terraform fmt -check -recursive infra
+          tofu fmt -check -recursive infra
           for dir in infra/bootstrap infra/env infra/services/payments; do
             if ls "$dir"/*.tf >/dev/null 2>&1; then
-              terraform -chdir="$dir" init -backend=false -input=false
-              terraform -chdir="$dir" validate
-              # tests/*.tftest.hcl run on a mocked provider: no credentials, no AWS calls.
-              if ls "$dir"/tests/*.tftest.hcl >/dev/null 2>&1; then
-                terraform -chdir="$dir" test
-              fi
+              tofu -chdir="$dir" init -backend=false -input=false -lockfile=readonly
+              tofu -chdir="$dir" validate
+              tofu -chdir="$dir" test
             fi
           done

@@ -17,7 +17,7 @@ namespace Payments.Infrastructure.Cutover;
 /// <summary>
 /// <c>move-payments &lt;step&gt;</c>: moving Payments' tables from the shared cluster to a clone of it
 /// (lesson s4-a06, fence, clone, switch). One step per run, in this order: pause, fence, (the clone,
-/// made by Terraform once the cluster's latest restorable time is past the fence), prune, verify,
+/// made by OpenTofu once the cluster's latest restorable time is past the fence), prune, verify,
 /// switch, (Payments rolled onto the new secret), resume; rollback at any point before resume;
 /// drop-old a week after. Every step checks where things stand first, so running it again does
 /// nothing new, and logs what it did.
@@ -163,7 +163,7 @@ internal sealed partial class PaymentsMove(
 
     /// <summary>
     /// On the clone, which starts as a copy of everyone's data: every other module's schema and login
-    /// role is dropped, in one transaction. The new master password comes from Terraform.
+    /// role is dropped, in one transaction. The new master password comes from OpenTofu.
     /// </summary>
     public async Task<bool> Prune(CancellationToken ct)
     {
@@ -298,7 +298,7 @@ internal sealed partial class PaymentsMove(
     /// <summary>
     /// Before resume only: closes the clone to Payments (if it is still there and has not moved on),
     /// gives Payments' role its login and the deploy's grants back on the shared cluster, and clears
-    /// the flag. Terraform then deletes the clone and its secrets.
+    /// the flag. OpenTofu then deletes the clone and its secrets.
     /// </summary>
     public async Task<bool> Rollback(CancellationToken ct)
     {
@@ -595,7 +595,7 @@ internal sealed partial class PaymentsMove(
     [LoggerMessage(Level = LogLevel.Error, Message = "Rollback refused: the clone has changed since the switch")]
     private static partial void LogCloneMovedOn(ILogger logger);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Rollback: Payments cannot log in to the clone; delete it with Terraform")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Rollback: Payments cannot log in to the clone; delete it with OpenTofu")]
     private static partial void LogCloneClosed(ILogger logger);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Rollback: Payments has its login and rights back on the shared cluster, and the flag is cleared")]

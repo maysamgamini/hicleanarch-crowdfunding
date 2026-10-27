@@ -1,13 +1,13 @@
-# The Payments service's own Terraform root (s4-l09): its roles, task definitions, ECS service and log
+# The Payments service's own OpenTofu root (s4-l09): its roles, task definitions, ECS service and log
 # group, in a state of its own. It stands beside the shared layer (infra/env: network, cluster, database,
 # gateway, Valkey, Cognito, topics and queues) and reads that layer's published outputs, never its state.
 # A plan here never shows the monolith's resources, and the role that applies it can change nothing else.
 #
-#   terraform init -backend-config="bucket=<state_bucket output of infra/bootstrap>"
+#   tofu init -backend-config="bucket=<state_bucket output of infra/bootstrap>"
 #
 # Deploy with scripts/deploy-payments.sh; the shared layer must be applied first and destroyed last.
 terraform {
-  required_version = ">= 1.11"
+  required_version = "~> 1.13" # OpenTofu 1.13 or a later 1.x; CI runs the version in .opentofu-version
 
   required_providers {
     aws = {

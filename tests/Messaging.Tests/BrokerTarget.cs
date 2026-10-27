@@ -13,7 +13,7 @@ namespace Messaging.Tests;
 /// <c>BROKER_TESTS_ON_AWS=1</c>, the learner's own AWS account, with the SDK's default credentials and
 /// region (<c>AWS_PROFILE</c>, <c>AWS_REGION</c>, ...). Moto is an emulator: its reading of filter
 /// policies, raw delivery and the ten-attribute limit is checked against SNS and SQS themselves only
-/// there. Everything is built under a fresh prefix, the way Terraform builds it (raw delivery, the
+/// there. Everything is built under a fresh prefix, the way OpenTofu builds it (raw delivery, the
 /// event-type filter, a queue policy on <c>aws:SourceArn</c>), and deleted when the test ends. The
 /// course's own runs never set the variable: they make no AWS calls.
 /// </summary>

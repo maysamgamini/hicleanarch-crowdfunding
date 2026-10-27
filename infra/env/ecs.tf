@@ -13,7 +13,7 @@ resource "aws_cloudwatch_log_group" "api" {
   retention_in_days = 1
 }
 
-# The collector's built-in ECS configuration sends metrics to this group. Terraform creates it, so
+# The collector's built-in ECS configuration sends metrics to this group. OpenTofu creates it, so
 # destroy removes it; the task role may write to it but not create groups of its own.
 resource "aws_cloudwatch_log_group" "collector_metrics" {
   name              = "/aws/ecs/application/metrics"
