@@ -31,7 +31,7 @@ public sealed partial class SqsEventReader(
     IEnumerable<IModuleEvents> modules,
     ILogger<SqsEventReader> logger) : BackgroundService, IStopParticipant
 {
-    private static readonly ActivitySource Source = new(OutboxDispatcher.ActivitySourceName);
+    private static readonly ActivitySource Source = new(MessageTraces.ActivitySourceName);
 
     private readonly SemaphoreSlim _handling = new(options.MaxConcurrentMessages);
 
@@ -89,11 +89,24 @@ public sealed partial class SqsEventReader(
                     MessageAttributeNames = ["All"],
                     MessageSystemAttributeNames = ["ApproximateReceiveCount"],
                 }, taking.Token);
+                var messages = received.Messages ?? [];
+                if (messages.Count == 0)
+                {
+                    continue;
+                }
+
+                // One span for the batch; each handler's run on each message gets its own (s4-l08).
+                using var receive = Source.StartActivity($"receive {service}", ActivityKind.Consumer);
+                receive?.SetTag("messaging.system", "aws_sqs");
+                receive?.SetTag("messaging.operation.type", "receive");
+                receive?.SetTag("messaging.destination.name", service);
+                receive?.SetTag("messaging.batch.message_count", messages.Count);
+                var context = receive?.Context ?? default;
                 var handling = new List<Task>();
-                foreach (var message in received.Messages ?? [])
+                foreach (var message in messages)
                 {
                     await _handling.WaitAsync(taking.Token);
-                    handling.Add(HandleAndRelease(service, queueUrl, message, stoppingToken));
+                    handling.Add(HandleAndRelease(service, queueUrl, message, context, stoppingToken));
                 }
 
                 await Task.WhenAll(handling);
@@ -133,11 +146,11 @@ public sealed partial class SqsEventReader(
         return false;
     }
 
-    private async Task HandleAndRelease(string service, string queueUrl, Message message, CancellationToken cancellationToken)
+    private async Task HandleAndRelease(string service, string queueUrl, Message message, ActivityContext received, CancellationToken cancellationToken)
     {
         try
         {
-            if (await Handle(service, message, cancellationToken))
+            if (await Handle(service, message, cancellationToken, received))
             {
                 await sqs.DeleteMessageAsync(queueUrl, message.ReceiptHandle, cancellationToken);
             }
@@ -158,7 +171,7 @@ public sealed partial class SqsEventReader(
     }
 
     /// <summary>True when every handler here of a module <paramref name="service"/>'s queue serves, consuming this event, has handled it.</summary>
-    public async Task<bool> Handle(string service, Message message, CancellationToken cancellationToken)
+    public async Task<bool> Handle(string service, Message message, CancellationToken cancellationToken, ActivityContext received = default)
     {
         var type = Attribute(message, MessageAttributes.EventType);
         var producer = Attribute(message, MessageAttributes.Producer);
@@ -177,12 +190,12 @@ public sealed partial class SqsEventReader(
             return false;
         }
 
-        using var activity = Source.StartActivity($"receive {type}", ActivityKind.Consumer, Attribute(message, MessageAttributes.TraceParent));
-        activity?.SetTag("messaging.system", "aws_sqs");
-        activity?.SetTag("messaging.message.id", message.MessageId);
         var integrationEvent = (IntegrationEvent)JsonSerializer.Deserialize(message.Body, eventType, ContractJson.Options)!;
+        var attributes = EventAttributes.Of(message);
         foreach (var handler in owed)
         {
+            // A child of the change that wrote it for one pledge's story, a new linked trace otherwise (MessageTraces).
+            using var span = MessageTraces.StartProcessing(type, handler.Handler, attributes, received, message.MessageId, service);
             var target = modules.Single(m => m.Module == handler.Module);
             await target.HandleOnce(handler.Handler, integrationEvent.EventId,
                 (scope, ct) => handler.Invoke(scope, integrationEvent, ct), cancellationToken);

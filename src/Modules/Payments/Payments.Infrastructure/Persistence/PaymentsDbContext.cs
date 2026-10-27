@@ -4,6 +4,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 using Payments.Domain;
+using Payments.Infrastructure.Tracing;
 
 namespace Payments.Infrastructure.Persistence;
 
@@ -61,6 +62,8 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
                 .HasMaxLength(20);
             setup.Property(s => s.PaymentMethodRef).HasMaxLength(200);
             setup.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
+            // The W3C context of the request that started it: the PSP's webhook links its own trace to it.
+            setup.Property<string?>(CreationTrace.Column).HasMaxLength(60);
         });
 
         modelBuilder.Entity<Charge>(charge =>
@@ -77,6 +80,7 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             charge.Property(c => c.LastDeclineCode).HasMaxLength(100);
             charge.Property(c => c.LastAdviceCode).HasMaxLength(100);
             charge.HasIndex(c => c.CampaignId).HasFilter("status IN ('TO_CHARGE', 'CHARGING', 'PAYMENT_FAILED')").HasDatabaseName("charges_open");
+            charge.Property<string?>(CreationTrace.Column).HasMaxLength(60);
         });
 
         modelBuilder.Entity<ChargeAttempt>(attempt =>
