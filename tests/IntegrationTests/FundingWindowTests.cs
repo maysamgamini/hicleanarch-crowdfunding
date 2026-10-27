@@ -1,0 +1,130 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+
+using BuildingBlocks.Infrastructure.Events;
+
+using Campaigns.Contracts;
+
+using Microsoft.Extensions.DependencyInjection;
+
+namespace IntegrationTests;
+
+/// <summary>Pledges hears Campaigns: publishing opens a funding window, once; a cancel asks Pledges first.</summary>
+public sealed class FundingWindowTests(Database database) : IDisposable
+{
+    private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host = database.StartHost();
+
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    public void Dispose() => _host.Dispose();
+
+    [Fact]
+    public async Task Publishing_a_campaign_opens_its_funding_window_with_its_tiers()
+    {
+        var given = new Scenario(database, _host);
+
+        var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 500), ("Standard copy", 5_900, null));
+
+        Assert.Equal("LIVE", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(5_000_000L, await given.Scalar<long>("SELECT goal_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(2L, await given.Scalar<long>("SELECT count(*) FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.tier_counters WHERE campaign_id = @id AND limit_qty IS NULL", campaign.CampaignId));
+    }
+
+    [Fact]
+    public async Task A_redelivered_CampaignPublished_changes_nothing_the_second_time()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+        // Something Pledges did since, which a second open must not undo.
+        await given.Execute("UPDATE pledges.funding_windows SET pledged_minor = 777 WHERE campaign_id = @id", campaign.CampaignId);
+
+        var eventId = await given.Scalar<Guid>(
+            "SELECT id FROM campaigns.outbox WHERE type = 'CampaignPublished' AND payload->>'campaignId' = @id::text", campaign.CampaignId);
+        var payload = await given.Scalar<string>("SELECT payload::text FROM campaigns.outbox WHERE id = @id", eventId);
+        await _host.Services.GetRequiredService<OutboxDispatcher>()
+            .Deliver(new OutboxRecord(CampaignsModuleName.Value, eventId, nameof(CampaignPublished), payload), Ct);
+
+        Assert.Equal(777L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.inbox WHERE event_id = @id", eventId));
+    }
+
+    [Fact]
+    public async Task A_live_campaign_is_cancelled_when_Pledges_accepts()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+
+        var cancelled = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+        Assert.Equal("CANCELLED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
+        Assert.Equal("CANCELLED", read.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task A_cancel_after_the_campaign_has_ended_is_refused_and_changes_nothing()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+        await given.Execute("UPDATE pledges.funding_windows SET status = 'ENDED' WHERE campaign_id = @id", campaign.CampaignId);
+
+        var refused = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Equal("campaign_closed", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
+        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
+        Assert.Equal("LIVE", read.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task A_cancel_after_the_deadline_is_refused_by_the_database_clock()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
+
+        var refused = await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_draft_is_cancelled_without_asking_Pledges()
+    {
+        var given = new Scenario(database, _host);
+        var id = await given.Draft();
+
+        var cancelled = await given.Creator().PostAsync($"/v1/campaigns/{id}/cancel", null, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, cancelled.StatusCode);
+        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
+        Assert.Equal("CANCELLED", read.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task A_replayed_create_returns_its_Location_too()
+    {
+        var given = new Scenario(database, _host);
+        var key = Guid.NewGuid().ToString();
+        HttpRequestMessage Create()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, "/v1/campaigns")
+            {
+                Content = JsonContent.Create(new { title = "Replay", goal_minor = 100, currency = "USD", deadline = "2030-01-01T00:00:00Z", tiers = Array.Empty<object>() }),
+            };
+            request.Headers.Add("Idempotency-Key", key);
+            return request;
+        }
+
+        var first = await given.Creator().SendAsync(Create(), Ct);
+        var second = await given.Creator().SendAsync(Create(), Ct);
+
+        Assert.Equal(HttpStatusCode.Created, second.StatusCode);
+        Assert.True(second.Headers.Contains("Idempotent-Replayed"));
+        Assert.Equal(first.Headers.Location, second.Headers.Location);
+        Assert.NotNull(second.Headers.Location);
+    }
+}

@@ -116,6 +116,11 @@ namespace Campaigns.Infrastructure.Persistence.Migrations
                         .HasColumnType("json")
                         .HasColumnName("reply_body");
 
+                    b.Property<string>("ReplyLocation")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("reply_location");
+
                     b.Property<int?>("ReplyStatus")
                         .HasColumnType("integer")
                         .HasColumnName("reply_status");

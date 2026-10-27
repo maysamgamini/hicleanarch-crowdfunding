@@ -56,6 +56,7 @@ public sealed class IdempotentRequests<TContext>(TContext db, IOptions<JsonOptio
 
             row.ReplyStatus = result.Value.Status;
             row.ReplyBody = JsonSerializer.Serialize(result.Value.Body, json.Value.SerializerOptions);
+            row.ReplyLocation = result.Value.Location;
             await db.SaveChangesAsync(ct);
             await transaction.CommitAsync(ct);
             return Send(result.Value.Status, row.ReplyBody, result.Value.Location);
@@ -74,7 +75,7 @@ public sealed class IdempotentRequests<TContext>(TContext db, IOptions<JsonOptio
             }
 
             http.Response.Headers[ReplayedHeader] = "true";
-            return Send(stored.ReplyStatus!.Value, stored.ReplyBody!, location: null);
+            return Send(stored.ReplyStatus!.Value, stored.ReplyBody!, stored.ReplyLocation);
         }
     }
 

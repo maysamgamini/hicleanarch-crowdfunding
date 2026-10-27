@@ -20,4 +20,10 @@ public interface IModuleMigrator
     string Schema { get; }
 
     Task Migrate(string ownerConnectionString, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// SQL the owner runs after the module's role has been granted its tables, to take rights back
+    /// where a rule needs it (for example, a ledger the role may only add to). Empty by default.
+    /// </summary>
+    string AfterGrants(string quotedRole) => "";
 }

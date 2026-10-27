@@ -7,11 +7,17 @@ resource "random_password" "campaigns" {
   special = false
 }
 
+resource "random_password" "pledges" {
+  length  = 32
+  special = false
+}
+
 locals {
   db_host = aws_rds_cluster.main.endpoint
   connection_strings = {
     owner     = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=owner;Password=${random_password.owner.result};Timeout=60"
     campaigns = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=campaigns_app;Password=${random_password.campaigns.result};Timeout=60"
+    pledges   = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=pledges_app;Password=${random_password.pledges.result};Timeout=60"
   }
 }
 

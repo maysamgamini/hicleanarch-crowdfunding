@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\BuildingBlocks\BuildingBlocks.Application\BuildingBlocks.Application.csproj" />
+    <ProjectReference Include="..\Pledges.Contracts\Pledges.Contracts.csproj" />
+    <ProjectReference Include="..\Pledges.Domain\Pledges.Domain.csproj" />
+    <ProjectReference Include="..\..\Campaigns\Campaigns.Contracts\Campaigns.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

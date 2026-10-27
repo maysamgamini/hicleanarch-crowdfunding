@@ -142,4 +142,19 @@ public sealed class Campaign
         PublishedAt = now;
         return Result.Success(Status);
     }
+
+    /// <summary>
+    /// Cancels a draft or a live campaign. For a live one this is only half the rule: Pledges owns
+    /// the deadline and must accept the cancel first.
+    /// </summary>
+    public Result<CampaignStatus> Cancel()
+    {
+        if (Status is not (CampaignStatus.Draft or CampaignStatus.Live))
+        {
+            return Result.Failure<CampaignStatus>(CampaignErrors.NotCancellable);
+        }
+
+        Status = CampaignStatus.Cancelled;
+        return Result.Success(Status);
+    }
 }

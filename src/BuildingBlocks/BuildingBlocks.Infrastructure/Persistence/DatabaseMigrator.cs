@@ -22,6 +22,12 @@ public sealed partial class DatabaseMigrator(
             await PrepareRoleAndSchema(ownerConnectionString, module, cancellationToken);
             await migrator.Migrate(ownerConnectionString, cancellationToken);
             await GrantTables(ownerConnectionString, module, cancellationToken);
+            var afterGrants = migrator.AfterGrants(Quote(module.Role));
+            if (afterGrants.Length > 0)
+            {
+                await Execute(ownerConnectionString, afterGrants, cancellationToken);
+            }
+
             LogMigrated(logger, module.Module, module.Schema);
         }
     }

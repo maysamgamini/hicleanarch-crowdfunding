@@ -18,9 +18,10 @@ public class LayerRulesTests
     public static TheoryData<string> OurAssemblies() => [.. Ours.Select(a => a.GetName().Name!)];
 
     [Fact]
-    public void The_host_and_every_layer_of_the_first_module_are_checked() =>
+    public void The_host_and_every_layer_of_every_module_are_checked() =>
         Assert.Superset(
             new HashSet<string> { "CrowdFunding.Host", "Campaigns.Domain", "Campaigns.Application", "Campaigns.Infrastructure", "Campaigns.Contracts",
+                "Pledges.Domain", "Pledges.Application", "Pledges.Infrastructure", "Pledges.Contracts",
                 "BuildingBlocks.Domain", "BuildingBlocks.Application", "BuildingBlocks.Infrastructure" },
             Ours.Select(a => a.GetName().Name!).ToHashSet());
 
@@ -45,8 +46,9 @@ public class LayerRulesTests
             return;
         }
 
-        var allowed = new[] { "BuildingBlocks.Domain", "BuildingBlocks.Application", ModuleOf(name) + ".Domain", ModuleOf(name) + ".Contracts" };
-        Assert.All(ReferencesOf(name), r => Assert.Contains(r, allowed));
+        var allowed = new[] { "BuildingBlocks.Domain", "BuildingBlocks.Application", ModuleOf(name) + ".Domain" };
+        Assert.All(ReferencesOf(name), r => Assert.True(allowed.Contains(r) || r.EndsWith(".Contracts", StringComparison.Ordinal),
+            $"{name} references {r}"));
     }
 
     [Theory]

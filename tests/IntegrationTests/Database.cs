@@ -26,6 +26,12 @@ public sealed class Database : IAsyncLifetime
         Password = "campaigns_test",
     }.ConnectionString;
 
+    public string Pledges => new Npgsql.NpgsqlConnectionStringBuilder(Owner)
+    {
+        Username = "pledges_app",
+        Password = "pledges_test",
+    }.ConnectionString;
+
     public const string ClientId = "test-client";
 
     public const string SigningKey = "test-only-signing-key-0123456789abcdef";
@@ -79,6 +85,7 @@ public sealed class Database : IAsyncLifetime
             // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.
             .UseSetting("ConnectionStrings:Owner", Owner)
             .UseSetting("ConnectionStrings:Campaigns", Campaigns)
+            .UseSetting("ConnectionStrings:Pledges", Pledges)
             .UseSetting("Auth:ClientId", ClientId)
             .UseSetting("Auth:LocalSigningKey", SigningKey));
 }

@@ -17,6 +17,7 @@
   <ItemGroup>
     <ProjectReference Include="..\BuildingBlocks\BuildingBlocks.Application\BuildingBlocks.Application.csproj" />
     <ProjectReference Include="..\Modules\Campaigns\Campaigns.Infrastructure\Campaigns.Infrastructure.csproj" />
+    <ProjectReference Include="..\Modules\Pledges\Pledges.Infrastructure\Pledges.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

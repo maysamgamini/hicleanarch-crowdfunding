@@ -13,5 +13,6 @@ public static class CampaignsApplication
             .AddScoped<IValidator<CreateDraft>, CreateDraftValidator>()
             .AddScoped<ICommandHandler<CreateDraft, CampaignId>, CreateDraftHandler>()
             .AddScoped<ICommandHandler<PublishCampaign, CampaignStatus>, PublishCampaignHandler>()
+            .AddScoped<ICommandHandler<CancelCampaign, CampaignStatus>, CancelCampaignHandler>()
             .AddScoped<IQueryHandler<GetCampaign, CampaignView>, GetCampaignHandler>();
 }

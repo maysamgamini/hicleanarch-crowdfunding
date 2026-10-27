@@ -13,6 +13,12 @@
     <Project Path="src/Modules/Campaigns/Campaigns.Domain/Campaigns.Domain.csproj" />
     <Project Path="src/Modules/Campaigns/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Pledges/">
+    <Project Path="src/Modules/Pledges/Pledges.Application/Pledges.Application.csproj" />
+    <Project Path="src/Modules/Pledges/Pledges.Contracts/Pledges.Contracts.csproj" />
+    <Project Path="src/Modules/Pledges/Pledges.Domain/Pledges.Domain.csproj" />
+    <Project Path="src/Modules/Pledges/Pledges.Infrastructure/Pledges.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ArchitectureTests/ArchitectureTests.csproj" />
     <Project Path="tests/Campaigns.UnitTests/Campaigns.UnitTests.csproj" />

@@ -9,6 +9,8 @@ using Campaigns.Infrastructure;
 
 using CrowdFunding.Host;
 
+using Pledges.Infrastructure;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // The API speaks snake_case JSON: goal_minor, campaign_id.
@@ -23,6 +25,7 @@ builder.Services.AddInProcessEvents();
 
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
+builder.Services.AddPledgesModule(builder.Configuration);
 
 var app = builder.Build();
 

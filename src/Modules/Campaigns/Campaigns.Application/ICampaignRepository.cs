@@ -11,4 +11,7 @@ public interface ICampaignRepository
 
     /// <summary>Moves the campaign from DRAFT to LIVE, only if it is still a draft. False: it no longer was.</summary>
     Task<bool> TryPublish(CampaignId id, DateTimeOffset publishedAt, CancellationToken cancellationToken);
+
+    /// <summary>Moves the campaign from <paramref name="from"/> to CANCELLED, only if it is still there.</summary>
+    Task<bool> TryCancel(CampaignId id, CampaignStatus from, CancellationToken cancellationToken);
 }

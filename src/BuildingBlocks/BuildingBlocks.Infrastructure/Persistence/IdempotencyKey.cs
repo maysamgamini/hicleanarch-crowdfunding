@@ -19,6 +19,9 @@ public sealed class IdempotencyKey
 
     public string? ReplyBody { get; set; }
 
+    /// <summary>The <c>Location</c> of a <c>201 Created</c>, replayed with the body.</summary>
+    public string? ReplyLocation { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 }
 
@@ -35,6 +38,7 @@ public static class IdempotencyKeyModel
             key.HasKey(k => new { k.CallerId, k.Key });
             key.Property(k => k.Key).HasMaxLength(100);
             key.Property(k => k.ReplyBody).HasColumnType("json"); // json keeps the reply byte for byte; jsonb would reformat it
+            key.Property(k => k.ReplyLocation).HasMaxLength(500);
             key.Property(k => k.CreatedAt).HasDefaultValueSql("now()");
         });
         return modelBuilder;

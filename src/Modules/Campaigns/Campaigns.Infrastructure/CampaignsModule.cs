@@ -37,6 +37,7 @@ public static class CampaignsModule
             .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor>()));
         services.AddModuleEvents<CampaignsDbContext>(CampaignsModuleName.Value);
         services.AddPublishedEvent<CampaignPublished>();
+        services.AddPublishedEvent<CampaignCancelled>();
         services.AddSingleton<IModuleMigrator, CampaignsMigrator>();
         services.AddSingleton(new ModuleDatabase("Campaigns", CampaignsDbContext.Schema, connectionString));
         return services
@@ -80,6 +81,21 @@ public static class CampaignsModule
                 var result = await dispatcher.Send<PublishCampaign, CampaignStatus>(new PublishCampaign(campaignId, user.UserId()), ct);
                 return result.IsSuccess
                     ? Result.Success(new Reply(StatusCodes.Status200OK, new { campaign_id = id, status = "LIVE" }))
+                    : Result.Failure<Reply>(result.Errors);
+            })).RequireAuthorization(Policies.Creator);
+
+        campaigns.MapPost("/{id}/cancel", (string id, ClaimsPrincipal user, HttpContext http,
+            IDispatcher dispatcher, IdempotentRequests<CampaignsDbContext> once) =>
+            once.Run(http, user.UserId(), new { id }, async ct =>
+            {
+                if (!CampaignId.TryParse(id, out var campaignId))
+                {
+                    return Result.Failure<Reply>(CampaignErrors.NotFound);
+                }
+
+                var result = await dispatcher.Send<CancelCampaign, CampaignStatus>(new CancelCampaign(campaignId, user.UserId()), ct);
+                return result.IsSuccess
+                    ? Result.Success(new Reply(StatusCodes.Status200OK, new { campaign_id = id, status = "CANCELLED" }))
                     : Result.Failure<Reply>(result.Errors);
             })).RequireAuthorization(Policies.Creator);
 
