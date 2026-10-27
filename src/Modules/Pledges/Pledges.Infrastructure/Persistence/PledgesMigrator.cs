@@ -1,7 +1,5 @@
 using BuildingBlocks.Infrastructure.Persistence;
 
-using System.Diagnostics;
-
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
@@ -67,6 +65,9 @@ internal sealed class PledgesMigrator(TimeFence fence, IConfiguration configurat
     /// checked here, on the real cluster, at every deploy: a session of the module's own role sleeps
     /// past the limit and must be ended in time, or the deploy fails.
     /// </summary>
+    // PostgreSQL 17 ends a session whose transaction outlives transaction_timeout with this code.
+    private const string TransactionTimeout = "25P04";
+
     public async Task Verify(IReadOnlyList<ModuleDatabase> roles, CancellationToken cancellationToken)
     {
         var requestPath = roles.Single(r => r.Module == Module);
@@ -74,15 +75,14 @@ internal sealed class PledgesMigrator(TimeFence fence, IConfiguration configurat
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         var limit = fence.TransactionLimit;
-        await using var sleep = new NpgsqlCommand($"SELECT pg_sleep({(limit + TimeSpan.FromSeconds(2)).TotalSeconds})", connection, transaction);
-        var watch = Stopwatch.StartNew();
+        await using var sleep = new NpgsqlCommand($"SELECT pg_sleep({(limit + TimeSpan.FromSeconds(5)).TotalSeconds})", connection, transaction);
         try
         {
             await sleep.ExecuteNonQueryAsync(cancellationToken);
         }
-        catch (NpgsqlException) when (watch.Elapsed < limit + TimeSpan.FromSeconds(1))
+        catch (PostgresException e) when (e.SqlState == TransactionTimeout)
         {
-            return; // ended at the limit, as the fence needs
+            return; // the server ended it for its transaction_timeout, as the fence needs
         }
 
         throw new InvalidOperationException(
