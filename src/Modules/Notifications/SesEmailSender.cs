@@ -40,11 +40,17 @@ public sealed class NotificationsOptions
     /// <summary>The wait after a recipient's first failed send; it doubles with each further failure, up to an hour.</summary>
     public TimeSpan RetryAfter { get; set; } = TimeSpan.FromSeconds(30);
 
-    /// <summary>Sends tried for one recipient before the email is given up, logged and counted.</summary>
+    /// <summary>Sends tried for one recipient before the email is given up and logged.</summary>
     public int MaxAttempts { get; set; } = 8;
 
     /// <summary>How long an address looked up in the user pool is used before it is looked up again.</summary>
     public TimeSpan AddressFreshFor { get; set; } = TimeSpan.FromDays(1);
+
+    /// <summary>How often each task checks whether the creators' daily pledge digest is due.</summary>
+    public TimeSpan DigestEvery { get; set; } = TimeSpan.FromHours(1);
+
+    /// <summary>How long after midnight UTC the previous day's digest waits, for pledge events still on their way.</summary>
+    public TimeSpan DigestSettle { get; set; } = TimeSpan.FromHours(1);
 }
 
 /// <summary>

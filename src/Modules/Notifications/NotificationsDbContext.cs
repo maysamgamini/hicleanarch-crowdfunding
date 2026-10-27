@@ -50,6 +50,9 @@ internal sealed class NotificationsDbContext(DbContextOptions<NotificationsDbCon
             // A campaign's backers are read on this index: its pledges that counted and have not left.
             pledge.HasIndex(p => p.CampaignId).HasFilter("activated_at IS NOT NULL AND cancelled_at IS NULL AND released_at IS NULL")
                 .HasDatabaseName("campaign_pledges_live");
+            // The daily digest reads one day's activations and cancels.
+            pledge.HasIndex(p => p.ActivatedAt).HasFilter("activated_at IS NOT NULL").HasDatabaseName("campaign_pledges_by_activation");
+            pledge.HasIndex(p => p.CancelledAt).HasFilter("cancelled_at IS NOT NULL").HasDatabaseName("campaign_pledges_by_cancel");
         });
 
         modelBuilder.Entity<CampaignCreator>(creator =>

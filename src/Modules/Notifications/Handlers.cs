@@ -46,10 +46,23 @@ internal sealed class Handlers(Notifier notifier) :
 
     public Task Handle(PledgeCancelled e, CancellationToken ct) => notifier.Cancelled(e.PledgeId, e.CampaignId, e.BackerId, e.OccurredAt, ct);
 
-    /// <summary>Every backer, in one statement: a row each, sent later by the worker.</summary>
+    /// <summary>
+    /// Every backer, in one statement: a row each, sent later by the worker; and the creator, who
+    /// hears the outcome at once rather than only when the last charge has ended.
+    /// </summary>
     public async Task Handle(CampaignFundingDecided e, CancellationToken ct)
     {
         var funded = e.Outcome == CampaignFundingDecided.Funded;
+        if (await notifier.CreatorOf(e.CampaignId, ct) is { } creator)
+        {
+            var raised = $"It raised {Percent(e.FinalMinor, e.GoalMinor)} of its goal from {e.Backers.ToString(CultureInfo.InvariantCulture)} backers.";
+            await notifier.Tell(e.EventId, creator, "campaign_decided",
+                funded ? "Your campaign is funded" : "Your campaign was not funded",
+                funded
+                    ? $"{raised} The backers' cards are being charged; you get a summary once every charge has ended."
+                    : $"{raised} It did not reach its goal, so nobody is charged and every pledge is released.", ct);
+        }
+
         await notifier.TellBackers(e.EventId, e.CampaignId, funded ? "campaign_funded" : "campaign_unsuccessful",
             funded ? "The campaign is funded" : "The campaign was not funded",
             funded ? "It reached its goal. Your saved card will be charged in the next few minutes." : "It did not reach its goal. You were not charged, and you will not be.", ct);
@@ -83,6 +96,9 @@ internal sealed class Handlers(Notifier notifier) :
                     : e.RetriedOnItsOwn
                         ? "We will try again. You can also give another card from your pledge within 7 days."
                         : "Your bank will not accept this card, so we will not try it again. Give another card from your pledge within 7 days, or the pledge is dropped.", ct);
+
+    private static string Percent(long part, long whole) =>
+        $"{(whole > 0 ? part * 100 / whole : 0).ToString(CultureInfo.InvariantCulture)}%";
 
     private static string Money(long minor, string currency) =>
         $"{(minor / 100m).ToString("0.00", CultureInfo.InvariantCulture)} {currency}";

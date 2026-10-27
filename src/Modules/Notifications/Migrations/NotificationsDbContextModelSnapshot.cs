@@ -164,9 +164,17 @@ namespace Notifications.Migrations
                     b.HasKey("PledgeId")
                         .HasName("pk_campaign_pledges");
 
+                    b.HasIndex("ActivatedAt")
+                        .HasDatabaseName("campaign_pledges_by_activation")
+                        .HasFilter("activated_at IS NOT NULL");
+
                     b.HasIndex("CampaignId")
                         .HasDatabaseName("campaign_pledges_live")
                         .HasFilter("activated_at IS NOT NULL AND cancelled_at IS NULL AND released_at IS NULL");
+
+                    b.HasIndex("CancelledAt")
+                        .HasDatabaseName("campaign_pledges_by_cancel")
+                        .HasFilter("cancelled_at IS NOT NULL");
 
                     b.ToTable("campaign_pledges", "notifications");
                 });

@@ -3,6 +3,8 @@ using System.Net.Http.Json;
 
 using BuildingBlocks.Application;
 
+using Campaigns.Contracts;
+
 using Microsoft.Extensions.DependencyInjection;
 
 using Notifications;
@@ -127,6 +129,60 @@ public sealed class NotificationTests(Database database) : IDisposable
         await Scenario.Eventually(() => Task.FromResult(SentTo(stays, "The campaign was not funded") == 1));
         Assert.Equal(0, SentTo(leaves, "The campaign was not funded"));
     }
+
+    [Theory]
+    [InlineData(CampaignFundingDecided.Funded, "Your campaign is funded", "It raised 120% of its goal from 2 backers.")]
+    [InlineData(CampaignFundingDecided.Unsuccessful, "Your campaign was not funded", "It raised 12% of its goal from 2 backers.")]
+    public async Task The_creator_hears_the_decision_whichever_it_is(string outcome, string subject, string raised)
+    {
+        var (campaign, creator) = (Guid.NewGuid(), Guid.NewGuid());
+        await Handle(new CampaignPublished(Guid.CreateVersion7(), DateTimeOffset.UtcNow, campaign, creator, 50_000, "USD", DateTimeOffset.UtcNow.AddDays(30), []));
+
+        await Handle(new CampaignFundingDecided(Guid.CreateVersion7(), DateTimeOffset.UtcNow, campaign, outcome,
+            outcome == CampaignFundingDecided.Funded ? 60_000 : 6_000, 2, 50_000));
+
+        await Scenario.Eventually(() => Task.FromResult(SentTo(creator, subject) == 1));
+        Assert.StartsWith(raised, Mail.Sent.Single(m => m.RecipientId == creator).Body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_creator_gets_one_digest_a_day_instead_of_an_email_per_pledge()
+    {
+        var (campaign, creator) = (Guid.NewGuid(), Guid.NewGuid());
+        var day = new DateOnly(2026, 1, 15);
+        var noon = new DateTimeOffset(2026, 1, 15, 12, 0, 0, TimeSpan.Zero);
+        await Handle(new CampaignPublished(Guid.CreateVersion7(), noon, campaign, creator, 50_000, "USD", noon.AddDays(30), []));
+        var pledges = Enumerable.Range(0, 3).Select(_ => (Pledge: Guid.NewGuid(), Backer: Guid.NewGuid())).ToList();
+        foreach (var (pledge, backer) in pledges)
+        {
+            await Handle(new PledgeActivated(Guid.CreateVersion7(), noon, pledge, campaign, backer, null, 6_000, "USD"));
+        }
+
+        await Handle(new PledgeCancelled(Guid.CreateVersion7(), noon.AddHours(1), pledges[0].Pledge, campaign, pledges[0].Backer, 6_000));
+        await Handle(new PledgeCancelled(Guid.CreateVersion7(), noon.AddDays(1), pledges[1].Pledge, campaign, pledges[1].Backer, 6_000)); // the next day's
+        var (earlier, earlierBacker) = (Guid.NewGuid(), Guid.NewGuid()); // made the day before, cancelled on the day
+        await Handle(new PledgeActivated(Guid.CreateVersion7(), noon.AddDays(-1), earlier, campaign, earlierBacker, null, 6_000, "USD"));
+        await Handle(new PledgeCancelled(Guid.CreateVersion7(), noon.AddHours(2), earlier, campaign, earlierBacker, 6_000));
+        await Handle(new PledgeActivated(Guid.CreateVersion7(), noon.AddDays(1), Guid.NewGuid(), campaign, Guid.NewGuid(), null, 6_000, "USD"));
+
+        for (var pass = 0; pass < 2; pass++)
+        {
+            await using var scope = _host.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<PledgeDigests>().Record(day, Ct);
+        }
+
+        await Scenario.Eventually(() => Task.FromResult(SentTo(creator, "Your campaign's pledges on 2026-01-15") == 1));
+        Assert.Equal("On 2026-01-15 (UTC) your campaign got 3 new pledges, and 2 pledges were cancelled.", Mail.Sent.Single(m => m.RecipientId == creator).Body);
+        await Task.Delay(500, Ct);
+        Assert.Equal(1, SentTo(creator));
+    }
+
+    [Theory]
+    [InlineData("2026-10-27T00:30:00Z", "2026-10-25")]
+    [InlineData("2026-10-27T01:30:00Z", "2026-10-26")]
+    public void A_days_digest_is_due_once_its_events_have_had_time_to_arrive(string now, string due) =>
+        Assert.Equal(DateOnly.Parse(due, System.Globalization.CultureInfo.InvariantCulture),
+            PledgeDigests.DueDay(DateTimeOffset.Parse(now, System.Globalization.CultureInfo.InvariantCulture), TimeSpan.FromHours(1)));
 
     [Fact]
     public async Task A_kind_turned_off_is_not_sent()
