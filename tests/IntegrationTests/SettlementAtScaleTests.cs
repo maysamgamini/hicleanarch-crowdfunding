@@ -169,7 +169,8 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
     [Fact]
     public async Task The_breaker_opens_when_the_PSP_fails_and_settlement_pauses_without_calling_it()
     {
-        await using var host = Host(("Payments:Breaker:MinimumThroughput", "2"), ("Payments:Breaker:OpenFor", "00:00:00.500"), ("Payments:Breaker:OpenJitter", "0"));
+        // Open long enough that the passes below run inside it on a loaded machine.
+        await using var host = Host(("Payments:Breaker:MinimumThroughput", "2"), ("Payments:Breaker:OpenFor", "00:00:03"), ("Payments:Breaker:OpenJitter", "0"));
         var (given, campaign) = await Funded(host, 2);
         var psp = host.Payments().Services.GetRequiredService<FakePaymentProvider>();
         psp.Unreachable(true);
@@ -184,7 +185,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
         Assert.Equal("PENDING", await given.Scalar<string>("SELECT status FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId));
 
         psp.Unreachable(false);
-        await Task.Delay(TimeSpan.FromMilliseconds(600), Ct);
+        await Task.Delay(TimeSpan.FromSeconds(3.2), Ct);
         // Half-open, one trial call goes through and closes the circuit; the charges it refused meanwhile go on the next turn.
         for (var pass = 0; pass < 5 && await Charged(given, campaign) < 2; pass++)
         {
