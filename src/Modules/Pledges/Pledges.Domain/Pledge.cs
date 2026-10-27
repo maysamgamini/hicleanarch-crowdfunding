@@ -85,6 +85,48 @@ public sealed class Pledge
             PaymentMethodRef = paymentMethodRef,
         });
     }
+
+    /// <summary>
+    /// A new amount or tier for an active pledge. The same rules as a new pledge: positive, and at
+    /// least the new tier's minimum. A change that changes nothing is refused.
+    /// </summary>
+    public Result<Pledge> Change(long newAmountMinor, TierCounter? newTier)
+    {
+        if (Status != PledgeStatus.Active)
+        {
+            return Result.Failure<Pledge>(PledgeErrors.NotActive);
+        }
+
+        if (newAmountMinor <= 0)
+        {
+            return Result.Failure<Pledge>(PledgeErrors.AmountNotPositive);
+        }
+
+        if (newTier is not null && newAmountMinor < newTier.MinPledgeMinor)
+        {
+            return Result.Failure<Pledge>(PledgeErrors.BelowTierMinimum);
+        }
+
+        if (newAmountMinor == AmountMinor && newTier?.TierId == TierId)
+        {
+            return Result.Failure<Pledge>(PledgeErrors.NoChange);
+        }
+
+        AmountMinor = newAmountMinor;
+        TierId = newTier?.TierId;
+        return Result.Success(this);
+    }
+
+    public Result<Pledge> Cancel()
+    {
+        if (Status != PledgeStatus.Active)
+        {
+            return Result.Failure<Pledge>(PledgeErrors.NotActive);
+        }
+
+        Status = PledgeStatus.Cancelled;
+        return Result.Success(this);
+    }
 }
 
 public enum LedgerKind
@@ -127,5 +169,25 @@ public sealed class LedgerEntry
         CauseId = causeId,
         DeltaMinor = pledge.AmountMinor,
         Kind = LedgerKind.Activate,
+    };
+
+    /// <summary>The difference a change made; never zero (the ledger's check refuses it).</summary>
+    public static LedgerEntry Change(Pledge pledge, long deltaMinor, string causeId) => new()
+    {
+        CampaignId = pledge.CampaignId,
+        PledgeId = pledge.Id,
+        CauseId = causeId,
+        DeltaMinor = deltaMinor,
+        Kind = LedgerKind.Change,
+    };
+
+    /// <summary>Takes the whole amount back out of the total.</summary>
+    public static LedgerEntry Cancel(Pledge pledge, string causeId) => new()
+    {
+        CampaignId = pledge.CampaignId,
+        PledgeId = pledge.Id,
+        CauseId = causeId,
+        DeltaMinor = -pledge.AmountMinor,
+        Kind = LedgerKind.Cancel,
     };
 }

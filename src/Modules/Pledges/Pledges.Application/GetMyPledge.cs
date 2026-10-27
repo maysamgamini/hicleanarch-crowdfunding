@@ -20,14 +20,19 @@ public sealed class GetMyPledgeHandler(IPledges pledges) : IQueryHandler<GetMyPl
             return Result.Failure<PledgeView>(PledgeErrors.PledgeNotFound);
         }
 
-        return Result.Success(new PledgeView(
-            pledge.PublicId,
-            PublicId.Format("cmp", pledge.CampaignId),
-            StatusNames.Of(pledge.Status),
-            pledge.AmountMinor,
-            pledge.TierId is { } tier ? PublicId.Format("tir", tier) : null,
-            pledge.CreatedAt));
+        return Result.Success(PledgeViews.Of(pledge));
     }
+}
+
+public static class PledgeViews
+{
+    public static PledgeView Of(Pledge pledge) => new(
+        pledge.PublicId,
+        PublicId.Format("cmp", pledge.CampaignId),
+        StatusNames.Of(pledge.Status),
+        pledge.AmountMinor,
+        pledge.TierId is { } tier ? PublicId.Format("tir", tier) : null,
+        pledge.CreatedAt);
 }
 
 /// <summary>Statuses as the API and the database spell them: PENDING_SETUP, TO_CHARGE.</summary>

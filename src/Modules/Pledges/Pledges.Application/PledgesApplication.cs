@@ -12,5 +12,7 @@ public static class PledgesApplication
         services
             .AddScoped<ICommandHandler<CancelFunding, FundingCancelled>, CancelFundingHandler>()
             .AddScoped<ICommandHandler<PlacePledge, PledgePlaced>, PlacePledgeHandler>()
+            .AddScoped<ICommandHandler<ChangePledge, PledgeView>, ChangePledgeHandler>()
+            .AddScoped<ICommandHandler<CancelPledge, PledgeView>, CancelPledgeHandler>()
             .AddScoped<IQueryHandler<GetMyPledge, PledgeView>, GetMyPledgeHandler>();
 }

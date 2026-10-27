@@ -24,6 +24,21 @@ internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, 
     public Task<Pledge?> Find(Guid pledgeId, CancellationToken cancellationToken) =>
         db.Pledges.AsNoTracking().SingleOrDefaultAsync(p => p.Id == pledgeId, cancellationToken);
 
+    public async Task<Pledge?> FindForChange(Guid pledgeId, CancellationToken cancellationToken) =>
+        (await db.Pledges.FromSql($"SELECT * FROM pledges.pledges WHERE id = {pledgeId} FOR UPDATE")
+            .AsNoTracking()
+            .ToListAsync(cancellationToken))
+        .SingleOrDefault();
+
+    public async Task<bool> TrySaveFromActive(Pledge pledge, CancellationToken cancellationToken)
+    {
+        var status = StatusNames.Of(pledge.Status);
+        return await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.pledges SET amount_minor = {pledge.AmountMinor}, tier_id = {pledge.TierId}, status = {status}
+            WHERE id = {pledge.Id} AND status = 'ACTIVE'
+            """, cancellationToken) == 1;
+    }
+
     public async Task Append(LedgerEntry entry, CancellationToken cancellationToken)
     {
         db.Ledger.Add(entry);

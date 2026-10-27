@@ -24,11 +24,13 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
     /// <summary>A published campaign: its public id, and the public ids of its tiers in order.</summary>
     public sealed record Published(string Id, Guid CampaignId, IReadOnlyList<string> TierIds);
 
+    private static readonly (string Title, long MinPledgeMinor, int? Limit)[] DefaultTiers = [("Early Bird", 4_900, 500), ("Standard copy", 5_900, null)];
+
     public async Task<string> Draft(long goalMinor = 5_000_000, params (string Title, long MinPledgeMinor, int? Limit)[] tiers)
     {
         if (tiers.Length == 0)
         {
-            tiers = [("Early Bird", 4_900, 500), ("Standard copy", 5_900, null)];
+            tiers = DefaultTiers;
         }
 
         var created = await Creator().PostAsJsonAsync("/v1/campaigns", new
@@ -43,15 +45,25 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
         return (await created.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("campaign_id").GetString()!;
     }
 
-    /// <summary>Creates and publishes a campaign, and waits until Pledges has opened its funding window.</summary>
+    /// <summary>
+    /// Creates and publishes a campaign, and waits until Pledges has opened its funding window. The
+    /// tier ids come back in the order the tiers were given.
+    /// </summary>
     public async Task<Published> Publish(long goalMinor = 5_000_000, params (string Title, long MinPledgeMinor, int? Limit)[] tiers)
     {
+        if (tiers.Length == 0)
+        {
+            tiers = DefaultTiers;
+        }
+
         var id = await Draft(goalMinor, tiers);
         (await Creator().PostAsync($"/v1/campaigns/{id}/publish", null, Ct)).EnsureSuccessStatusCode();
         var campaignId = Guid.ParseExact(id["cmp_".Length..], "N");
         await Eventually(async () => await Scalar<long>("SELECT count(*) FROM pledges.funding_windows WHERE campaign_id = @id", campaignId) == 1);
         var read = await host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
-        return new Published(id, campaignId, [.. read.GetProperty("tiers").EnumerateArray().Select(t => t.GetProperty("tier_id").GetString()!)]);
+        var byTitle = read.GetProperty("tiers").EnumerateArray()
+            .ToDictionary(t => t.GetProperty("title").GetString()!, t => t.GetProperty("tier_id").GetString()!);
+        return new Published(id, campaignId, [.. tiers.Select(t => byTitle[t.Title])]);
     }
 
     /// <summary>One value from the database, read as the owner.</summary>

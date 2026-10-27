@@ -40,6 +40,8 @@ public static class PledgesModule
         services.AddModuleEvents<PledgesDbContext>(PledgesModuleName.Value);
         services.AddEventHandler<CampaignPublished, OpenFundingWindow>(PledgesModuleName.Value);
         services.AddPublishedEvent<PledgeActivated>();
+        services.AddPublishedEvent<PledgeChanged>();
+        services.AddPublishedEvent<PledgeCancelled>();
         services.AddSingleton<IModuleMigrator, PledgesMigrator>();
         services.AddSingleton(new ModuleDatabase(PledgesModuleName.Value, PledgesDbContext.Schema, connectionString));
         services.AddScoped<EfPledges>();
@@ -76,12 +78,54 @@ public static class PledgesModule
                     tierId = tier;
                 }
 
-                var cause = $"request:{user.UserId():N}:{http.Request.Headers[IdempotentRequests<PledgesDbContext>.Header]}";
                 var result = await dispatcher.Send<PlacePledge, PledgePlaced>(
-                    new PlacePledge(campaignId, user.UserId(), tierId, request.AmountMinor, request.PaymentMethodId, cause), ct);
+                    new PlacePledge(campaignId, user.UserId(), tierId, request.AmountMinor, request.PaymentMethodId, Cause(user, http)), ct);
                 return result.IsSuccess
                     ? Result.Success(new Reply(StatusCodes.Status201Created,
                         new { pledge_id = result.Value.PledgeId, status = result.Value.Status }, $"/v1/pledges/{result.Value.PledgeId}"))
+                    : Result.Failure<Reply>(result.Errors);
+            })).RequireAuthorization(Policies.Backer).WithTags("Pledges");
+
+        // PATCH sends the pledge's new amount and tier; tier_id null means no reward.
+        app.MapPatch("/v1/pledges/{id}", (string id, ChangeRequest request, ClaimsPrincipal user, HttpContext http,
+            IDispatcher dispatcher, IdempotentRequests<PledgesDbContext> once) =>
+            once.Run(http, user.UserId(), new { id, request }, async ct =>
+            {
+                if (!PublicId.TryParse(Pledge.IdPrefix, id, out var pledgeId))
+                {
+                    return Result.Failure<Reply>(PledgeErrors.PledgeNotFound);
+                }
+
+                Guid? tierId = null;
+                if (request.TierId is not null)
+                {
+                    if (!PublicId.TryParse("tir", request.TierId, out var tier))
+                    {
+                        return Result.Failure<Reply>(PledgeErrors.UnknownTier);
+                    }
+
+                    tierId = tier;
+                }
+
+                var result = await dispatcher.Send<ChangePledge, PledgeView>(
+                    new ChangePledge(pledgeId, user.UserId(), request.AmountMinor, tierId, Cause(user, http)), ct);
+                return result.IsSuccess
+                    ? Result.Success(new Reply(StatusCodes.Status200OK, result.Value))
+                    : Result.Failure<Reply>(result.Errors);
+            })).RequireAuthorization(Policies.Backer).WithTags("Pledges");
+
+        app.MapDelete("/v1/pledges/{id}", (string id, ClaimsPrincipal user, HttpContext http,
+            IDispatcher dispatcher, IdempotentRequests<PledgesDbContext> once) =>
+            once.Run(http, user.UserId(), new { id }, async ct =>
+            {
+                if (!PublicId.TryParse(Pledge.IdPrefix, id, out var pledgeId))
+                {
+                    return Result.Failure<Reply>(PledgeErrors.PledgeNotFound);
+                }
+
+                var result = await dispatcher.Send<CancelPledge, PledgeView>(new CancelPledge(pledgeId, user.UserId(), Cause(user, http)), ct);
+                return result.IsSuccess
+                    ? Result.Success(new Reply(StatusCodes.Status200OK, result.Value))
                     : Result.Failure<Reply>(result.Errors);
             })).RequireAuthorization(Policies.Backer).WithTags("Pledges");
 
@@ -98,7 +142,14 @@ public static class PledgesModule
 
         return app;
     }
+
+    /// <summary>What a ledger entry names as its cause: the caller and the request's idempotency key.</summary>
+    private static string Cause(ClaimsPrincipal user, HttpContext http) =>
+        $"request:{user.UserId():N}:{http.Request.Headers[IdempotentRequests<PledgesDbContext>.Header]}";
 }
 
 /// <summary>The JSON body of a pledge. <c>payment_method_id</c> is the PSP's reference to a saved card.</summary>
 internal sealed record PledgeRequest(long AmountMinor, string? TierId, string? PaymentMethodId);
+
+/// <summary>The JSON body of a change: the pledge's new amount and tier.</summary>
+internal sealed record ChangeRequest(long AmountMinor, string? TierId);

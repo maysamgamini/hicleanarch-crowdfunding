@@ -12,6 +12,15 @@ public interface IPledges
     Task<bool> TryAdd(Pledge pledge, CancellationToken cancellationToken);
 
     Task<Pledge?> Find(Guid pledgeId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads a pledge and locks its row until the transaction ends, so two changes of one pledge
+    /// run one after the other, each from the pledge as the last one left it.
+    /// </summary>
+    Task<Pledge?> FindForChange(Guid pledgeId, CancellationToken cancellationToken);
+
+    /// <summary>Saves a changed or cancelled pledge, only if it is still ACTIVE. False: it no longer was.</summary>
+    Task<bool> TrySaveFromActive(Pledge pledge, CancellationToken cancellationToken);
 }
 
 /// <summary>The promise ledger. It can only be appended to; the module's role cannot update or delete it.</summary>
