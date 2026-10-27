@@ -93,7 +93,7 @@ public sealed class ChargeBookkeeping(
             {
                 outcome = await psp.LookUp(new ChargeReference(charge.PspPaymentId, charge.PspCustomerId, charge.PledgePublicId, charge.AttemptNo), cancellationToken);
             }
-            catch (HttpRequestException)
+            catch (PspUnavailableException)
             {
                 return Result.Failure<bool>(PaymentErrors.PspUnavailable);
             }
@@ -200,7 +200,7 @@ public sealed class PayOutHandler(
             {
                 transfer = await psp.Transfer(creator, amount, payout.Currency, $"payout:{PublicId.Format("cmp", id)}", cancellationToken);
             }
-            catch (HttpRequestException)
+            catch (PspUnavailableException)
             {
                 return Result.Failure<PayoutDone>(PaymentErrors.PspUnavailable);
             }
@@ -302,7 +302,7 @@ public sealed class RefundPledgeHandler(
         {
             refundId = await psp.Refund(charge.PspPaymentId, charge.AmountMinor, $"{charge.PledgePublicId}:refund", cancellationToken);
         }
-        catch (HttpRequestException)
+        catch (PspUnavailableException)
         {
             return Result.Failure<RefundDone>(PaymentErrors.PspUnavailable);
         }

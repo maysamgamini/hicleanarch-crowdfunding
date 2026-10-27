@@ -29,7 +29,7 @@ public sealed class CircuitBreakerOptions
 }
 
 /// <summary>The PSP is failing and the circuit is open: nothing is sent until it is tried again.</summary>
-public sealed class PspCircuitOpenException : HttpRequestException
+public sealed class PspCircuitOpenException : PspUnavailableException
 {
     public PspCircuitOpenException()
         : base("The PSP is failing; calls are paused.")
@@ -72,7 +72,7 @@ public sealed partial class CircuitBreaker
                 BreakDurationGenerator = _ => ValueTask.FromResult(options.OpenFor * (1 + (Random.Shared.NextDouble() * options.OpenJitter))),
                 ShouldHandle = args => ValueTask.FromResult(args.Outcome switch
                 {
-                    { Exception: HttpRequestException or OperationCanceledException or TimeoutException } => true,
+                    { Exception: HttpRequestException or PspUnavailableException or OperationCanceledException or TimeoutException } => true,
                     { Result: ChargeOutcome.Unknown { Reason: not ChargeOutcome.WaitingForBacker } } => true, // no answer in time
                     _ => false,
                 }),
@@ -88,7 +88,11 @@ public sealed partial class CircuitBreaker
 
     public bool IsOpen => _state.CircuitState is CircuitState.Open or CircuitState.Isolated;
 
-    /// <summary>Sends one call through the circuit; an open circuit throws <see cref="PspCircuitOpenException"/> without sending it.</summary>
+    /// <summary>
+    /// Sends one call through the circuit; an open circuit throws <see cref="PspCircuitOpenException"/> without
+    /// sending it. A call the transport could not deliver (<see cref="HttpRequestException"/>) is counted as a
+    /// failure, then given to the caller as the port's own <see cref="PspUnavailableException"/>.
+    /// </summary>
     public async Task<T> Execute<T>(Func<CancellationToken, Task<T>> send, CancellationToken cancellationToken)
     {
         try
@@ -99,13 +103,21 @@ public sealed partial class CircuitBreaker
         {
             throw new PspCircuitOpenException("The PSP is failing; calls are paused.", e);
         }
+        catch (HttpRequestException e)
+        {
+            throw new PspUnavailableException("The PSP could not be reached.", e);
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The PSP is failing; calls pause for {OpenFor}")]
     private static partial void LogOpened(ILogger logger, TimeSpan openFor);
 }
 
-/// <summary>The PSP port behind the circuit: an open circuit refuses before the budget is spent.</summary>
+/// <summary>
+/// The PSP port behind the circuit: an open circuit refuses before the budget is spent, and the
+/// transport's errors leave it as the port's <see cref="PspUnavailableException"/>. It is the outermost
+/// adapter, so the use cases never see an HTTP type.
+/// </summary>
 internal sealed class CircuitBreakingPaymentProvider(IPaymentProvider psp, CircuitBreaker breaker) : IPaymentProvider
 {
     public Task<string> CreateCustomer(Guid backerId, string idempotencyKey, CancellationToken ct) => breaker.Execute(c => psp.CreateCustomer(backerId, idempotencyKey, c), ct);

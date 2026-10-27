@@ -38,10 +38,21 @@ public sealed class CircuitBreakerTests
         {
             await breaker.Execute(send, Ct);
         }
-        catch (HttpRequestException)
+        catch (PspUnavailableException)
         {
             // a failed call, counted by the breaker
         }
+    }
+
+    [Fact]
+    public async Task A_PSP_that_cannot_be_reached_is_the_ports_failure_not_the_transports()
+    {
+        var breaker = new CircuitBreaker(Options, new ManualClock(DateTimeOffset.UtcNow), NullLogger<CircuitBreaker>.Instance);
+
+        var failure = await Assert.ThrowsAsync<PspUnavailableException>(() => breaker.Execute(Fails, Ct));
+
+        Assert.IsType<HttpRequestException>(failure.InnerException);
+        Assert.False(breaker.IsOpen);
     }
 
     [Fact]
@@ -107,7 +118,7 @@ public sealed class CircuitBreakerTests
             {
                 return "refused";
             }
-            catch (HttpRequestException)
+            catch (PspUnavailableException)
             {
                 return "failed";
             }

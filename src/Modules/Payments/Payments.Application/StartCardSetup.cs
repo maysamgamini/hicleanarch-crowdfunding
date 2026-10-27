@@ -33,7 +33,7 @@ public sealed class StartCardSetupHandler(IPaymentProvider psp, IPspCustomers cu
             var kept = await setups.Add(CardSetup.Start(command.PledgeId, command.BackerId, intent.PspSetupId), cancellationToken);
             return Result.Success(new CardSetupStarted(kept.Id, intent.ClientSecret));
         }
-        catch (HttpRequestException)
+        catch (PspUnavailableException)
         {
             return Result.Failure<CardSetupStarted>(PaymentErrors.PspUnavailable);
         }

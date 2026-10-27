@@ -98,7 +98,7 @@ public sealed class ConfirmPaymentHandler(ISettlements settlements, IPaymentProv
             await settlements.RecordPayment(charge.PledgeId, n, payment.PspPaymentId, cancellationToken);
             return Result.Success(new PaymentToConfirm(charge.PledgePublicId, payment.PspPaymentId, payment.ClientSecret));
         }
-        catch (HttpRequestException)
+        catch (PspUnavailableException)
         {
             return Result.Failure<PaymentToConfirm>(PaymentErrors.PspUnavailable);
         }

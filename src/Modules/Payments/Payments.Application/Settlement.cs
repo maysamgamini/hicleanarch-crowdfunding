@@ -359,7 +359,7 @@ public sealed class RunSettlementHandler(
                             Interlocked.Increment(ref worked);
                         }
                     }
-                    catch (HttpRequestException)
+                    catch (PspUnavailableException)
                     {
                         // The PSP cannot be reached, or the circuit is open. A charge left CHARGING is
                         // resolved with its own key on a later turn.

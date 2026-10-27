@@ -2,7 +2,9 @@ namespace Payments.Application;
 
 /// <summary>
 /// The PSP, in this design's own words. Adapters implement it for one provider; the course's fake
-/// behaves like a real one where the design depends on it.
+/// behaves like a real one where the design depends on it. A call that does not reach the PSP, or
+/// that the adapter does not send because calls are paused, throws <see cref="PspUnavailableException"/>,
+/// whatever the adapter's transport.
 /// </summary>
 public interface IPaymentProvider
 {
@@ -42,6 +44,29 @@ public interface IPaymentProvider
     /// pledge in its metadata (at Stripe, the balance transactions report).
     /// </summary>
     Task<BalanceReport> BalanceTransactions(DateTimeOffset from, DateTimeOffset to, CancellationToken ct);
+}
+
+/// <summary>
+/// The port's failure: the PSP could not be reached, or calls to it are paused. Adapters translate
+/// their transport's own errors into it, so a use case never handles HTTP. Nothing is known to have
+/// happened at the PSP; a retry with the same idempotency key is safe.
+/// </summary>
+public class PspUnavailableException : Exception
+{
+    public PspUnavailableException()
+        : base("The PSP could not be reached.")
+    {
+    }
+
+    public PspUnavailableException(string message)
+        : base(message)
+    {
+    }
+
+    public PspUnavailableException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
 }
 
 public sealed record OnSessionPayment(string PspPaymentId, string ClientSecret);
