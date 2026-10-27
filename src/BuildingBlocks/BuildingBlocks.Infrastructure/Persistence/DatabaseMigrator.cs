@@ -73,8 +73,9 @@ public sealed partial class DatabaseMigrator(
             """;
     }
 
-    // A setting on a role applies to every session that logs in as it afterwards. The owner sets it
-    // here, in the deploy step: a module's own role may not change its own limits.
+    // A setting on a role is the default of every session that logs in as it afterwards, not a
+    // ceiling: a session may still change a user-level setting, so a module that
+    // relies on one checks it is in force where it matters (Pledges' time fence does).
     private static string Settings(ModuleDatabase module) =>
         string.Concat(module.RoleSettings.Select(setting => $"ALTER ROLE {Quote(module.Role)} SET {setting};\n"));
 
