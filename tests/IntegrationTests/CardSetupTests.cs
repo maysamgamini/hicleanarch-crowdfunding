@@ -165,6 +165,52 @@ public sealed class CardSetupTests(Database database) : IDisposable
         Assert.Equal(0, await given.Scalar<int>("SELECT claimed + held FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
     }
 
+    /// <summary>
+    /// The hold ran out, and the sweeper has not marked the pledge EXPIRED yet (it runs every 10 s): the
+    /// card that arrives now activates nothing, because the activation checks the hold's time itself.
+    /// </summary>
+    [Fact]
+    public async Task A_card_saved_after_the_hold_ran_out_but_before_the_sweeper_does_not_count()
+    {
+        await using var host = database.StartHost(services =>
+            services.Remove(services.Single(d => d.ImplementationType == typeof(Pledges.Infrastructure.HoldSweeper))));
+        var given = new Scenario(database, host);
+        var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));
+        var (pledgeId, setupId, _) = await PledgeWithNewCard(given.Backer(Guid.NewGuid()), campaign);
+        await given.Execute("UPDATE pledges.pledges SET hold_expires_at = now() - interval '1 second' WHERE id = @id", pledgeId);
+
+        var webhook = host.Services.GetRequiredService<FakePaymentProvider>().CompleteSetup(setupId);
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(webhook.Body, Encoding.UTF8, "application/json") };
+        request.Headers.Add(WebhookSignature.Header, webhook.Signature);
+        Assert.Equal(HttpStatusCode.OK, (await host.CreateClient().SendAsync(request, Ct)).StatusCode);
+
+        await Scenario.Eventually(async () => await given.Scalar<long>("""
+            SELECT count(*) FROM payments.outbox o
+            JOIN pledges.inbox i ON i.event_id = o.id AND i.handler LIKE '%ActivatePledge'
+            WHERE o.type = 'PaymentMethodSaved' AND o.payload ->> 'pledgeId' = @id::text
+            """, pledgeId) == 1);
+        Assert.Equal("PENDING_SETUP", await given.Scalar<string>("SELECT status FROM pledges.pledges WHERE id = @id", pledgeId)); // the sweeper's to expire
+        Assert.Equal(0L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(0, await given.Scalar<int>("SELECT claimed FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
+    }
+
+    /// <summary>A new card's pledge holds a place: on a tier with none left, it is refused as sold out, not by the check constraint.</summary>
+    [Fact]
+    public async Task A_new_card_pledge_on_a_full_tier_is_refused_as_sold_out_and_holds_nothing()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 1));
+        (await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000, campaign.TierIds[0]), Ct)).EnsureSuccessStatusCode();
+
+        var refused = await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges",
+            new { amount_minor = 6_000, tier_id = campaign.TierIds[0], payment_method_id = (string?)null }, Ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Equal("tier_sold_out", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
+        Assert.Equal(0, await given.Scalar<int>("SELECT held FROM pledges.tier_counters WHERE campaign_id = @id AND limit_qty IS NOT NULL", campaign.CampaignId));
+        Assert.Equal(1, await given.Scalar<int>("SELECT claimed FROM pledges.tier_counters WHERE campaign_id = @id AND limit_qty IS NOT NULL", campaign.CampaignId));
+    }
+
     [Fact]
     public async Task A_card_saved_after_the_hold_ran_out_does_not_activate_even_before_the_sweep()
     {
