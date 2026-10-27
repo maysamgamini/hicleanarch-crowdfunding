@@ -97,4 +97,62 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
 
         await Scenario.Eventually(async () => await Status(funded) == "SETTLED");
     }
+
+    /// <summary>
+    /// A page cached after every earlier delete has run, including the second delete of the last
+    /// invalidation, so only the next change's own invalidation can drop it.
+    /// </summary>
+    private static async Task<IDatabase> CachedNow(HttpClient reader, string id, ConnectionMultiplexer connection)
+    {
+        await Task.Delay(BuildingBlocks.Infrastructure.Caching.ValkeyQueryCache.DeleteAgainAfter + TimeSpan.FromMilliseconds(500), Ct);
+        await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
+        var db = connection.GetDatabase();
+        Assert.True(await db.KeyExistsAsync($"campaigns:catalog:{id}"));
+        return db;
+    }
+
+    [Fact]
+    public async Task A_cancel_drops_the_cached_page_by_its_own_event()
+    {
+        await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("ConnectionStrings:Valkey", valkey.Configuration));
+        var given = new Scenario(database, host);
+        var campaign = await given.Publish(1_000);
+        using var connection = await ConnectionMultiplexer.ConnectAsync(valkey.Configuration);
+        var db = await CachedNow(host.CreateClient(), campaign.Id, connection);
+
+        (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
+
+        await Scenario.Eventually(async () => !await db.KeyExistsAsync($"campaigns:catalog:{campaign.Id}"));
+    }
+
+    [Fact]
+    public async Task A_decision_and_then_a_settlement_each_drop_the_cached_page()
+    {
+        await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("ConnectionStrings:Valkey", valkey.Configuration));
+        var given = new Scenario(database, host);
+        var campaign = await given.Publish(1_000);
+        (await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
+        using var connection = await ConnectionMultiplexer.ConnectAsync(valkey.Configuration);
+        var reader = host.CreateClient();
+        var db = await CachedNow(reader, campaign.Id, connection);
+
+        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() WHERE campaign_id = @id", campaign.CampaignId);
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<CloseDueCampaigns, int>(new CloseDueCampaigns(campaign.CampaignId), Ct);
+        }
+
+        await Scenario.Eventually(async () => !await db.KeyExistsAsync($"campaigns:catalog:{campaign.Id}"));
+        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId) == 1);
+        await Scenario.Eventually(async () =>
+            (await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString() == "FUNDED");
+        await CachedNow(reader, campaign.Id, connection);
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<RunSettlement, bool>(new RunSettlement("cache-test", campaign.CampaignId), Ct);
+        }
+
+        await Scenario.Eventually(async () => !await db.KeyExistsAsync($"campaigns:catalog:{campaign.Id}"));
+    }
 }
