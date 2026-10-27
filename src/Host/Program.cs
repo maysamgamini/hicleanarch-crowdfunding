@@ -53,6 +53,7 @@ app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapCampaignsEndpoints();
+app.MapPledgesEndpoints();
 
 await app.RunAsync();
 

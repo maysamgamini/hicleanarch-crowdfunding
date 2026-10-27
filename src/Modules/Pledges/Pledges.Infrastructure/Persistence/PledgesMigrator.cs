@@ -19,4 +19,8 @@ internal sealed class PledgesMigrator : IModuleMigrator
         await using var db = new PledgesDbContext(options);
         await db.Database.MigrateAsync(cancellationToken);
     }
+
+    /// <summary>The ledger is append-only by its grants: the module's role may read it and add to it, nothing else.</summary>
+    public string AfterGrants(string quotedRole) =>
+        $"REVOKE UPDATE, DELETE, TRUNCATE ON pledges.pledge_ledger FROM {quotedRole};";
 }

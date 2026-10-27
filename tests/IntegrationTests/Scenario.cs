@@ -74,6 +74,10 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
         await command.ExecuteNonQueryAsync(Ct);
     }
 
+    /// <summary>A pledge request with a saved card; tier is a public tier id or null.</summary>
+    public static object Pledge(long amountMinor, string? tierId = null) =>
+        new { amount_minor = amountMinor, tier_id = tierId, payment_method_id = "pm_card_visa" };
+
     public static async Task Eventually(Func<Task<bool>> condition)
     {
         for (var i = 0; i < 100 && !await condition(); i++)

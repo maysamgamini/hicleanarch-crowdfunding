@@ -3,6 +3,8 @@ using BuildingBlocks.Domain;
 
 using Campaigns.Domain;
 
+using Pledges.Contracts;
+
 namespace Campaigns.Application;
 
 public sealed record GetCampaign(CampaignId Id) : IQuery<CampaignView>;
@@ -16,11 +18,14 @@ public sealed record CampaignView(
     long GoalMinor,
     string Currency,
     DateTime Deadline,
+    long PledgedMinor,
+    int Backers,
     IReadOnlyList<TierView> Tiers);
 
 public sealed record TierView(string TierId, string Title, long MinPledgeMinor, int? Limit);
 
-public sealed class GetCampaignHandler(ICampaignRepository campaigns) : IQueryHandler<GetCampaign, CampaignView>
+/// <summary>The catalog is Campaigns' own; the total comes from Pledges, through its contract.</summary>
+public sealed class GetCampaignHandler(ICampaignRepository campaigns, ICampaignTotals totals) : IQueryHandler<GetCampaign, CampaignView>
 {
     public async Task<Result<CampaignView>> Handle(GetCampaign query, CancellationToken cancellationToken)
     {
@@ -30,6 +35,7 @@ public sealed class GetCampaignHandler(ICampaignRepository campaigns) : IQueryHa
             return Result.Failure<CampaignView>(CampaignErrors.NotFound);
         }
 
+        var raised = await totals.Get(campaign.Id.Value, cancellationToken);
         return Result.Success(new CampaignView(
             campaign.Id.ToString(),
             campaign.CreatorId,
@@ -38,6 +44,8 @@ public sealed class GetCampaignHandler(ICampaignRepository campaigns) : IQueryHa
             campaign.Goal.AmountMinor,
             campaign.Goal.Currency,
             campaign.Deadline.UtcDateTime,
+            raised?.PledgedMinor ?? 0,
+            raised?.Backers ?? 0,
             [.. campaign.Tiers.Select(t => new TierView(t.Id.ToString(), t.Title, t.MinPledgeMinor, t.Limit))]));
     }
 }

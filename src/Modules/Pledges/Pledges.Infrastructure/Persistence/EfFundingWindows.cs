@@ -27,6 +27,17 @@ internal sealed class EfFundingWindows(PledgesDbContext db) : IFundingWindows
         return opened == 1;
     }
 
+    public Task<FundingWindow?> Find(Guid campaignId, CancellationToken cancellationToken) =>
+        db.FundingWindows.AsNoTracking().SingleOrDefaultAsync(w => w.CampaignId == campaignId, cancellationToken);
+
+    // Lesson 7: the update carries the rule, and its row lock is the fence the close waits behind.
+    public async Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken) =>
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.funding_windows
+            SET pledged_minor = pledged_minor + {deltaMinor}, backers = backers + {backerDelta}
+            WHERE campaign_id = {campaignId} AND status = 'LIVE' AND now() < deadline
+            """, cancellationToken) == 1;
+
     public async Task<CancelOutcome> TryCancel(Guid campaignId, CancellationToken cancellationToken)
     {
         // The close's own condition: still LIVE, and before the deadline by the database's clock.

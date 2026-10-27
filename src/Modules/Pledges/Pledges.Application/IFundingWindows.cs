@@ -16,6 +16,15 @@ public interface IFundingWindows
     /// passed, by the database's clock, as the close does.
     /// </summary>
     Task<CancelOutcome> TryCancel(Guid campaignId, CancellationToken cancellationToken);
+
+    Task<FundingWindow?> Find(Guid campaignId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The fence's pledge side: adds to the snapshot total only while the window is LIVE and before
+    /// the deadline by the database's clock, and holds the window's row lock until this transaction
+    /// ends, so the close waits for it. False: pledging has closed.
+    /// </summary>
+    Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken);
 }
 
 public enum CancelOutcome

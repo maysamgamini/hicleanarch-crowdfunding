@@ -16,6 +16,10 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
 
     public DbSet<TierCounter> TierCounters => Set<TierCounter>();
 
+    public DbSet<Pledge> Pledges => Set<Pledge>();
+
+    public DbSet<LedgerEntry> Ledger => Set<LedgerEntry>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
@@ -47,6 +51,47 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
             tier.HasKey(t => t.TierId);
             tier.Property(t => t.TierId).ValueGeneratedNever();
             tier.HasIndex(t => t.CampaignId);
+        });
+
+        modelBuilder.Entity<Pledge>(pledge =>
+        {
+            pledge.ToTable("pledges", t => t.HasCheckConstraint("pledges_amount_positive", "amount_minor > 0"));
+            pledge.HasKey(p => p.Id);
+            pledge.Property(p => p.Id).ValueGeneratedNever();
+            pledge.Ignore(p => p.PublicId);
+            pledge.Property(p => p.Status)
+                .HasConversion(s => Application.StatusNames.Of(s), s => Application.StatusNames.Parse<PledgeStatus>(s))
+                .HasMaxLength(20);
+            pledge.Property(p => p.PaymentMethodRef).HasMaxLength(200);
+            pledge.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
+            pledge.HasIndex(p => p.CampaignId);
+            // Lesson 4: one live pledge per backer per campaign, whatever code path sends a second.
+            pledge.HasIndex(p => new { p.CampaignId, p.BackerId })
+                .IsUnique()
+                .HasFilter("status IN ('PENDING_SETUP', 'ACTIVE')")
+                .HasDatabaseName("one_live_pledge_per_backer");
+        });
+
+        modelBuilder.Entity<LedgerEntry>(entry =>
+        {
+            entry.ToTable("pledge_ledger", t =>
+            {
+                t.HasCheckConstraint("pledge_ledger_kind", "kind IN ('ACTIVATE', 'CHANGE', 'CANCEL')");
+                t.HasCheckConstraint("pledge_ledger_sign",
+                    "(kind = 'ACTIVATE' AND delta_minor > 0) OR (kind = 'CANCEL' AND delta_minor < 0) OR (kind = 'CHANGE' AND delta_minor <> 0)");
+            });
+            entry.HasKey(e => e.EntryId);
+            entry.Property(e => e.EntryId).UseIdentityAlwaysColumn();
+            entry.Property(e => e.CauseId).HasMaxLength(200);
+            entry.Property(e => e.Kind)
+                .HasConversion(k => Application.StatusNames.Of(k), k => Application.StatusNames.Parse<LedgerKind>(k))
+                .HasMaxLength(10);
+            entry.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            // A replayed request or message cannot add a second entry.
+            entry.HasIndex(e => new { e.CauseId, e.Kind }).IsUnique();
+            // Two different causes cannot activate one pledge twice.
+            entry.HasIndex(e => e.PledgeId).IsUnique().HasFilter("kind = 'ACTIVATE'").HasDatabaseName("one_activation_per_pledge");
+            entry.HasIndex(e => e.CampaignId).IncludeProperties(e => e.DeltaMinor);
         });
     }
 }

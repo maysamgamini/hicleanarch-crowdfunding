@@ -188,6 +188,130 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                     b.ToTable("funding_windows", "pledges");
                 });
 
+            modelBuilder.Entity("Pledges.Domain.LedgerEntry", b =>
+                {
+                    b.Property<long>("EntryId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("entry_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("EntryId"));
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<string>("CauseId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("cause_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<long>("DeltaMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("delta_minor");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)")
+                        .HasColumnName("kind");
+
+                    b.Property<Guid>("PledgeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pledge_id");
+
+                    b.HasKey("EntryId")
+                        .HasName("pk_pledge_ledger");
+
+                    b.HasIndex("CampaignId")
+                        .HasDatabaseName("ix_pledge_ledger_campaign_id");
+
+                    NpgsqlIndexBuilderExtensions.IncludeProperties(b.HasIndex("CampaignId"), new[] { "DeltaMinor" });
+
+                    b.HasIndex("PledgeId")
+                        .IsUnique()
+                        .HasDatabaseName("one_activation_per_pledge")
+                        .HasFilter("kind = 'ACTIVATE'");
+
+                    b.HasIndex("CauseId", "Kind")
+                        .IsUnique()
+                        .HasDatabaseName("ix_pledge_ledger_cause_id_kind");
+
+                    b.ToTable("pledge_ledger", "pledges", t =>
+                        {
+                            t.HasCheckConstraint("pledge_ledger_kind", "kind IN ('ACTIVATE', 'CHANGE', 'CANCEL')");
+
+                            t.HasCheckConstraint("pledge_ledger_sign", "(kind = 'ACTIVATE' AND delta_minor > 0) OR (kind = 'CANCEL' AND delta_minor < 0) OR (kind = 'CHANGE' AND delta_minor <> 0)");
+                        });
+                });
+
+            modelBuilder.Entity("Pledges.Domain.Pledge", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<long>("AmountMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("amount_minor");
+
+                    b.Property<Guid>("BackerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("backer_id");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTimeOffset?>("HoldExpiresAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("hold_expires_at");
+
+                    b.Property<string>("PaymentMethodRef")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("payment_method_ref");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid?>("TierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("tier_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_pledges");
+
+                    b.HasIndex("CampaignId")
+                        .HasDatabaseName("ix_pledges_campaign_id");
+
+                    b.HasIndex("CampaignId", "BackerId")
+                        .IsUnique()
+                        .HasDatabaseName("one_live_pledge_per_backer")
+                        .HasFilter("status IN ('PENDING_SETUP', 'ACTIVE')");
+
+                    b.ToTable("pledges", "pledges", t =>
+                        {
+                            t.HasCheckConstraint("pledges_amount_positive", "amount_minor > 0");
+                        });
+                });
+
             modelBuilder.Entity("Pledges.Domain.TierCounter", b =>
                 {
                     b.Property<Guid>("TierId")
