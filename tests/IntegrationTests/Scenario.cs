@@ -116,9 +116,15 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
         }
     }
 
+    /// <summary>
+    /// Waits for something an event or a background job does. It returns as soon as the condition
+    /// holds, so the bound only matters on a loaded machine, where deliveries queue up: it is long
+    /// enough not to fail a test that is merely slow there.
+    /// </summary>
     public static async Task Eventually(Func<Task<bool>> condition)
     {
-        for (var i = 0; i < 100 && !await condition(); i++)
+        var until = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+        while (DateTime.UtcNow < until && !await condition())
         {
             await Task.Delay(50, Ct);
         }
