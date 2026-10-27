@@ -97,3 +97,8 @@ output "deployment_5xx_metrics" {
   description = "The rollback alarm's metrics and their dimensions (CQA-2123: the roots' tests read them)."
   value       = { for q in aws_cloudwatch_metric_alarm.deployment_5xx.metric_query : q.id => { for m in q.metric : m.metric_name => m.dimensions } if q.id != "share" }
 }
+
+output "release_secret_arns" {
+  description = "This release's own secrets, without those kept from the previous one: the next deploy passes them as kept_secret_arns (CQA-2124)."
+  value       = [for s in var.secrets : s.valueFrom]
+}

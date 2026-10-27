@@ -126,3 +126,9 @@ variable "service_task_definition" {
   type        = string
   default     = ""
 }
+
+variable "kept_secret_arns" {
+  description = "The previous release's secrets (its release_secret_arns output), which the execution role keeps for one more release (CQA-2124): the revision the first apply keeps, and a rollback, still name them. deploy-service.sh and deploy-payments.sh pass them to both applies. Empty: this release's only."
+  type        = list(string)
+  default     = []
+}

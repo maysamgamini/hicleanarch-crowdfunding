@@ -27,7 +27,9 @@ module "service" {
   service_image = var.service_image
   # CQA-2103: the first apply of a deploy keeps the task definition the service runs.
   service_task_definition = var.service_task_definition
-  desired_count           = local.shared.pledges_desired_count
+  # CQA-2124: the execution role keeps the previous release's secrets for one more release.
+  kept_secret_arns = var.kept_secret_arns
+  desired_count    = local.shared.pledges_desired_count
   # The old monolith's size (CQA-2106): its pools, its jobs and the Service Connect proxy.
   cpu    = 1024
   memory = 2048

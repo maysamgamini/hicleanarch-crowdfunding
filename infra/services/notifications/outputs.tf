@@ -36,3 +36,8 @@ output "service_task_definition" {
   description = "The task definition the service runs; the next deploy's first apply keeps it (CQA-2103)."
   value       = module.service.service_task_definition
 }
+
+output "release_secret_arns" {
+  description = "This release's own secrets; the next deploy keeps them on the execution role for one more release (CQA-2124)."
+  value       = module.service.release_secret_arns
+}

@@ -143,6 +143,23 @@ public partial class WorkflowTests
 
         Assert.DoesNotContain("after every deploy's migrate", Repository.Read("src/Services/Pledges/Pledges.Host/Program.cs"), StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// CQA-2124: the first apply keeps the running task definition, which names the previous release's
+    /// secrets, so both applies keep those secrets on the execution role; they leave one release later.
+    /// </summary>
+    [Theory]
+    [InlineData("scripts/deploy-service.sh")]
+    [InlineData("scripts/deploy-payments.sh")]
+    public void A_deploy_keeps_the_previous_releases_secrets_on_the_execution_role(string script)
+    {
+        var lines = Repository.Read(script).Split('\n');
+        Assert.Contains(lines, l => l.StartsWith("kept=$(tf output -json release_secret_arns", StringComparison.Ordinal));
+        var applies = lines.Where(l => l.StartsWith("tf apply", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, applies.Count);
+        Assert.All(applies, a => Assert.Contains("-var \"kept_secret_arns=$kept\"", a, StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Ci_checks_every_root_with_both_Terraform_and_OpenTofu()
     {

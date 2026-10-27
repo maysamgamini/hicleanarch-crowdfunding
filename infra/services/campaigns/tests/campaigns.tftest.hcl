@@ -209,3 +209,30 @@ run "pages_on_the_objectives_slos_json_names" {
     error_message = "Each of the three objectives has its four windows."
   }
 }
+
+# CQA-2124: a release that drops a secret (as s5-l09 dropped the monolith's Campaigns secrets) must not take
+# it from the execution role while the revision the first apply keeps, or a rollback, still names it. The
+# deploy script passes the previous release's secrets, and the role keeps them for one more release.
+run "the_execution_role_keeps_the_previous_releases_secrets_for_one_release" {
+  command = plan
+
+  variables {
+    service_task_definition = "arn:aws:ecs:us-east-1:123456789012:task-definition/hicleanarch-campaigns:7"
+    kept_secret_arns        = ["arn:aws:secretsmanager:us-east-1:123456789012:secret:hicleanarch/sandbox/db/campaigns_old"]
+  }
+
+  assert {
+    condition     = contains(module.service.secret_arns, "arn:aws:secretsmanager:us-east-1:123456789012:secret:hicleanarch/sandbox/db/campaigns_old") && length(module.service.secret_arns) == 4
+    error_message = "The execution role reads this release's secrets and the previous release's, and no other."
+  }
+
+  assert {
+    condition     = !contains(output.release_secret_arns, "arn:aws:secretsmanager:us-east-1:123456789012:secret:hicleanarch/sandbox/db/campaigns_old") && length(output.release_secret_arns) == 3
+    error_message = "The next deploy keeps only this release's own secrets, so a dropped one leaves a release later."
+  }
+
+  assert {
+    condition     = !anytrue([for s in module.service.container.secrets : endswith(s.valueFrom, "campaigns_old")])
+    error_message = "The release's task definition does not name the kept secret."
+  }
+}

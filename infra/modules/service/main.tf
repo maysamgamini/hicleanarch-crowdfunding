@@ -34,10 +34,14 @@ resource "aws_iam_role_policy_attachment" "execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# This release's secrets, and the previous release's (kept_secret_arns, CQA-2124). The first apply of a
+# deploy keeps the task definition the service runs (CQA-2103), which names the previous release's
+# secrets: ECS reads them again for every task it starts or replaces from it, and for a rollback to it.
+# A secret this release drops leaves the role one release later, once no revision that may run needs it.
 data "aws_iam_policy_document" "secrets" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [for s in var.secrets : s.valueFrom]
+    resources = distinct(concat([for s in var.secrets : s.valueFrom], var.kept_secret_arns))
   }
 }
 
@@ -251,7 +255,8 @@ resource "aws_ecs_task_definition" "migrate" {
 # release that removes a setting the running image still reads would otherwise pair the old image with
 # the new settings, and every task ECS replaced before the second apply would fail to start. ECS keeps
 # running and replacing tasks of the revision it runs. The roles are not versioned: a release narrows a
-# role only once no image that needs the right still runs.
+# role only once no image that needs the right still runs. For the execution role's secrets the deploy
+# scripts do that (kept_secret_arns, CQA-2124).
 resource "aws_ecs_service" "service" {
   count           = var.service_image == "" ? 0 : 1
   name            = var.name

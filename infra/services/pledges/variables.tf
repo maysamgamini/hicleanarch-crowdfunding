@@ -54,3 +54,9 @@ variable "service_task_definition" {
   type        = string
   default     = ""
 }
+
+variable "kept_secret_arns" {
+  description = "The previous release's secrets, which the execution role keeps for one more release (CQA-2124); the deploy script passes its release_secret_arns output. Empty: this release's only."
+  type        = list(string)
+  default     = []
+}
