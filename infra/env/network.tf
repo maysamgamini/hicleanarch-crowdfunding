@@ -60,13 +60,14 @@ resource "aws_route_table_association" "public" {
 
 resource "aws_security_group" "alb" {
   name        = "${var.project}-alb"
-  description = "HTTP from anywhere to the load balancer"
+  description = "HTTP from CloudFront to the load balancer"
   vpc_id      = aws_vpc.main.id
 }
 
+# Only CloudFront's origin-facing addresses (cdn.tf): nobody can call the load balancer around it.
 resource "aws_vpc_security_group_ingress_rule" "alb_http" {
   security_group_id = aws_security_group.alb.id
-  cidr_ipv4         = "0.0.0.0/0"
+  prefix_list_id    = data.aws_ec2_managed_prefix_list.cloudfront.id
   from_port         = 80
   to_port           = 80
   ip_protocol       = "tcp"

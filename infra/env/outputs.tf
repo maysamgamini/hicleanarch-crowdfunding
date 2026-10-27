@@ -1,6 +1,6 @@
 output "api_url" {
-  description = "The load balancer's address."
-  value       = "http://${aws_lb.api.dns_name}"
+  description = "Where clients call the API: CloudFront, over HTTPS."
+  value       = "https://${aws_cloudfront_distribution.public.domain_name}"
 }
 
 output "cluster" {

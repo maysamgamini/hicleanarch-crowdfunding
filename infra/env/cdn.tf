@@ -1,6 +1,7 @@
-# CloudFront in front of the public reads. The totals reply is cached for at most 2 seconds, as
-# the origin's Cache-Control says (lesson s3-a02); everything else passes through uncached.
-# Signed-in calls and every change go to the load balancer directly, not through CloudFront.
+# CloudFront in front of every request, so clients send their tokens only over HTTPS: its default
+# certificate needs no domain name. The totals reply is cached for at most 2 seconds, as the
+# origin's Cache-Control says (lesson s3-a02); everything else passes through uncached. The load
+# balancer accepts only CloudFront's addresses, and only requests carrying the origin header below.
 # Destroy takes several minutes: CloudFront disables the distribution before it can delete it.
 
 resource "aws_cloudfront_cache_policy" "totals" {
@@ -29,9 +30,10 @@ data "aws_cloudfront_cache_policy" "disabled" {
   name = "Managed-CachingDisabled"
 }
 
-# What reaches the origin: every viewer header, and CloudFront's own header with the viewer's
-# address, which the gateway's per-client limits read (lesson s3-l11). Viewer headers alone would
-# not include it. The load balancer routes without host rules, so the forwarded Host does not matter.
+# What reaches the origin: every viewer header, Authorization included, and CloudFront's own header
+# with the viewer's address, which the gateway's per-client limits read (lesson s3-l11). Viewer
+# headers alone would not include it. The load balancer routes without host rules, so the forwarded
+# Host does not matter.
 resource "aws_cloudfront_origin_request_policy" "viewer_and_address" {
   name    = "${var.project}-viewer-and-address"
   comment = "All viewer headers, with CloudFront-Viewer-Address"
@@ -77,19 +79,26 @@ resource "aws_cloudfront_distribution" "public" {
     origin_id   = "api"
     domain_name = aws_lb.api.dns_name
 
+    # The hop from CloudFront to the load balancer is still plain HTTP: without a domain name the load
+    # balancer has no certificate. Production gives it one from ACM and sets https-only here.
     custom_origin_config {
       http_port              = 80
       https_port             = 443
-      origin_protocol_policy = "http-only" # the sandbox load balancer has no certificate
+      origin_protocol_policy = "http-only"
       origin_ssl_protocols   = ["TLSv1.2"]
+    }
+
+    custom_header {
+      name  = local.origin_header
+      value = random_password.origin_header.result
     }
   }
 
-  # Campaign pages and their reads: passed through, never cached here.
+  # Every other request, signed-in calls and changes included: passed through, never cached here.
   default_cache_behavior {
     target_origin_id         = "api"
     viewer_protocol_policy   = "redirect-to-https"
-    allowed_methods          = ["GET", "HEAD", "OPTIONS"]
+    allowed_methods          = ["GET", "HEAD", "OPTIONS", "PUT", "POST", "PATCH", "DELETE"]
     cached_methods           = ["GET", "HEAD"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
     origin_request_policy_id = aws_cloudfront_origin_request_policy.viewer_and_address.id
@@ -117,6 +126,17 @@ resource "aws_cloudfront_distribution" "public" {
   viewer_certificate {
     cloudfront_default_certificate = true
   }
+}
+
+# CloudFront adds this header to every request it sends on; the load balancer refuses a request
+# without it, so another distribution cannot reach the origin through CloudFront's addresses.
+locals {
+  origin_header = "X-Origin-Verify"
+}
+
+resource "random_password" "origin_header" {
+  length  = 32
+  special = false
 }
 
 output "public_reads_url" {

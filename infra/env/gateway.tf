@@ -160,7 +160,7 @@ resource "aws_ecs_service" "gateway" {
     rollback = true
   }
 
-  depends_on = [aws_lb_listener.http]
+  depends_on = [aws_lb_listener_rule.from_cloudfront]
 }
 
 output "gateway_service" {
