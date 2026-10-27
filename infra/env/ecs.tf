@@ -26,6 +26,7 @@ locals {
     { name = "ConnectionStrings__Notifications", valueFrom = aws_secretsmanager_secret.connection["notifications"].arn },
     { name = "ConnectionStrings__CampaignsRead", valueFrom = aws_secretsmanager_secret.read_connection["campaigns_read"].arn },
     { name = "ConnectionStrings__PledgesRead", valueFrom = aws_secretsmanager_secret.read_connection["pledges_read"].arn },
+    { name = "ConnectionStrings__Valkey", valueFrom = aws_secretsmanager_secret.valkey["api"].arn },
   ]
   owner_secret = { name = "ConnectionStrings__Owner", valueFrom = aws_secretsmanager_secret.connection["owner"].arn }
 
@@ -46,7 +47,6 @@ locals {
       { name = "Notifications__FromAddress", value = var.notifications_from },
       { name = "Notifications__UserPoolId", value = aws_cognito_user_pool.users.id },
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
-      { name = "ConnectionStrings__Valkey", value = local.valkey_configuration },
     ]
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30
@@ -128,6 +128,8 @@ resource "aws_ecs_service" "api" {
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
+  # ECS moves tasks back into a zone that lost them, once it recovers.
+  availability_zone_rebalancing = "ENABLED"
 
   network_configuration {
     subnets          = aws_subnet.public[*].id

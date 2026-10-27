@@ -27,6 +27,7 @@ data "aws_iam_policy_document" "read_connection_strings" {
     resources = concat(
       [for s in aws_secretsmanager_secret.connection : s.arn],
       [for s in aws_secretsmanager_secret.read_connection : s.arn],
+      [for s in aws_secretsmanager_secret.valkey : s.arn],
       [aws_secretsmanager_secret.webhook.arn],
     )
   }

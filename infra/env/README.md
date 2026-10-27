@@ -3,11 +3,13 @@
 Applied for a lesson or a test run, destroyed afterwards. Everything here is destroyable with no
 manual step: no deletion protection, no final snapshot, secrets deleted at once, no buckets.
 
-What it creates: a VPC with two public and two private subnets and no NAT gateway; an
-Application Load Balancer; an ECS cluster with a Fargate service (the API and an OpenTelemetry
-collector in each task) and a one-off migration task definition; Aurora PostgreSQL 17 Serverless
-v2 that pauses at 0 capacity units; Secrets Manager entries for the connection strings. Both IAM roles carry the bootstrap layer's
-task boundary, and the collector's metrics log group is created here so destroy removes it.
+What it creates: a VPC with a public and a private subnet in each of `zone_count` Availability
+Zones (two by default; production runs three) and no NAT gateway; an Application Load Balancer; an
+ECS cluster with a Fargate service (the API and an OpenTelemetry collector in each task) and a
+one-off migration task definition; Aurora PostgreSQL 17 Serverless v2 that pauses at 0 capacity
+units; Valkey with a replica in a second zone and automatic failover; Secrets Manager entries for
+the connection strings. Both IAM roles carry the bootstrap layer's task boundary, and the
+collector's metrics log group is created here so destroy removes it.
 
 Normally the `sandbox` GitHub workflow runs all of it. By hand:
 

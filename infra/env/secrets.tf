@@ -5,7 +5,8 @@
 # The passwords are ephemeral: generated during the apply and sent only to write-only arguments
 # (master_password_wo, secret_string_wo), so they never reach the state file. A write-only value is
 # sent again only when its version changes. The migration task creates each module's role with the
-# password in its secret, once, so a new version here needs an ALTER ROLE as well.
+# password in its secret, once, so a new version here needs an ALTER ROLE as well. The hosts in the
+# strings keep their names if the cluster is replaced (identifier plus the account's own suffix).
 
 locals {
   # Module key: its login role.

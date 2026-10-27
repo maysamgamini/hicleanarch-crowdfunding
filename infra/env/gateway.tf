@@ -107,7 +107,6 @@ resource "aws_ecs_task_definition" "gateway" {
     portMappings = [{ containerPort = 8080, protocol = "tcp" }]
     environment = [
       { name = "ReverseProxy__Clusters__monolith__Destinations__monolith__Address", value = "http://${aws_lb.internal.dns_name}/" },
-      { name = "EdgeLimits__Valkey", value = local.valkey_configuration },
       { name = "EdgeLimits__GatewayTasks", value = tostring(var.gateway_count) },
       { name = "EdgeLimits__PerSecond", value = tostring(var.edge_limit_per_second) },
       { name = "EdgeLimits__Burst", value = tostring(var.edge_limit_per_second * 2) },
@@ -115,6 +114,9 @@ resource "aws_ecs_task_definition" "gateway" {
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
       # A caller from CloudFront's edges is limited by the viewer's address, not the edge's.
       { name = "EdgeLimits__CloudFrontNetworks", value = join(",", [for e in data.aws_ec2_managed_prefix_list.cloudfront.entries : e.cidr]) },
+    ]
+    secrets = [
+      { name = "EdgeLimits__Valkey", valueFrom = aws_secretsmanager_secret.valkey["gateway"].arn },
     ]
     logConfiguration = {
       logDriver = "awslogs"
@@ -138,6 +140,8 @@ resource "aws_ecs_service" "gateway" {
   task_definition = aws_ecs_task_definition.gateway.arn
   desired_count   = var.gateway_count
   launch_type     = "FARGATE"
+  # ECS moves tasks back into a zone that lost them, once it recovers.
+  availability_zone_rebalancing = "ENABLED"
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
