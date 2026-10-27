@@ -8,7 +8,8 @@ second, and one pledge per backer token, while ECS scales the service out and in
 k6 run -e BASE_URL=http://<alb dns name> -e CAMPAIGN_ID=cmp_... -e BACKER_TOKENS=tokens.txt tests/load/launch.js
 ```
 
-It never runs in CI. Its results are recorded in the lessons only as measured on the sandbox.
+It never runs in CI, and the course never runs it on AWS: its numbers on the sandbox come only from
+a learner's own run in their own account.
 
 `round2.js` is the loop's Round 2 profile for [k6](https://grafana.com/docs/k6/latest/): a launch
 burst on one campaign, a hot limited tier, totals read through CloudFront, and a funded campaign

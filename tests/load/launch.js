@@ -3,7 +3,7 @@
 //   k6 run -e BASE_URL=http://<alb> -e CAMPAIGN_ID=cmp_... -e BACKER_TOKENS=tokens.txt tests/load/launch.js
 //
 // BACKER_TOKENS is a file with one backer token per line (each backer may pledge once per
-// campaign). The numbers this produces are recorded in the lesson only as measured.
+// campaign). The course never runs it on AWS; its numbers there come from the learner's own run.
 import http from 'k6/http';
 import { check } from 'k6';
 import { SharedArray } from 'k6/data';
