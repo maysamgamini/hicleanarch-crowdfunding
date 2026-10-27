@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 using Amazon.SQS.Model;
@@ -97,7 +98,8 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
     public async Task A_new_row_stores_what_it_owes_when_it_is_written()
     {
         var broker = Host(database.Provision().Settings);
-        var inProcess = Host(null);
+        // Every route in process: the broker section stays (rows in a shared database may owe it), the routes do not use it.
+        var inProcess = Host(database.Provision().Settings, brokerRoutes: false);
 
         var viaBroker = await new Scenario(database, broker).Publish(1_000);
         var allHere = await new Scenario(database, inProcess).Publish(1_000);
@@ -183,16 +185,24 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
         Host(database.Provision().Settings, brokerRoutes: false, recoverAfter: "00:00:30");
 
         await Within(TimeSpan.FromSeconds(15), async () => await Inbox(published.EventId) == 1);
-        Assert.Equal(1, await Scalar("SELECT count(*) FROM campaigns.outbox WHERE id = @value AND published_at IS NOT NULL", published.EventId));
+        // The row is marked once SNS has accepted it, and the reader can handle the message before that mark lands.
+        await Within(TimeSpan.FromSeconds(5), async () =>
+            await Scalar("SELECT count(*) FROM campaigns.outbox WHERE id = @value AND published_at IS NOT NULL", published.EventId) == 1);
         Assert.Equal(1, await Payees(published.CampaignId));
     }
 
     [Fact]
     public async Task Replay_events_publishes_a_range_again_and_the_inbox_makes_it_harmless()
     {
-        var host = Host(database.Provision().Settings);
+        var provisioned = database.Provision();
+        var host = Host(provisioned.Settings);
         var campaign = await new Scenario(database, host).Publish(1_000);
-        await Within(TimeSpan.FromSeconds(10), async () => await Payees(campaign.CampaignId) == 1);
+        await Within(TimeSpan.FromSeconds(20), async () => await Payees(campaign.CampaignId) == 1);
+        // The row is marked published once SNS has accepted it, which can land after the reader handled it;
+        // a replay takes only published rows.
+        await Within(TimeSpan.FromSeconds(10), async () => await Scalar(
+            "SELECT count(*) FROM campaigns.outbox WHERE type = 'CampaignPublished' AND published_at IS NOT NULL AND payload->>'campaignId' = @value",
+            campaign.CampaignId.ToString()) == 1);
         var from = DateTimeOffset.UtcNow.AddMinutes(-1).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
         var to = DateTimeOffset.UtcNow.AddMinutes(1).ToString("O", System.Globalization.CultureInfo.InvariantCulture);
         var output = new StringWriter();
@@ -202,7 +212,12 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
         Assert.Equal(0, exit);
         var replayed = int.Parse(output.ToString().Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture);
         Assert.True(replayed >= 1, output.ToString());
-        await Task.Delay(TimeSpan.FromSeconds(2), Ct); // the reader has the copies by now
+        // The copies have been read, met the inbox and been deleted: the payments queue is empty again.
+        using var sqs = database.Broker.Sqs();
+        var queue = provisioned.Settings["Events:Broker:Queues:payments:Url"]!;
+        await Within(TimeSpan.FromSeconds(20), async () =>
+            (await sqs.GetQueueAttributesAsync(queue, ["ApproximateNumberOfMessages", "ApproximateNumberOfMessagesNotVisible"], Ct))
+                .Attributes.Values.All(v => v == "0"));
         Assert.Equal(1, await Payees(campaign.CampaignId));
         Assert.Equal(1, await Scalar(
             $"SELECT count(*) FROM payments.inbox i JOIN campaigns.outbox o ON o.id = i.event_id WHERE i.handler = '{RecordPayee}' AND o.payload->>'campaignId' = @value",
@@ -218,22 +233,38 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
             await WriteRow(published, ["broker"], TimeSpan.Zero); // young: other tests' tasks recover only rows over 30 s old
         }
 
-        // Two programs with no broker: only their claims run here, nothing publishes what they claim.
-        var a = Host(null).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
-        var b = Host(null).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
+        // Two programs: their own recovery takes only rows ten minutes old, so only the test's claims take these.
+        var a = Host(database.Provision().Settings).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
+        var b = Host(database.Provision().Settings).Services.GetServices<IModuleEvents>().Single(m => m.Module == "Campaigns");
         var ids = events.Select(e => e.EventId).ToHashSet();
 
+        // Claims until one comes back empty. A broken claim hands out the same rows again and again: each
+        // claim must bring only rows no claim brought before, and a bounded number of claims must empty the
+        // outbox (what it owes now, other tests' rows included, plus room for rows written meanwhile), so
+        // that regression fails here instead of looping for ever.
+        const int Batch = 25;
+        var rounds = (int)(await Scalar($"SELECT count(*) FROM campaigns.outbox WHERE {OutboxModel.Unpublished} AND @value", true) / Batch) + 20;
+        var seen = new ConcurrentDictionary<Guid, byte>();
         async Task<List<Guid>> ClaimAll(IModuleEvents module)
         {
             var mine = new List<Guid>();
-            IReadOnlyList<OutboxRecord> claimed;
-            do
+            for (var round = 0; round < rounds; round++)
             {
-                claimed = await module.ClaimUnpublished(TimeSpan.Zero, 25, TimeSpan.FromMinutes(2), Ct);
+                var claimed = await module.ClaimUnpublished(TimeSpan.Zero, Batch, TimeSpan.FromMinutes(2), Ct);
+                if (claimed.Count == 0)
+                {
+                    return mine;
+                }
+
+                foreach (var id in claimed.Select(r => r.EventId))
+                {
+                    Assert.True(seen.TryAdd(id, 0), $"Row {id} was claimed twice.");
+                }
+
                 mine.AddRange(claimed.Select(r => r.EventId).Where(ids.Contains));
             }
-            while (claimed.Count > 0);
 
+            Assert.Fail($"{module.Module}'s claims did not run out after {rounds} rounds.");
             return mine;
         }
 
@@ -241,6 +272,90 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
 
         Assert.Equal(200, claims[0].Count + claims[1].Count);
         Assert.Equal(ids.Order(), claims.SelectMany(c => c).Order());
+    }
+
+    [Fact]
+    public async Task A_program_without_a_broker_refuses_to_start_while_a_row_still_owes_a_publish()
+    {
+        // Written under Broker, never published; then the program is started without its Events:Broker section.
+        var published = Published(Guid.NewGuid());
+        await WriteRow(published, ["broker"], TimeSpan.FromMinutes(5));
+        try
+        {
+            using var noBroker = database.StartHost(broker: false);
+
+            var refusal = Refusals.Of(noBroker);
+
+            Assert.Contains("rows still owe the broker a publish in: Campaigns", refusal, StringComparison.Ordinal);
+        }
+        finally
+        {
+            // The row stands for the test only: published, it owes nothing to the next host on this database.
+            await database.Execute($"UPDATE campaigns.outbox SET published_at = now() WHERE id = '{published.EventId}'");
+        }
+    }
+
+    /// <summary>
+    /// Records what reaches the broker. It holds its first call until the test opens the gate, as SNS
+    /// would while throttled, and takes only the test's own rows: rows of other tests' hosts on this
+    /// database that its recovery claims are refused, so they stay unpublished for their own hosts.
+    /// </summary>
+    private sealed class GatedPublisher(IReadOnlySet<Guid> ours) : IEventPublisher
+    {
+        public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public ConcurrentDictionary<Guid, int> Published { get; } = new();
+
+        public async Task<IReadOnlyCollection<Guid>> Publish(IReadOnlyList<OutboxRecord> records, CancellationToken cancellationToken)
+        {
+            await Gate.Task.WaitAsync(cancellationToken);
+            var mine = records.Select(r => r.EventId).Where(ours.Contains).ToList();
+            mine.ForEach(id => Published.AddOrUpdate(id, 1, (_, n) => n + 1));
+            return mine;
+        }
+    }
+
+    [Fact]
+    public async Task A_commit_larger_than_the_hand_off_queue_never_waits_and_recovery_publishes_the_overflow_once()
+    {
+        const int Capacity = 50, Rows = 500;
+        var events = Enumerable.Range(0, Rows).Select(_ => new Payments.Contracts.PaymentMethodSaved(
+            Guid.NewGuid(), DateTimeOffset.UtcNow, Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "pm_card_visa", "evt_test")).ToList();
+        var publisher = new GatedPublisher(events.Select(e => e.EventId).ToHashSet());
+        var host = database.StartHost(database.Provision().Settings, services => services
+            .AddSingleton<IEventPublisher>(publisher)
+            .Configure<OutboxPublishingOptions>(o =>
+            {
+                o.QueueCapacity = Capacity;
+                // Younger rows belong to the hand-off: recovery waits longer than the hand-off needs once the gate opens.
+                o.RecoverAfter = TimeSpan.FromSeconds(5);
+                o.RecoverEvery = TimeSpan.FromSeconds(1);
+                o.Claim = TimeSpan.FromSeconds(5);
+            }));
+        _hosts.Add(host);
+
+        // Payments' events owe only the broker in this host (its consumers are routed Broker): one commit of 500.
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<Payments.Infrastructure.Persistence.PaymentsDbContext>();
+            await using var transaction = await db.Database.BeginTransactionAsync(Ct);
+            await scope.ServiceProvider.GetRequiredKeyedService<BuildingBlocks.Application.IOutbox>(Payments.Contracts.PaymentsModuleName.Value)
+                .AddRange(events, Ct);
+            // The publisher is held: a commit that waited for room in the queue would never return.
+            await transaction.CommitAsync(Ct).WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        }
+
+        publisher.Gate.SetResult();
+        await Task.Delay(TimeSpan.FromSeconds(2), Ct); // the hand-off's rows go at once; recovery takes none before 5 s
+        var handedOff = publisher.Published.Count;
+
+        // What the queue held, plus at most the one batch of 100 the publisher had taken before it filled.
+        Assert.InRange(handedOff, 1, Capacity + 100);
+        await Within(TimeSpan.FromSeconds(30), () => Task.FromResult(publisher.Published.Count == Rows));
+        await Task.Delay(TimeSpan.FromSeconds(2), Ct); // another recovery pass: nothing is sent again
+        Assert.All(publisher.Published.Values, times => Assert.Equal(1, times));
+        Assert.Equal(Rows, await Scalar(
+            "SELECT count(*) FROM payments.outbox WHERE id = ANY (@value) AND published_at IS NOT NULL", events.Select(e => e.EventId).ToArray()));
     }
 
     [Theory]

@@ -19,6 +19,8 @@ public static class EventRegistration
             .With(sp.GetServices<EventSubscription>()));
         services.TryAddSingleton<EventRoutes>();
         services.AddHostedService<EventRoutesCheck>();
+        // A program with no broker publisher does not start while its outboxes owe the broker anything (s4-l02).
+        services.AddHostedService<OwedPublishesCheck>();
         services.TryAddSingleton<EventBus>();
         services.TryAddSingleton<OutboxDispatcher>();
         services.AddHostedService(sp => sp.GetRequiredService<OutboxDispatcher>());

@@ -23,9 +23,11 @@ public static class BrokerRegistration
     public static IServiceCollection AddBrokerEvents(this IServiceCollection services, IConfiguration configuration)
     {
         var options = configuration.GetSection("Events:Broker").Get<BrokerOptions>() ?? new BrokerOptions();
-        if (options.MaxCallsInFlight <= 0 || options.MaxConcurrentMessages <= 0 || options.WaitSeconds is < 0 or > 20)
+        if (options.MaxCallsInFlight <= 0 || options.MaxConcurrentMessages <= 0 || options.WaitSeconds is < 0 or > 20
+            || options.VisibilityTimeoutSeconds is < 3 or > 43_200)
         {
-            throw new InvalidOperationException("Events:Broker: MaxCallsInFlight and MaxConcurrentMessages must be positive, WaitSeconds 0 to 20.");
+            throw new InvalidOperationException(
+                "Events:Broker: MaxCallsInFlight and MaxConcurrentMessages must be positive, WaitSeconds 0 to 20, VisibilityTimeoutSeconds 3 to 43200.");
         }
 
         // Topics are named by module and queues by service; configuration keys ignore case, so these do too.

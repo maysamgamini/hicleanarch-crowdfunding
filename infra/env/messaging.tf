@@ -11,8 +11,12 @@ locals {
 
   subscriptions = { for s in local.broker_plan.subscriptions : "${s.queue}_from_${s.topic}" => s }
 
-  # Sized to the slowest handler (an inbox transaction plus a PSP call capped at 20 s), with margin:
-  # a message is not handed to a second reader while the first may still be working on it.
+  # How long a received message stays hidden. A message's handlers run one after another (up to three,
+  # each one transaction bounded by the 30 s command timeout), and a message may wait for one of the
+  # reader's four slots, so no fixed timeout covers the worst case. The reader receives no more messages
+  # than it has free slots, and extends each message's visibility by this much every third of it while
+  # the message is in hand (Events:Broker:VisibilityTimeoutSeconds, set from here). This value is then
+  # the time a message stays hidden after its task died before another task gets it.
   visibility_timeout_seconds = 60
 }
 
@@ -199,6 +203,7 @@ locals {
       { name = "Events__Producers__Payments__Campaigns", value = "Broker" },
       { name = "Events__Producers__Payments__Notifications", value = "Broker" },
       { name = "Events__Broker__Region", value = var.region },
+      { name = "Events__Broker__VisibilityTimeoutSeconds", value = tostring(local.visibility_timeout_seconds) },
     ],
     [for t, topic in aws_sns_topic.events : { name = "Events__Broker__Topics__${t}", value = topic.arn }],
     flatten([for q, queue in aws_sqs_queue.events : [

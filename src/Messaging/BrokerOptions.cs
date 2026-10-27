@@ -23,6 +23,14 @@ public sealed class BrokerOptions
     /// <summary>Messages one task handles at once, below the ten connections a module's role has per task.</summary>
     public int MaxConcurrentMessages { get; set; } = 4;
 
+    /// <summary>
+    /// The queues' visibility timeout, as <c>infra/env/messaging.tf</c> sets it. While a message is in this
+    /// task's hands, waiting for a slot or with its handlers running one after another, the reader extends
+    /// its visibility by this much every third of it, so no other reader gets it meanwhile. The queue's own
+    /// timeout then only bounds how long a message stays hidden after its task died.
+    /// </summary>
+    public int VisibilityTimeoutSeconds { get; set; } = 60;
+
     /// <summary>Long polling: how long a receive waits for a message.</summary>
     public int WaitSeconds { get; set; } = 20;
 

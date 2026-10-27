@@ -20,15 +20,18 @@ public sealed class BrokerTests(Aws aws)
     private static OutboxRecord Record(string producer, string type) =>
         new(producer, Guid.NewGuid(), type, "{}", "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01");
 
+    /// <summary>
+    /// The plan's filters, raw delivery and attributes, end to end: on Moto by default, and on the
+    /// learner's own AWS account with <c>BROKER_TESTS_ON_AWS=1</c> (see <see cref="BrokerTarget"/>).
+    /// </summary>
     [Fact]
-    public async Task Every_event_type_reaches_exactly_the_queues_the_subscriptions_file_names()
+    public async Task Every_event_type_reaches_exactly_the_queues_the_subscriptions_file_names_with_its_attributes()
     {
         var ct = TestContext.Current.CancellationToken;
         var plan = BrokerPlanTests.Plan;
-        var provisioned = await aws.Broker.Provision(plan, Prefix(), []);
-        using var sns = aws.Broker.Sns();
-        using var sqs = aws.Broker.Sqs();
-        using var publisher = new SnsEventPublisher(sns, new BrokerOptions { Topics = new(provisioned.Topics) });
+        await using var target = BrokerTarget.For(aws.Broker);
+        var (topics, queues) = await target.Build(plan, Prefix(), ct);
+        using var publisher = new SnsEventPublisher(target.Sns, new BrokerOptions { Topics = new(topics) });
         var file = EventSubscriptions.Load(Path.Combine(AppContext.BaseDirectory, "events", "subscriptions.json"));
 
         var records = file.Events.Select(e => Record(e.Value.Producer, e.Key)).ToList();
@@ -38,15 +41,28 @@ public sealed class BrokerTests(Aws aws)
         {
             var expected = file.Events
                 .Where(e => !modules.Contains(e.Value.Producer) && e.Value.Consumers.Any(modules.Contains))
-                .Select(e => e.Key).Order(StringComparer.Ordinal);
-            var url = provisioned.Settings[$"Events:Broker:Queues:{service}:Url"]!;
-            var received = (await ReceiveAll(sqs, url, ct)).Select(m => m.MessageAttributes[MessageAttributes.EventType].StringValue).Order(StringComparer.Ordinal);
-            Assert.Equal(expected, received);
+                .Select(e => e.Key).Order(StringComparer.Ordinal).ToList();
+            var received = await target.ReceiveAll(queues[service], expected.Count, ct);
+
+            Assert.Equal(expected, received.Select(m => m.MessageAttributes[MessageAttributes.EventType].StringValue).Order(StringComparer.Ordinal));
+            foreach (var message in received)
+            {
+                var sent = records.Single(r => r.Type == message.MessageAttributes[MessageAttributes.EventType].StringValue);
+                Assert.Equal(sent.Payload, message.Body); // raw delivery: the event itself, no SNS envelope
+                Assert.Equal(
+                    SnsEventPublisher.AttributesOf(sent).OrderBy(a => a.Key, StringComparer.Ordinal),
+                    message.MessageAttributes.Select(a => KeyValuePair.Create(a.Key, a.Value.StringValue)).OrderBy(a => a.Key, StringComparer.Ordinal));
+            }
         }
     }
 
+    /// <summary>
+    /// Four at most: the type, version and producer, and the traceparent of the change that wrote the
+    /// event. tracestate is not carried: nothing in this system writes vendor state, and the outbox keeps
+    /// no column for it (CQA-1509).
+    /// </summary>
     [Fact]
-    public void A_message_carries_five_attributes_at_most_and_the_guard_refuses_an_eleventh()
+    public void A_message_carries_four_attributes_at_most_and_the_guard_refuses_an_eleventh()
     {
         var attributes = SnsEventPublisher.AttributesOf(Record("Pledges", "PledgeChargeRequested"));
         Assert.Equal([MessageAttributes.EventType, MessageAttributes.EventVersion, MessageAttributes.Producer, MessageAttributes.TraceParent], attributes.Keys);
@@ -56,7 +72,7 @@ public sealed class BrokerTests(Aws aws)
     }
 
     [Fact]
-    public async Task A_commit_of_five_thousand_rows_is_published_ten_to_a_call_with_at_most_eight_calls_in_flight()
+    public async Task Five_thousand_rows_handed_to_the_publisher_go_ten_to_a_call_with_at_most_eight_calls_in_flight()
     {
         var ct = TestContext.Current.CancellationToken;
         int inFlight = 0, most = 0, largest = 0, calls = 0;
@@ -171,31 +187,6 @@ public sealed class BrokerTests(Aws aws)
         int seen;
         while (value > (seen = Volatile.Read(ref target)) && Interlocked.CompareExchange(ref target, value, seen) != seen)
         {
-        }
-    }
-
-    private static async Task<List<Message>> ReceiveAll(IAmazonSQS sqs, string queueUrl, CancellationToken ct)
-    {
-        var all = new List<Message>();
-        while (true)
-        {
-            var page = (await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
-            {
-                QueueUrl = queueUrl,
-                MaxNumberOfMessages = 10,
-                WaitTimeSeconds = 1,
-                MessageAttributeNames = ["All"],
-            }, ct)).Messages ?? [];
-            if (page.Count == 0)
-            {
-                return all;
-            }
-
-            all.AddRange(page);
-            foreach (var message in page)
-            {
-                await sqs.DeleteMessageAsync(queueUrl, message.ReceiptHandle, ct);
-            }
         }
     }
 }

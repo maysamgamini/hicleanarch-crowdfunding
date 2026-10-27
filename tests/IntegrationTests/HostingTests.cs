@@ -118,9 +118,9 @@ public sealed class HostingTests(Database database, Valkey valkey) : IClassFixtu
     {
         using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting(key, value));
 
-        var failure = Assert.ThrowsAny<Exception>(() => host.Server);
+        var refusal = Refusals.Of(host);
 
-        Assert.Contains(named, failure.ToString(), StringComparison.Ordinal);
+        Assert.Contains(named, refusal, StringComparison.Ordinal);
     }
 
     [Fact]

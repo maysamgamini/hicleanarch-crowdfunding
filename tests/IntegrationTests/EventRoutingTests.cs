@@ -40,13 +40,11 @@ public sealed class EventRoutingTests(Database database)
             .UseSetting("Auth:ClientId", Database.ClientId)
             .UseSetting("Auth:LocalSigningKey", Database.SigningKey));
 
-        var refused = Assert.ThrowsAny<Exception>(() => host.CreateClient());
+        var message = Refusals.Of(host);
 
-        var message = refused.ToString();
         Assert.Contains("Pledges consumes PaymentMethodSaved", message, StringComparison.Ordinal);
         Assert.Contains("Notifications consumes PledgeChargeSucceeded", message, StringComparison.Ordinal);
         Assert.Contains("Campaigns consumes CampaignSettled", message, StringComparison.Ordinal);
-        await Task.CompletedTask;
     }
 
     [Fact]

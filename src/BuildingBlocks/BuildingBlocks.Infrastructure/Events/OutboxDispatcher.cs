@@ -101,12 +101,18 @@ public sealed partial class OutboxDispatcher(
 
     private double _oldestUndeliveredSeconds;
 
+    private double _oldestUnpublishedSeconds;
+
     public string Name => "outbox dispatcher";
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         Meter.CreateObservableGauge("outbox.oldest_undelivered_age", () => _oldestUndeliveredSeconds, "s",
             "Age of the oldest event not yet delivered to every handler");
+        // Measured here, not by the publisher: a program that runs without one (an Events:Broker section
+        // dropped, a rollback) still reports the rows it leaves owing a publish, and the alarm sees them.
+        Meter.CreateObservableGauge("outbox.oldest_unpublished_age", () => _oldestUnpublishedSeconds, "s",
+            "Age of the oldest event that owes a publish to the broker");
         var workers = Enumerable.Range(0, Math.Max(1, options.Value.MaxConcurrentDeliveries)).Select(_ => Work(stoppingToken));
         await Task.WhenAll([Sweep(stoppingToken), .. workers]);
     }
@@ -329,16 +335,21 @@ public sealed partial class OutboxDispatcher(
         }
     }
 
-    /// <summary>True when every module was read; a module that cannot be reached is logged and tried on the next sweep.</summary>
+    /// <summary>
+    /// True when every module was read; a module that cannot be reached is logged and tried on the next
+    /// sweep. Each sweep also measures the oldest row that owes a publish, whether or not a publisher runs here.
+    /// </summary>
     private async Task<bool> SweepOnce(DateTimeOffset? occurredBefore, CancellationToken cancellationToken)
     {
         var all = true;
         var oldest = 0.0;
+        var oldestUnpublished = 0.0;
         foreach (var module in modules)
         {
             try
             {
                 oldest = Math.Max(oldest, (await module.OldestUndeliveredAge(cancellationToken))?.TotalSeconds ?? 0);
+                oldestUnpublished = Math.Max(oldestUnpublished, (await module.OldestUnpublishedAge(cancellationToken))?.TotalSeconds ?? 0);
                 foreach (var record in await module.Undelivered(occurredBefore, _handledTypes, options.Value.SweepBatch, options.Value.RedeliverAfter, cancellationToken))
                 {
                     if (!_delivering.ContainsKey(record.EventId) && _queued.TryAdd(record.EventId, 0))
@@ -360,6 +371,7 @@ public sealed partial class OutboxDispatcher(
         }
 
         _oldestUndeliveredSeconds = oldest;
+        _oldestUnpublishedSeconds = oldestUnpublished;
         return all;
     }
 

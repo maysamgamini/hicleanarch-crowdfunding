@@ -1,4 +1,3 @@
-using System.Diagnostics.Metrics;
 using System.Threading.Channels;
 
 using BuildingBlocks.Infrastructure.Hosting;
@@ -68,20 +67,14 @@ public sealed partial class OutboxPublisher(
 {
     private const int Batch = 100;
 
-    private static readonly Meter Meter = new(OutboxDispatcher.MeterName);
-
     private readonly CancellationTokenSource _taking = new();
-
-    private double _oldestUnpublishedSeconds;
 
     public string Name => "outbox publisher";
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        Meter.CreateObservableGauge("outbox.oldest_unpublished_age", () => _oldestUnpublishedSeconds, "s",
-            "Age of the oldest event that owes a publish to the broker");
-        await Task.WhenAll(Drain(stoppingToken), Recover(stoppingToken));
-    }
+    // The age of the oldest unpublished row is measured by the dispatcher's sweep, which every program
+    // runs, so the alarm on it does not depend on this publisher running.
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.WhenAll(Drain(stoppingToken), Recover(stoppingToken));
 
     public async Task Stop(CancellationToken cancellationToken) => await _taking.CancelAsync();
 
@@ -122,7 +115,6 @@ public sealed partial class OutboxPublisher(
         {
             while (!stoppingToken.IsCancellationRequested)
             {
-                var oldest = 0.0;
                 foreach (var module in modules)
                 {
                     try
@@ -137,8 +129,6 @@ public sealed partial class OutboxPublisher(
                             }
                         }
                         while (claimed.Count == settings.RecoveryBatch && !_taking.IsCancellationRequested);
-
-                        oldest = Math.Max(oldest, (await module.OldestUnpublishedAge(stoppingToken))?.TotalSeconds ?? 0);
                     }
                     catch (Exception e) when (e is not OperationCanceledException)
                     {
@@ -146,7 +136,6 @@ public sealed partial class OutboxPublisher(
                     }
                 }
 
-                _oldestUnpublishedSeconds = oldest;
                 await Task.Delay(settings.RecoverEvery, stoppingToken);
             }
         }

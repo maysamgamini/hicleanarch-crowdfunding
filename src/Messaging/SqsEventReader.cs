@@ -66,12 +66,20 @@ public sealed partial class SqsEventReader(
         base.Dispose();
     }
 
+    /// <summary>
+    /// Receives no more messages than this task can start handling now (a slot held for the first, and
+    /// those free when the receive goes out), and keeps every received message invisible to other readers
+    /// from the moment it arrives until it is deleted or hidden on purpose: the slot it may wait for, and
+    /// handlers that run one after another, never let its visibility timeout run out while it is in hand.
+    /// </summary>
     private async Task Read(string service, CancellationToken stoppingToken)
     {
         var queueUrl = options.Queues[service].Url;
         using var taking = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, _taking.Token);
+        var inHand = new List<Task>();
         while (!taking.IsCancellationRequested)
         {
+            inHand.RemoveAll(t => t.IsCompleted);
             try
             {
                 if (await Paused(service, taking.Token))
@@ -81,16 +89,33 @@ public sealed partial class SqsEventReader(
                     continue;
                 }
 
-                var received = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
+                await _handling.WaitAsync(taking.Token);
+            }
+            catch (OperationCanceledException) when (taking.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                LogReceiveFailed(logger, e, queueUrl);
+                continue;
+            }
+
+            var slotHeld = true;
+            List<InHand> received = [];
+            var started = 0;
+            try
+            {
+                var response = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
                 {
                     QueueUrl = queueUrl,
-                    MaxNumberOfMessages = 10,
+                    MaxNumberOfMessages = Math.Min(10, 1 + _handling.CurrentCount),
                     WaitTimeSeconds = options.WaitSeconds,
                     MessageAttributeNames = ["All"],
                     MessageSystemAttributeNames = ["ApproximateReceiveCount"],
                 }, taking.Token);
-                var messages = received.Messages ?? [];
-                if (messages.Count == 0)
+                received = [.. (response.Messages ?? []).Select(m => new InHand(sqs, logger, TimeSpan.FromSeconds(options.VisibilityTimeoutSeconds), queueUrl, m, stoppingToken))];
+                if (received.Count == 0)
                 {
                     continue;
                 }
@@ -100,20 +125,23 @@ public sealed partial class SqsEventReader(
                 receive?.SetTag("messaging.system", "aws_sqs");
                 receive?.SetTag("messaging.operation.type", "receive");
                 receive?.SetTag("messaging.destination.name", service);
-                receive?.SetTag("messaging.batch.message_count", messages.Count);
+                receive?.SetTag("messaging.batch.message_count", received.Count);
                 var context = receive?.Context ?? default;
-                var handling = new List<Task>();
-                foreach (var message in messages)
+                foreach (var message in received)
                 {
-                    await _handling.WaitAsync(taking.Token);
-                    handling.Add(HandleAndRelease(service, queueUrl, message, context, stoppingToken));
-                }
+                    if (!slotHeld)
+                    {
+                        await _handling.WaitAsync(taking.Token); // another queue took the slot meanwhile; this one stays invisible
+                    }
 
-                await Task.WhenAll(handling);
+                    slotHeld = false;
+                    inHand.Add(HandleAndRelease(service, message, context, stoppingToken));
+                    started++;
+                }
             }
             catch (OperationCanceledException) when (taking.IsCancellationRequested)
             {
-                return;
+                break;
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
@@ -124,10 +152,25 @@ public sealed partial class SqsEventReader(
                 }
                 catch (OperationCanceledException)
                 {
-                    return;
+                    break;
+                }
+            }
+            finally
+            {
+                if (slotHeld)
+                {
+                    _handling.Release();
+                }
+
+                // Received but not started (the task is stopping): no longer kept invisible, so they come back for another task.
+                foreach (var message in received.Skip(started))
+                {
+                    await message.DisposeAsync();
                 }
             }
         }
+
+        await Task.WhenAll(inHand);
     }
 
     private async Task<bool> Paused(string service, CancellationToken cancellationToken)
@@ -146,27 +189,90 @@ public sealed partial class SqsEventReader(
         return false;
     }
 
-    private async Task HandleAndRelease(string service, string queueUrl, Message message, ActivityContext received, CancellationToken cancellationToken)
+    private async Task HandleAndRelease(string service, InHand inHand, ActivityContext received, CancellationToken cancellationToken)
     {
+        var message = inHand.Message;
         try
         {
-            if (await Handle(service, message, cancellationToken, received))
+            var handled = await Handle(service, message, cancellationToken, received);
+            await inHand.DisposeAsync(); // no more extensions: the delete, or the wait set below, is the last word
+            if (handled)
             {
-                await sqs.DeleteMessageAsync(queueUrl, message.ReceiptHandle, cancellationToken);
+                await sqs.DeleteMessageAsync(inHand.QueueUrl, message.ReceiptHandle, cancellationToken);
             }
             else
             {
-                await HideFor(queueUrl, message, cancellationToken);
+                await HideFor(inHand.QueueUrl, message, cancellationToken);
             }
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
             LogHandleFailed(logger, e, message.MessageId);
-            await HideFor(queueUrl, message, cancellationToken);
+            await inHand.DisposeAsync();
+            await HideFor(inHand.QueueUrl, message, cancellationToken);
         }
         finally
         {
+            await inHand.DisposeAsync();
             _handling.Release();
+        }
+    }
+
+    /// <summary>
+    /// A received message, kept invisible to other readers: every third of the visibility timeout, its
+    /// visibility is set to a whole timeout again, until it is disposed.
+    /// </summary>
+    private sealed class InHand : IAsyncDisposable
+    {
+        private readonly CancellationTokenSource _keeping;
+        private readonly Task _extending;
+        private int _disposed;
+
+        public InHand(IAmazonSQS sqs, ILogger logger, TimeSpan timeout, string queueUrl, Message message, CancellationToken cancellationToken)
+        {
+            QueueUrl = queueUrl;
+            Message = message;
+            _keeping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _extending = Extend(sqs, logger, timeout, _keeping.Token);
+        }
+
+        public string QueueUrl { get; }
+
+        public Message Message { get; }
+
+        public async ValueTask DisposeAsync()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 1)
+            {
+                return;
+            }
+
+            await _keeping.CancelAsync();
+            await _extending;
+            _keeping.Dispose();
+        }
+
+        private async Task Extend(IAmazonSQS sqs, ILogger logger, TimeSpan timeout, CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (true)
+                {
+                    await Task.Delay(timeout / 3, cancellationToken);
+                    try
+                    {
+                        await sqs.ChangeMessageVisibilityAsync(QueueUrl, Message.ReceiptHandle, (int)timeout.TotalSeconds, cancellationToken);
+                    }
+                    catch (Exception e) when (e is not OperationCanceledException)
+                    {
+                        LogExtendFailed(logger, e, Message.MessageId); // tried again at the next third
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // disposed: handled, hidden on purpose, or the task is stopping
+            }
         }
     }
 
@@ -233,6 +339,9 @@ public sealed partial class SqsEventReader(
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not delay message {MessageId}; it comes back after the queue's visibility timeout")]
     private static partial void LogHideFailed(ILogger logger, Exception exception, string messageId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not keep message {MessageId} hidden while it is handled; another reader may get it too, and the inbox ignores the copy")]
+    private static partial void LogExtendFailed(ILogger logger, Exception exception, string messageId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Receiving from {QueueUrl} failed; trying again")]
     private static partial void LogReceiveFailed(ILogger logger, Exception exception, string queueUrl);

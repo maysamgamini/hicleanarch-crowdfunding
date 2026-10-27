@@ -52,7 +52,7 @@ locals {
       metric      = "outbox.oldest_unpublished_age"
       meter       = "CrowdFunding.Outbox"
       threshold   = 300
-      description = "An event has waited more than 5 minutes to be published to its topic: SNS refuses it, or no task is publishing (s4-l02)."
+      description = "An event has waited more than 5 minutes to be published to its topic: SNS refuses it, or no task is publishing (s4-l02). Every task reports this gauge, with or without a publisher, so a task left without its Events:Broker section raises it too."
     }
     broker_subscriptions = {
       metric      = "broker.subscription_problems"
