@@ -45,6 +45,8 @@ module "service" {
   # monolith's queue, which it knows by ARN only (s4-l10).
   environment = [
     { name = "Payments__Budget__Prefix", value = local.shared.psp_budget_prefix },
+    # The tasks that share that budget: while Valkey is down each keeps its share of the limits (CQA-1008).
+    { name = "Valkey__Tasks", value = tostring(local.shared.psp_budget_tasks) },
     # Only the monolith's service identity may call the internal endpoint (s4-l04).
     { name = "Auth__ServiceClients__0", value = local.shared.monolith_service_client_id },
     { name = "Events__Routes__Pledges", value = "Broker" },
@@ -130,4 +132,17 @@ moved {
 moved {
   from = aws_cloudwatch_metric_alarm.running_tasks
   to   = module.service.aws_cloudwatch_metric_alarm.running_tasks
+}
+
+# More tasks than the shared layer counts in the PSP budget's fleet would, while Valkey is down, take
+# more than the PSP allows between them (CQA-1008). Checked before anything is planned to change.
+resource "terraform_data" "psp_budget_share" {
+  input = var.desired_count
+
+  lifecycle {
+    precondition {
+      condition     = var.desired_count <= local.shared.payments_max_count
+      error_message = "desired_count is more than the shared layer's payments_max_count, so the tasks would take more than the PSP budget while Valkey is down: raise payments_max_count first."
+    }
+  }
 }

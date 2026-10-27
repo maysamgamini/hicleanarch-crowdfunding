@@ -3,11 +3,24 @@
 # is nothing to undo them to: Payments runs only in its own service (infra/services/payments), the
 # gateway always sends it Payments' four public paths, and the sandbox deploys it before the monolith.
 
+variable "payments_max_count" {
+  description = "The most tasks Payments' service runs (its root's desired_count may not exceed it): the tasks that share the PSP budget, so while Valkey is down each takes 1/payments_max_count of the limits."
+  type        = number
+  default     = 2
+
+  validation {
+    condition     = var.payments_max_count >= 1
+    error_message = "payments_max_count is 1 or more."
+  }
+}
+
 locals {
   # Through Service Connect.
   payments_public_address = "http://payments:8080/"
   # The PSP budget's bucket names in Valkey (Payments:Budget:Prefix), for Payments' tasks alone.
   psp_budget_prefix = "psp"
+  # The most tasks that share that budget: while Valkey is down each takes this share of the limits.
+  psp_budget_tasks = var.payments_max_count
 }
 
 # The gateway's own security group: the one shared task group of Release 1 is split into the gateway's,

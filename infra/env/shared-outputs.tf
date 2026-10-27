@@ -25,6 +25,9 @@ locals {
     monolith_service_client_id = aws_cognito_user_pool_client.monolith_service.id
     # The PSP budget's bucket names in Valkey.
     psp_budget_prefix = local.psp_budget_prefix
+    # The fleet that shares it, and Payments' part of that fleet: each task's share while Valkey is down.
+    psp_budget_tasks   = local.psp_budget_tasks
+    payments_max_count = var.payments_max_count
 
     payments_security_group_id = aws_security_group.payments.id
     # Payments' own cluster (payments-database.tf).
