@@ -21,18 +21,19 @@ locals {
   }
 
   # Requests, 5xx and latency, from Service Connect's own metrics for each service's inbound calls
-  # (milliseconds); the monolith's internal load balancer is gone since s5-l10.
+  # (milliseconds); the monolith's internal load balancer is gone since s5-l10. RequestCount is published
+  # under DiscoveryName, the 5xx count and the response time under TargetDiscoveryName only (CQA-2123).
   service_requests = {
     pledges = {
       requests = ["AWS/ECS", "RequestCount", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "pledges", "DiscoveryName", "pledges-public"]
-      errors   = ["AWS/ECS", "HTTPCode_Target_5XX_Count", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "pledges", "DiscoveryName", "pledges-public"]
-      latency  = ["AWS/ECS", "TargetResponseTime", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "pledges", "DiscoveryName", "pledges-public"]
+      errors   = ["AWS/ECS", "HTTPCode_Target_5XX_Count", "TargetDiscoveryName", "pledges-public"]
+      latency  = ["AWS/ECS", "TargetResponseTime", "TargetDiscoveryName", "pledges-public"]
       p99_max  = 1000 # milliseconds
     }
     payments = {
       requests = ["AWS/ECS", "RequestCount", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments-public"]
-      errors   = ["AWS/ECS", "HTTPCode_Target_5XX_Count", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments-public"]
-      latency  = ["AWS/ECS", "TargetResponseTime", "ClusterName", aws_ecs_cluster.main.name, "ServiceName", "payments", "DiscoveryName", "payments-public"]
+      errors   = ["AWS/ECS", "HTTPCode_Target_5XX_Count", "TargetDiscoveryName", "payments-public"]
+      latency  = ["AWS/ECS", "TargetResponseTime", "TargetDiscoveryName", "payments-public"]
       p99_max  = 1000 # milliseconds
     }
   }
@@ -188,7 +189,7 @@ resource "aws_cloudwatch_metric_alarm" "payments_5xx" {
     metric {
       namespace   = "AWS/ECS"
       metric_name = "HTTPCode_Target_5XX_Count"
-      dimensions  = { ClusterName = aws_ecs_cluster.main.name, ServiceName = "payments", DiscoveryName = "payments-public" }
+      dimensions  = { TargetDiscoveryName = "payments-public" }
       stat        = "Sum"
       period      = 60
     }

@@ -7,6 +7,8 @@
 
 # The share of the service's requests that answered 5xx, minute by minute (Service Connect's metrics for
 # its public port): above 5% in 2 of the last 3 minutes. A quiet minute has no data and counts as good.
+# RequestCount is published under DiscoveryName, HTTPCode_Target_5XX_Count under TargetDiscoveryName only
+# (CQA-2123): with the requests' dimensions the 5xx count had no data, and the alarm never fired.
 resource "aws_cloudwatch_metric_alarm" "deployment_5xx" {
   alarm_name          = "${local.prefix}-deployment-5xx"
   alarm_description   = "More than 5% of the requests to ${var.name} answered 5xx in 2 of the last 3 minutes. ECS rolls a running deployment back on it; it pages nobody."
@@ -24,13 +26,16 @@ resource "aws_cloudwatch_metric_alarm" "deployment_5xx" {
   }
 
   dynamic "metric_query" {
-    for_each = { errors = "HTTPCode_Target_5XX_Count", requests = "RequestCount" }
+    for_each = {
+      errors   = { metric = "HTTPCode_Target_5XX_Count", dimensions = { TargetDiscoveryName = "${var.name}-public" } }
+      requests = { metric = "RequestCount", dimensions = { ClusterName = var.shared.cluster_name, ServiceName = var.name, DiscoveryName = "${var.name}-public" } }
+    }
     content {
       id = metric_query.key
       metric {
         namespace   = "AWS/ECS"
-        metric_name = metric_query.value
-        dimensions  = { ClusterName = var.shared.cluster_name, ServiceName = var.name, DiscoveryName = "${var.name}-public" }
+        metric_name = metric_query.value.metric
+        dimensions  = metric_query.value.dimensions
         stat        = "Sum"
         period      = 60
       }

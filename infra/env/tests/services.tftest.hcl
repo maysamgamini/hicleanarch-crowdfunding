@@ -333,17 +333,21 @@ run "the_gateway_sends_campaigns_paths_to_the_service_once_it_serves_them" {
 }
 
 # The service module names each service's public port <name>-public in Service Connect (s5-l03), and
-# Service Connect's metrics carry that name: an alarm on any other DiscoveryName never sees a request.
+# Service Connect's metrics carry that name: an alarm on any other name never sees a request. RequestCount
+# carries it as DiscoveryName; HTTPCode_Target_5XX_Count and TargetResponseTime as TargetDiscoveryName,
+# and only so (CQA-2123, the Amazon ECS CloudWatch metrics page).
 run "service_connect_alarms_read_each_services_public_port" {
   command = apply
 
   assert {
-    condition     = alltrue([for name, alarm in aws_cloudwatch_metric_alarm.service_latency : alarm.dimensions.DiscoveryName == "${name}-public"])
-    error_message = "Each service's latency alarm reads its <name>-public port, as the service module names it."
+    condition     = alltrue([for name, alarm in aws_cloudwatch_metric_alarm.service_latency : alarm.dimensions == tomap({ TargetDiscoveryName = "${name}-public" })])
+    error_message = "Each service's latency alarm reads its <name>-public port, under TargetDiscoveryName."
   }
 
   assert {
-    condition     = alltrue([for q in aws_cloudwatch_metric_alarm.payments_5xx.metric_query : alltrue([for m in q.metric : m.dimensions.DiscoveryName == "payments-public"])])
-    error_message = "Payments' 5xx alarm reads payments-public, the port the gateway's requests reach."
+    condition = alltrue([for q in aws_cloudwatch_metric_alarm.payments_5xx.metric_query : alltrue([for m in q.metric :
+      m.metric_name == "RequestCount" ? m.dimensions.DiscoveryName == "payments-public" : m.dimensions == tomap({ TargetDiscoveryName = "payments-public" })
+    ])])
+    error_message = "Payments' 5xx alarm reads payments-public, the port the gateway's requests reach, under each metric's own dimension."
   }
 }

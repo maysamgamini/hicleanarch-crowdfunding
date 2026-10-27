@@ -23,10 +23,14 @@ variable "requests" {
     Where the service's request metrics are, or null for a service with no public endpoint. The load
     balancer's target group (AWS/ApplicationELB, latency in seconds) or Service Connect (AWS/ECS, latency
     in milliseconds): latency_units_per_ms converts the objective's threshold into the metric's unit.
+    target_dimensions, when set, are the errors' and latency metrics' own: Service Connect publishes
+    RequestCount under DiscoveryName but HTTPCode_Target_5XX_Count and TargetResponseTime under
+    TargetDiscoveryName (CQA-2123, the Amazon ECS CloudWatch metrics page).
   EOT
   type = object({
     namespace            = string
     dimensions           = map(string)
+    target_dimensions    = optional(map(string))
     requests_metric      = string
     errors_metric        = string
     latency_metric       = string

@@ -3,7 +3,9 @@
 # infra/modules/service-signals, under names its own deploy role may change (infra/bootstrap/services.tf).
 #
 # - Availability and latency of its public endpoints, from Service Connect's metrics for the public
-#   port (AWS/ECS, milliseconds): every request the gateway sends it.
+#   port (AWS/ECS, milliseconds): every request the gateway sends it. RequestCount is published under
+#   DiscoveryName; HTTPCode_Target_5XX_Count and TargetResponseTime under TargetDiscoveryName only
+#   (CQA-2123), counting what Service Connect clients in the namespace send it: the gateway is one.
 # - The lag of the queue it reads, if it reads one: the age of the oldest message, minute by minute.
 locals {
   # arn:aws:sqs:<region>:<account>:<name>
@@ -22,6 +24,7 @@ module "signals" {
   requests = {
     namespace            = "AWS/ECS"
     dimensions           = { ClusterName = var.shared.cluster_name, ServiceName = var.name, DiscoveryName = "${var.name}-public" }
+    target_dimensions    = { TargetDiscoveryName = "${var.name}-public" }
     requests_metric      = "RequestCount"
     errors_metric        = "HTTPCode_Target_5XX_Count"
     latency_metric       = "TargetResponseTime"

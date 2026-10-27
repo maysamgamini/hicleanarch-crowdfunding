@@ -6,6 +6,8 @@ locals {
   # Zero or one source of request metrics, so a service without endpoints gets no request widgets.
   request_sources = var.requests == null ? [] : [var.requests]
   dimension_list  = flatten([for r in local.request_sources : [for k, v in r.dimensions : [k, v]]])
+  # The errors' and latency metrics' own dimensions (Service Connect: TargetDiscoveryName, CQA-2123).
+  target_dimension_list = flatten([for k, v in local.target_dimensions : [k, v]])
 
   request_widgets = flatten([for r in local.request_sources : [
     {
@@ -17,7 +19,7 @@ locals {
         period = 60
         metrics = [
           concat([var.requests.namespace, var.requests.requests_metric], local.dimension_list),
-          concat([var.requests.namespace, var.requests.errors_metric], local.dimension_list),
+          concat([var.requests.namespace, var.requests.errors_metric], local.target_dimension_list),
         ]
       }
     },
@@ -28,8 +30,8 @@ locals {
         region = var.region
         period = 60
         metrics = [
-          concat([var.requests.namespace, var.requests.latency_metric], local.dimension_list, [{ stat = "p50" }]),
-          concat([var.requests.namespace, var.requests.latency_metric], local.dimension_list, [{ stat = "p99" }]),
+          concat([var.requests.namespace, var.requests.latency_metric], local.target_dimension_list, [{ stat = "p50" }]),
+          concat([var.requests.namespace, var.requests.latency_metric], local.target_dimension_list, [{ stat = "p99" }]),
         ]
       }
     },

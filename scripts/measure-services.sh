@@ -26,10 +26,12 @@ queries=$(jq --arg cluster "$cluster" --arg prefix "$project-sandbox-" '
   [.services | to_entries[] | .key as $s | .value as $v | ($s | gsub("[^a-z]"; "")) as $id |
     # Service Connect's metrics for the service's public port, as infra/env/service-monitoring.tf reads them.
     [{ Name: "ClusterName", Value: $cluster }, { Name: "ServiceName", Value: $v.ecsService }, { Name: "DiscoveryName", Value: $v.discoveryName }] as $dims |
+    # The 5xx count and the response time are published under TargetDiscoveryName only (CQA-2123).
+    [{ Name: "TargetDiscoveryName", Value: $v.discoveryName }] as $target |
     { Id: "\($id)req", MetricStat: { Metric: { Namespace: "AWS/ECS", MetricName: "RequestCount", Dimensions: $dims }, Period: 3600, Stat: "Sum" } },
-    { Id: "\($id)err", MetricStat: { Metric: { Namespace: "AWS/ECS", MetricName: "HTTPCode_Target_5XX_Count", Dimensions: $dims }, Period: 3600, Stat: "Sum" } },
-    { Id: "\($id)avg", MetricStat: { Metric: { Namespace: "AWS/ECS", MetricName: "TargetResponseTime", Dimensions: $dims }, Period: 3600, Stat: "Average" } },
-    { Id: "\($id)max", MetricStat: { Metric: { Namespace: "AWS/ECS", MetricName: "TargetResponseTime", Dimensions: $dims }, Period: 3600, Stat: "Maximum" } },
+    { Id: "\($id)err", MetricStat: { Metric: { Namespace: "AWS/ECS", MetricName: "HTTPCode_Target_5XX_Count", Dimensions: $target }, Period: 3600, Stat: "Sum" } },
+    { Id: "\($id)avg", MetricStat: { Metric: { Namespace: "AWS/ECS", MetricName: "TargetResponseTime", Dimensions: $target }, Period: 3600, Stat: "Average" } },
+    { Id: "\($id)max", MetricStat: { Metric: { Namespace: "AWS/ECS", MetricName: "TargetResponseTime", Dimensions: $target }, Period: 3600, Stat: "Maximum" } },
     { Id: "\($id)lag", MetricStat: { Metric: { Namespace: "AWS/SQS", MetricName: "ApproximateAgeOfOldestMessage", Dimensions: [{ Name: "QueueName", Value: "\($prefix)\($v.queue)" }] }, Period: 3600, Stat: "Maximum" } }
   ]' tests/load/slos.json)
 aws cloudwatch get-metric-data --start-time "$start" --end-time "$end" --metric-data-queries "$queries" > "$dir/cloudwatch.raw.json"

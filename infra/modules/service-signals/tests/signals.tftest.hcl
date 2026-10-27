@@ -12,6 +12,7 @@ variables {
   requests = {
     namespace            = "AWS/ECS"
     dimensions           = { ClusterName = "hicleanarch-sandbox", ServiceName = "pledges", DiscoveryName = "pledges-public" }
+    target_dimensions    = { TargetDiscoveryName = "pledges-public" }
     requests_metric      = "RequestCount"
     errors_metric        = "HTTPCode_Target_5XX_Count"
     latency_metric       = "TargetResponseTime"
@@ -205,5 +206,18 @@ run "a_consumer_without_endpoints_has_only_its_lag" {
   assert {
     condition     = length(aws_cloudwatch_metric_alarm.request_window) == 0 && length(aws_cloudwatch_composite_alarm.burn) == 2
     error_message = "No endpoint, no request objectives: only the lag pages."
+  }
+}
+
+# CQA-2123: Service Connect publishes RequestCount under DiscoveryName, and HTTPCode_Target_5XX_Count and
+# TargetResponseTime under TargetDiscoveryName only. Each metric of a window reads its own dimensions.
+run "each_metric_reads_the_dimensions_it_is_published_under" {
+  command = plan
+
+  assert {
+    condition = alltrue(flatten([for a in aws_cloudwatch_metric_alarm.request_window : [for q in a.metric_query : [for m in q.metric :
+      m.metric_name == "RequestCount" ? m.dimensions == tomap(var.requests.dimensions) : m.dimensions == tomap({ TargetDiscoveryName = "pledges-public" })
+    ]]]))
+    error_message = "A window reads the 5xx count or the response time under the requests' dimensions, where it has no data."
   }
 }

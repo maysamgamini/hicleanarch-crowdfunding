@@ -162,3 +162,15 @@ run "pages_on_the_objectives_slos_json_names" {
     error_message = "Each of the three objectives has its four windows."
   }
 }
+
+# CQA-2123: the rollback alarm reads the 5xx count under TargetDiscoveryName, where Service Connect
+# publishes it, and the requests under DiscoveryName.
+run "the_rollback_alarm_reads_each_metric_where_it_is_published" {
+  command = plan
+
+  assert {
+    condition = (module.service.deployment_5xx_metrics.errors == { HTTPCode_Target_5XX_Count = tomap({ TargetDiscoveryName = "payments-public" }) }
+    && module.service.deployment_5xx_metrics.requests.RequestCount.DiscoveryName == "payments-public")
+    error_message = "The rollback alarm reads a metric under dimensions it is not published under."
+  }
+}

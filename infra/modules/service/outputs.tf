@@ -92,3 +92,8 @@ output "execution_secrets_policy" {
   description = "The execution role's rendered secrets policy (the roots' tests read it, CQA-2120)."
   value       = data.aws_iam_policy_document.secrets.json
 }
+
+output "deployment_5xx_metrics" {
+  description = "The rollback alarm's metrics and their dimensions (CQA-2123: the roots' tests read them)."
+  value       = { for q in aws_cloudwatch_metric_alarm.deployment_5xx.metric_query : q.id => { for m in q.metric : m.metric_name => m.dimensions } if q.id != "share" }
+}

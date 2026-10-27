@@ -85,6 +85,9 @@ locals {
 
   latency_threshold = var.requests == null ? 0 : var.latency_objective.threshold_ms * var.requests.latency_units_per_ms
 
+  # The errors' and latency metrics' dimensions: their own if given (Service Connect's), else the requests'.
+  target_dimensions = var.requests == null ? {} : coalesce(var.requests.target_dimensions, var.requests.dimensions)
+
   composites = merge(
     { for k in distinct([for w in local.request_windows : "${w.objective}-${w.speed}"]) : k => {
       long  = "${k}-long"
@@ -116,18 +119,18 @@ resource "aws_cloudwatch_metric_alarm" "request_window" {
 
   dynamic "metric_query" {
     for_each = each.value.objective == "availability" ? {
-      errors   = { metric = var.requests.errors_metric, stat = "Sum" }
-      requests = { metric = var.requests.requests_metric, stat = "Sum" }
+      errors   = { metric = var.requests.errors_metric, stat = "Sum", dimensions = local.target_dimensions }
+      requests = { metric = var.requests.requests_metric, stat = "Sum", dimensions = var.requests.dimensions }
       } : {
-      within = { metric = var.requests.latency_metric, stat = "TC(:${local.latency_threshold})" }
-      timed  = { metric = var.requests.latency_metric, stat = "SampleCount" }
+      within = { metric = var.requests.latency_metric, stat = "TC(:${local.latency_threshold})", dimensions = local.target_dimensions }
+      timed  = { metric = var.requests.latency_metric, stat = "SampleCount", dimensions = local.target_dimensions }
     }
     content {
       id = metric_query.key
       metric {
         namespace   = var.requests.namespace
         metric_name = metric_query.value.metric
-        dimensions  = var.requests.dimensions
+        dimensions  = metric_query.value.dimensions
         stat        = metric_query.value.stat
         period      = each.value.seconds
       }
