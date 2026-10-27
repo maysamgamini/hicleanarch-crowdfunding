@@ -84,6 +84,12 @@ creator=$(token creator)
 backer=$(token backer)
 [[ "$creator" == *.*.* && "$backer" == *.*.* ]] || fail "the token command printed no token"
 
+step "a notification preference: the gateway sends it to the Notifications service (s5-l03)"
+expect 204 "$(call PUT /v1/me/notifications/campaign_updates "$backer" '{"enabled":true}')" "set a preference"
+"${compose[@]}" logs notifications 2>/dev/null | grep -q '/v1/me/notifications/campaign_updates' ||
+  [[ "$(sql "SELECT count(*) FROM notifications.notification_preferences WHERE kind = 'campaign_updates'")" -ge 1 ]] ||
+  fail "the preference was not stored"
+
 deadline=$(utc $(($(date +%s) + deadline_in)))
 step "draft: a campaign with its deadline at $deadline"
 draft='{"title":"Local smoke","goal_minor":5000,"currency":"USD","deadline":"'"$deadline"'","tiers":[{"title":"Thanks","min_pledge_minor":500,"limit":null}]}'

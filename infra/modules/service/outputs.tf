@@ -55,3 +55,11 @@ output "queue_and_topic" {
   description = "The only queue and topic the task role names."
   value       = compact([var.queue_arn, var.topic_arn])
 }
+
+output "ecs_service" {
+  value = one(aws_ecs_service.service[*])
+}
+
+output "task_definitions_kept" {
+  value = aws_ecs_task_definition.service.skip_destroy && aws_ecs_task_definition.migrate.skip_destroy
+}

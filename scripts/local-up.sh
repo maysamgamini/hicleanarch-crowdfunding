@@ -41,5 +41,5 @@ mkdir -p .local
 "${compose[@]}" run --rm -T broker-setup >.local/broker.env.new
 mv .local/broker.env.new .local/broker.env
 assert_local # again, with the topics and queues just written
-"${compose[@]}" up -d --wait payments api gateway
+"${compose[@]}" up -d --wait payments notifications api gateway
 echo "the local stack is up: the gateway is on http://localhost:${LOCAL_GATEWAY_PORT:-8080}"

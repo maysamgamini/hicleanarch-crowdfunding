@@ -41,6 +41,16 @@ locals {
     # task (s4-l10). Never the shared cluster's owner: the monolith's migrate step prepares no Payments.
     payments_database_owner_secret_arn = aws_secretsmanager_secret.payments_own["owner"].arn
 
+    # The Notifications service (s5-l03): its network place, its own secrets and queue, what it may read.
+    notifications_security_group_id     = aws_security_group.notifications.id
+    notifications_connection_secret_arn = aws_secretsmanager_secret.connection["notifications"].arn
+    notifications_queue_arn             = aws_sqs_queue.events["notifications"].arn
+    notifications_queue_url             = aws_sqs_queue.events["notifications"].id
+    notifications_from                  = var.notifications_from
+    user_pool_id                        = aws_cognito_user_pool.users.id
+    user_pool_arn                       = aws_cognito_user_pool.users.arn
+    ses_identity_arns                   = [for identity in aws_sesv2_email_identity.sender : identity.arn]
+
     # Each schema's migration role on the shared cluster (s5-l01), for the service that will own it.
     migrator_secret_arns = { for module, secret in aws_secretsmanager_secret.migrator : module => secret.arn }
   }

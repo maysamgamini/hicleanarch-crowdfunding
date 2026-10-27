@@ -39,7 +39,7 @@ jobs:
       - name: fmt, validate and test every root
         run: |
           tofu fmt -check -recursive infra
-          for dir in infra/bootstrap infra/env infra/services/payments; do
+          for dir in infra/bootstrap infra/env infra/services/payments infra/services/notifications; do
             if ls "$dir"/*.tf >/dev/null 2>&1; then
               tofu -chdir="$dir" init -backend=false -input=false -lockfile=readonly
               tofu -chdir="$dir" validate

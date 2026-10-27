@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!-- The Notifications service: the Notifications module in a host of its own, made from templates/service. -->
+  <PropertyGroup>
+    <RootNamespace>CrowdFunding.Notifications.Host</RootNamespace>
+    <AssemblyName>CrowdFunding.Notifications.Host</AssemblyName>
+  </PropertyGroup>
+
+  <!-- One module, and nothing of the others: they reach it through events and its contracts. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\Modules\Notifications\Notifications.csproj" />
+    <ProjectReference Include="..\..\Messaging\Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The same list of event consumers every host reads. -->
+    <Content Include="..\..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Label="BuildingBlocks">
+    <PackageReference Include="CrowdFunding.BuildingBlocks.Infrastructure" />
+  </ItemGroup>
+
+</Project>

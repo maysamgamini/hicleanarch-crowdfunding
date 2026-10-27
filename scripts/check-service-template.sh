@@ -7,6 +7,7 @@ cd "$(dirname "$0")/.."
 
 # <module> <layout> <port>, as each host was created.
 services=(
+  "Notifications single 5181"
 )
 
 scratch=$(mktemp -d)

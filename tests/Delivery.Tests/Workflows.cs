@@ -9,6 +9,7 @@ internal static partial class Workflows
 {
     public const string Payments = ".github/workflows/payments.yml";
     public const string Monolith = ".github/workflows/monolith.yml";
+    public const string Notifications = ".github/workflows/notifications.yml";
 
     public static readonly string[] All = [.. Directory.GetFiles(Path.Combine(Repository.Root, ".github", "workflows"), "*.yml")
         .Order(StringComparer.Ordinal)

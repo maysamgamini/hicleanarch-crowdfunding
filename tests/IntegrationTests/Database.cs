@@ -153,7 +153,8 @@ public sealed class Database : IAsyncLifetime
 
     /// <summary>Topics and queues for one pair of hosts: each reads only its own service's queue.</summary>
     public MotoBroker.Provisioned Provision() =>
-        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], Plan.Services.Keys).GetAwaiter().GetResult();
+        // The monolith reads the queues of the services whose modules it runs; Payments.Host beside it reads its own.
+        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], [.. Plan.Services.Keys.Where(s => s != "payments")]).GetAwaiter().GetResult();
 
     /// <summary>A monolith and its Payments service on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).</summary>
     /// <paramref name="brokerRoutes"/> false routes Notifications' consumers InProcess again: s5-l02's rollback.

@@ -1,0 +1,198 @@
+name: notifications
+
+# The Notifications service's pipeline (lesson s5-l03): contract tests, then Notifications built and
+# tested alone from its solution filter, then (on main) its image pushed with its own deploy role and,
+# if a sandbox is up, Notifications deployed into it. Until s5-l04 src/Modules/Notifications also runs
+# the monolith's pipeline, which still compiles the module for its InProcess mode.
+# Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
+on:
+  push:
+    branches: [main]
+    tags: ["s*-l*"]
+    paths:
+      - "src/Services/Notifications.Host/**"
+      - "infra/services/notifications/**"
+      - "infra/env/shared-outputs.tf"
+      - "infra/env/notifications-network.tf"
+      - "infra/env/messaging.tf"
+      - "src/Modules/Notifications/**"
+      - "src/Modules/*/*.Contracts/**"
+      - "src/BuildingBlocks/**"
+      - "events/subscriptions.json"
+      - "tests/Notifications.Host.Tests/**"
+      - "tests/Directory.Build.props"
+      - "Notifications.slnf"
+      - "System.slnf"
+      - "tests/IntegrationTests/**"
+      - "tests/ArchitectureTests/**"
+      - "tests/Contracts.ConsumerTests/**"
+      - "tests/Shared/**"
+      - "Contracts.slnf"
+      - "CrowdFunding.slnx"
+      - "BuildingBlocks.slnx"
+      - "Directory.Build.props"
+      - "Directory.Packages.props"
+      - "global.json"
+      - "NuGet.config"
+      - "dotnet-tools.json"
+      - ".editorconfig"
+      - ".dockerignore"
+      - "scripts/deploy-service.sh"
+      - "scripts/run-migration.sh"
+      - "templates/service/**"
+      - "scripts/push-image.sh"
+      - ".github/workflows/notifications.yml"
+      - "src/Messaging/**"
+      - "tests/Contracts.ProducerTests/**"
+      - "Contracts.slnx"
+      - "events/broker-subscriptions.json"
+      - "scripts/check-contracts.sh"
+      - "scripts/pack-contracts.sh"
+  pull_request:
+    paths:
+      - "src/Services/Notifications.Host/**"
+      - "infra/services/notifications/**"
+      - "infra/env/shared-outputs.tf"
+      - "infra/env/notifications-network.tf"
+      - "infra/env/messaging.tf"
+      - "src/Modules/Notifications/**"
+      - "src/Modules/*/*.Contracts/**"
+      - "src/BuildingBlocks/**"
+      - "events/subscriptions.json"
+      - "tests/Notifications.Host.Tests/**"
+      - "tests/Directory.Build.props"
+      - "Notifications.slnf"
+      - "System.slnf"
+      - "tests/IntegrationTests/**"
+      - "tests/ArchitectureTests/**"
+      - "tests/Contracts.ConsumerTests/**"
+      - "tests/Shared/**"
+      - "Contracts.slnf"
+      - "CrowdFunding.slnx"
+      - "BuildingBlocks.slnx"
+      - "Directory.Build.props"
+      - "Directory.Packages.props"
+      - "global.json"
+      - "NuGet.config"
+      - "dotnet-tools.json"
+      - ".editorconfig"
+      - ".dockerignore"
+      - "scripts/deploy-service.sh"
+      - "scripts/run-migration.sh"
+      - "templates/service/**"
+      - "scripts/push-image.sh"
+      - ".github/workflows/notifications.yml"
+      - "src/Messaging/**"
+      - "tests/Contracts.ProducerTests/**"
+      - "Contracts.slnx"
+      - "events/broker-subscriptions.json"
+      - "scripts/check-contracts.sh"
+      - "scripts/pack-contracts.sh"
+
+# Read the code, nothing else: the default token may be read-write.
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  TF_IN_AUTOMATION: "1"
+
+jobs:
+  contracts:
+    # First, so a contract change that would break the other service stops before either builds.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+      - run: dotnet pack BuildingBlocks.slnx -o artifacts/packages
+      - run: dotnet test Contracts.slnf
+      - name: Contract tests, on the Contracts' source (s4-l06)
+        run: dotnet test tests/Contracts.ProducerTests
+      - name: A contract change since the base carries the version it needs
+        # A pull request against its base branch; a push against the commit it follows. A new branch has no base.
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [ -n "$BASE" ] && [ "$BASE" != "0000000000000000000000000000000000000000" ]; then
+            scripts/check-contracts.sh "$BASE"
+          fi
+
+  build:
+    needs: contracts
+    runs-on: ubuntu-latest
+    # A hung test fails the job in minutes, not after GitHub's default of six hours.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+      - run: dotnet pack BuildingBlocks.slnx -o artifacts/packages
+      - name: Pack the Contracts, which every module builds against as packages (s4-l06)
+        run: dotnet pack Contracts.slnx -o artifacts/packages
+      - name: Notifications builds alone, from its solution filter
+        run: dotnet build Notifications.slnf
+      - name: Test
+        # A test that stops making progress is aborted with a dump of what it was doing.
+        run: dotnet test Notifications.slnf --no-build --blame-hang-timeout 5m
+      - name: The tests that run both services, built from this commit
+        # The rule tests start the monolith beside the other services: whichever changed is checked
+        # against the rest at the same commit.
+        run: dotnet test System.slnf --blame-hang-timeout 5m
+      - name: Every model change has its migration
+        run: |
+          dotnet tool restore
+          dotnet ef migrations has-pending-model-changes --project src/Modules/Notifications --no-build
+      - name: The image builds
+        run: docker build -q -f src/Services/Notifications.Host/Dockerfile -t crowdfunding-notifications:ci .
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: deploy-notifications
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_NOTIFICATIONS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - name: Push the image
+        id: image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          repository="$REGISTRY/hicleanarch/crowdfunding-notifications"
+          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Notifications.Host/Dockerfile
+          echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      # The sandbox is up while its outputs document exists (infra/env/shared-outputs.tf).
+      - name: Is a sandbox up?
+        id: sandbox
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          if aws s3api head-object --bucket "$STATE_BUCKET" --key env/shared.json >/dev/null 2>&1; then
+            echo "up=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No sandbox is up: the image is pushed, nothing is deployed." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
+        if: steps.sandbox.outputs.up == 'true'
+        with:
+          tofu_version_file: .opentofu-version
+          tofu_wrapper: false
+      - name: Deploy Notifications, and only Notifications
+        if: steps.sandbox.outputs.up == 'true'
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          IMAGE: ${{ steps.image.outputs.image }}
+        run: ./scripts/deploy-service.sh notifications "$IMAGE"

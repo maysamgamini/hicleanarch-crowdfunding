@@ -63,11 +63,13 @@ public sealed class TwoHosts : IDisposable
                 .UseSetting("Events:Broker:Backoff:0", "00:00:01")
                 .UseSetting("Events:Broker:WaitSeconds", "2")
                 .UseSetting("Outbox:Publishing:RecoverAfter", "00:10:00");
-            foreach (var (key, value) in broker)
+            // Payments.Host reads its own queue only: one it runs none of the modules of would hide their messages.
+            foreach (var (key, value) in broker.Where(kv => !kv.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase)))
             {
                 web.UseSetting(key, value);
             }
 
+            web.UseSetting("Events:Broker:Read:0", "payments");
             configure?.Invoke(web);
         });
 

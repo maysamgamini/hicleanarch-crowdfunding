@@ -162,6 +162,64 @@ services:
       payments-migrate:
         condition: service_completed_successfully
 
+  # The Notifications service (infra/services/notifications, lesson s5-l03). Its schema is handed once to
+  # its migration role (infra/env/notifications-network.tf, the hand-over task), as the cluster's owner;
+  # from then on its migrate step runs as that role and the monolith's skips the schema.
+  notifications-handover:
+    profiles: [stack]
+    build: &notifications-image
+      context: .
+      dockerfile: src/Services/Notifications.Host/Dockerfile
+    command: ["hand-over"]
+    environment:
+      <<: [*aws-local, *local-auth]
+      ConnectionStrings__Owner: Host=postgres;Port=5432;Database=crowdfunding;Username=postgres;Password=postgres;GSS Encryption Mode=Disable
+      ConnectionStrings__Migrator: Host=postgres;Port=5432;Database=crowdfunding;Username=notifications_migrator;Password=notifications_migrator_dev;GSS Encryption Mode=Disable
+      ConnectionStrings__Notifications: Host=postgres;Port=5432;Database=crowdfunding;Username=notifications_app;Password=notifications_dev;GSS Encryption Mode=Disable
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  notifications-migrate:
+    profiles: [stack]
+    build: *notifications-image
+    command: ["migrate"]
+    environment:
+      <<: [*aws-local, *local-auth]
+      ConnectionStrings__Migrator: Host=postgres;Port=5432;Database=crowdfunding;Username=notifications_migrator;Password=notifications_migrator_dev;GSS Encryption Mode=Disable
+      ConnectionStrings__Notifications: Host=postgres;Port=5432;Database=crowdfunding;Username=notifications_app;Password=notifications_dev;GSS Encryption Mode=Disable
+    depends_on:
+      notifications-handover:
+        condition: service_completed_successfully
+
+  notifications:
+    profiles: [stack]
+    build: *notifications-image
+    environment:
+      <<: [*aws-local, *local-auth]
+      ASPNETCORE_ENVIRONMENT: Production
+      OTEL_SERVICE_NAME: crowdfunding-notifications
+      ConnectionStrings__Notifications: Host=postgres;Port=5432;Database=crowdfunding;Username=notifications_app;Password=notifications_dev;GSS Encryption Mode=Disable
+      Notifications__Sender: InMemory
+      ForwardedHeaders__KnownNetwork: ${LOCAL_SUBNET:-10.250.0.0/24}
+      Events__Routes__Notifications: Broker
+      Events__Broker__Read__0: notifications
+    env_file:
+      - path: .local/broker.env
+        required: false
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "dotnet", "CrowdFunding.Notifications.Host.dll", "health"]
+      interval: 2s
+      retries: 60
+    depends_on:
+      postgres:
+        condition: service_healthy
+      moto:
+        condition: service_healthy
+      notifications-migrate:
+        condition: service_completed_successfully
+
   # The monolith (infra/env/ecs.tf, local.api_container): Campaigns, Pledges and Notifications; Payments'
   # events through the broker, and StartCardSetup over HTTP to the Payments service.
   api:
@@ -225,6 +283,7 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ReverseProxy__Clusters__monolith__Destinations__monolith__Address: http://api:8080/
       ReverseProxy__Clusters__payments__Destinations__payments__Address: http://payments:8080/
+      ReverseProxy__Clusters__notifications__Destinations__notifications__Address: http://notifications:8080/
       EdgeLimits__GatewayTasks: "1"
       EdgeLimits__Valkey: valkey:6379,user=gateway,password=gateway_dev
       ForwardedHeaders__KnownNetwork: ${LOCAL_SUBNET:-10.250.0.0/24}

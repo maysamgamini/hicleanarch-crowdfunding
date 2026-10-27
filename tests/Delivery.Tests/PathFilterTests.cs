@@ -66,6 +66,7 @@ public class PathFilterTests
     [Theory]
     [InlineData(Workflows.Payments, "Payments.slnf")]
     [InlineData(Workflows.Monolith, "Monolith.slnf")]
+    [InlineData(Workflows.Notifications, "Notifications.slnf")]
     public void A_change_to_any_project_a_service_builds_runs_its_pipeline(string workflow, string filter)
     {
         var paths = Workflows.Paths(workflow, "push");
@@ -77,12 +78,14 @@ public class PathFilterTests
     [Theory]
     [InlineData(Workflows.Payments)]
     [InlineData(Workflows.Monolith)]
+    [InlineData(Workflows.Notifications)]
     public void Both_pipelines_run_the_tests_that_start_both_services(string workflow) =>
         Assert.Contains("run: dotnet test System.slnf", Repository.Read(workflow), StringComparison.Ordinal);
 
     [Theory]
     [InlineData(Workflows.Payments)]
     [InlineData(Workflows.Monolith)]
+    [InlineData(Workflows.Notifications)]
     public void A_change_to_a_contract_runs_the_contract_tests_first(string workflow)
     {
         var text = Repository.Read(workflow);

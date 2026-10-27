@@ -105,6 +105,18 @@ public sealed partial class SubscriptionCheck(
             .ToList();
 
         // What this host's modules take from the broker arrives in their service's queue, which it must read.
+        // A host that reads a queue none of whose modules it runs would hide their messages from the hosts that do
+        // (lesson s5-l03: the monolith that set Notifications' mode to Remote must stop reading its queue).
+        foreach (var service in options.Read)
+        {
+            var key = plan.Services.Keys.FirstOrDefault(k => string.Equals(k, service, StringComparison.OrdinalIgnoreCase));
+            var served = key is null ? [] : plan.Services[key].Concat(options.AlsoServe.GetValueOrDefault(key) ?? []).ToList();
+            if (!served.Any(routes.RunsHere))
+            {
+                problems.Add($"This host reads the {service} queue but runs none of the modules it serves ({string.Join(", ", served)}) (Events:Broker:Read).");
+            }
+        }
+
         foreach (var inbound in routed.Where(e => routes.RunsHere(e.Consumer)).GroupBy(e => (e.Producer, Service: plan.ServiceOf(e.Consumer))))
         {
             var (producer, service) = inbound.Key;

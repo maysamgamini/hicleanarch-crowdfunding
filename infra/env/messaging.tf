@@ -229,8 +229,10 @@ locals {
       { name = "Events__Broker__Queues__notifications__Arn", value = aws_sqs_queue.events["notifications"].arn },
       { name = "Events__Broker__Queues__notifications__Url", value = aws_sqs_queue.events["notifications"].id },
       { name = "Events__Broker__Read__0", value = "monolith" },
-      { name = "Events__Broker__Read__1", value = "notifications" },
     ],
+    # While the monolith runs Notifications it reads its queue too; once Remote (s5-l03) only Notifications.Host does.
+    var.notifications_mode == "InProcess" ? [{ name = "Events__Broker__Read__1", value = "notifications" }] : [],
+    [{ name = "Modules__Notifications__Mode", value = var.notifications_mode }],
     [for t in local.monolith_topics : { name = "Events__Broker__Topics__${t}", value = aws_sns_topic.events[t].arn }],
   )
 }

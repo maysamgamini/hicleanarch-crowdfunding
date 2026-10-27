@@ -1,0 +1,11 @@
+{
+  "solution": {
+    "path": "CrowdFunding.slnx",
+    "projects": [
+      "src\\Messaging\\Messaging.csproj",
+      "src\\Modules\\Notifications\\Notifications.csproj",
+      "src\\Services\\Notifications.Host\\Notifications.Host.csproj",
+      "tests\\Notifications.Host.Tests\\Notifications.Host.Tests.csproj"
+    ]
+  }
+}

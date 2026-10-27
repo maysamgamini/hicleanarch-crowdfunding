@@ -36,10 +36,29 @@ if (args.FirstOrDefault() == "token")
 builder.AddServiceDefaults("crowdfunding-api", BrokerHosting.IfConfigured);
 builder.Services.AddOpenApi();
 
+// Notifications runs here (Modules:Notifications:Mode = InProcess) or only in its own service (Remote,
+// lesson s5-l03). Remote refuses to start while an outbox row here still owes Notifications an in-process
+// delivery, which only a host that runs it can make; `open-sinks --module Notifications` says when none is left.
+var notificationsHere = builder.Configuration.GetValue("Modules:Notifications:Mode", "InProcess") switch
+{
+    "InProcess" => true,
+    "Remote" => false,
+    var mode => throw new InvalidOperationException($"Modules:Notifications:Mode is InProcess or Remote, not {mode}."),
+};
+builder.Services.AddOpenSinks();
+builder.Services.AddServiceCommand(new ServiceCommand("open-sinks", (services, rest, ct) => OpenSinks.Run(services, rest, Console.Out, ct)));
+if (!notificationsHere)
+{
+    builder.Services.AddOpenSinksCheck(NotificationsModule.Name);
+}
+
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
 builder.Services.AddPledgesModule(builder.Configuration);
-builder.Services.AddNotificationsModule(builder.Configuration);
+if (notificationsHere)
+{
+    builder.Services.AddNotificationsModule(builder.Configuration);
+}
 // Payments runs only in its own service (s4-l10): this program sends it StartCardSetup over HTTP and
 // exchanges events with it through the broker, and knows nothing of it but its Contracts.
 builder.Services.AddPaymentsClient(builder.Configuration);
@@ -49,7 +68,10 @@ var app = builder.Build();
 app.UseServiceDefaults();
 app.MapCampaignsEndpoints();
 app.MapPledgesEndpoints();
-app.MapNotificationsEndpoints();
+if (notificationsHere)
+{
+    app.MapNotificationsEndpoints();
+}
 
 // The API's description, generated from the endpoints, for a developer's tools and the tests; not published in production.
 if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))

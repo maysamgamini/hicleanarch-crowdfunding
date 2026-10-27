@@ -10,6 +10,7 @@ public class ProjectGraphTests
     private const string PaymentsFilter = "Payments.slnf";
     private const string MonolithFilter = "Monolith.slnf";
     private const string ContractsFilter = "Contracts.slnf";
+    private const string NotificationsFilter = "Notifications.slnf";
 
     /// <summary>The tests that start or load both services (s4-l10); both pipelines run them.</summary>
     private const string SystemFilter = "System.slnf";
@@ -28,7 +29,7 @@ public class ProjectGraphTests
     /// <summary>The shared platform beside the BuildingBlocks: the broker adapter and the remote-call pipeline (s4-l02, s4-l03).</summary>
     private static readonly string[] Platform = ["src/Messaging/", "src/RemoteCalls/"];
 
-    public static TheoryData<string> Filters() => [PaymentsFilter, MonolithFilter, ContractsFilter, SystemFilter];
+    public static TheoryData<string> Filters() => [PaymentsFilter, MonolithFilter, NotificationsFilter, ContractsFilter, SystemFilter];
 
     [Theory]
     [MemberData(nameof(Filters))]
@@ -47,7 +48,7 @@ public class ProjectGraphTests
     [Fact]
     public void Every_project_is_built_by_a_service_pipeline()
     {
-        var built = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter))
+        var built = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter)).Union(Repository.FilterProjects(NotificationsFilter))
             .Union(Repository.FilterProjects(SystemFilter)).Append(ThisProject).Append(ContractProducerTests);
 
         Assert.Empty(Repository.SolutionProjects().Except(built));
