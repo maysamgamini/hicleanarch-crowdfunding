@@ -37,6 +37,8 @@ mock_provider "aws" {
           },
           "monolith_service_client_id": "mockmonolith",
           "psp_budget_prefix": "hicleanarch",
+          "psp_budget_tasks": 2,
+          "payments_max_count": 2,
           "payments_security_group_id": "sg-0123456789abcdef0",
           "payments_connection_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:payments-AbCdEf",
           "payments_webhook_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:webhook-AbCdEf",
@@ -97,4 +99,15 @@ run "its_roles_name_only_its_own_secrets_queue_and_topic" {
     condition     = alltrue([for arn in module.service.queue_and_topic : strcontains(arn, ":hicleanarch-payments")]) && length(module.service.queue_and_topic) == 2
     error_message = "The task role names another service's queue or topic."
   }
+}
+
+run "refuses_more_tasks_than_share_the_psp_budget" {
+  command = plan
+
+  variables {
+    service_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-payments:mock"
+    desired_count = 3
+  }
+
+  expect_failures = [terraform_data.psp_budget_share]
 }

@@ -54,7 +54,7 @@ public sealed partial class ValkeyUsersTests(Valkey valkey) : IClassFixture<Valk
         await using var payments = await SignIn("payments", ",tiebreaker=,configChannel=");
         var db = payments.GetDatabase();
 
-        var grant = await new ValkeyTokenBuckets(payments, NullLogger<ValkeyTokenBuckets>.Instance)
+        var grant = await new ValkeyTokenBuckets(payments, new DegradedTokenBuckets(1, TimeProvider.System), NullLogger<ValkeyTokenBuckets>.Instance)
             .TryTake([new Bucket($"psp:{Guid.NewGuid():N}", new BucketRate(10, 10))], Ct);
         Assert.True(grant.Granted);
         await db.StringSetAsync("payments:pause", "now");
