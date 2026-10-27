@@ -13,14 +13,14 @@ namespace Payments.Application;
 /// one customer, one setup and the same client secret. A setup left behind by a pledge that rolled
 /// back is never completed by a backer, and a completed one for a pledge that no longer waits
 /// activates nothing. A setup first takes its turn in the card-setup lane (lesson s3-a04); a full
-/// lane answers 429 with the wait.
+/// lane gives the pledge a place in line and answers 429 with the wait until its turn.
 /// </summary>
 public sealed class StartCardSetupHandler(IPaymentProvider psp, IPspCustomers customers, ICardSetups setups, ITokenBuckets buckets, PspBudget budget)
     : ICommandHandler<StartCardSetup, CardSetupStarted>
 {
     public async Task<Result<CardSetupStarted>> Handle(StartCardSetup command, CancellationToken cancellationToken)
     {
-        var turn = await buckets.TryTake(budget.CardSetup, cancellationToken);
+        var turn = await buckets.TryEnter(budget.CardSetupLane, command.PledgeId.ToString("N"), cancellationToken);
         if (!turn.Granted)
         {
             return Result.Failure<CardSetupStarted>(PaymentErrors.CardSetupLaneFull(turn.RetryAfter));

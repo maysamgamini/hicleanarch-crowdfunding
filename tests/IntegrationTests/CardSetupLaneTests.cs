@@ -72,6 +72,42 @@ public sealed class CardSetupLaneTests : IDisposable
     }
 
     [Fact]
+    public async Task Waiting_backers_are_served_in_order_each_told_its_own_wait_and_asking_early_keeps_the_place()
+    {
+        var given = new Scenario(_database, _host);
+        var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));
+        await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", NewCard(campaign), Ct); // takes the lane's token
+
+        // Three more new-card backers, one setup every two seconds: their places are 2, 4 and 6 s away.
+        var waiting = new List<(HttpClient Backer, string PledgeId, int Wait)>();
+        for (var i = 0; i < 3; i++)
+        {
+            var backer = given.Backer(Guid.NewGuid());
+            var body = await (await backer.PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", NewCard(campaign), Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct);
+            waiting.Add((backer, body.GetProperty("pledge_id").GetString()!, body.GetProperty("setup").GetProperty("retry_after_seconds").GetInt32()));
+        }
+
+        Assert.Equal([2, 4, 6], waiting.Select(w => w.Wait));
+
+        static async Task<(HttpStatusCode Status, double? Wait)> Ask((HttpClient Backer, string PledgeId, int Wait) w)
+        {
+            var answer = await w.Backer.PostAsync($"/v1/pledges/{w.PledgeId}/card-setup", null, Ct);
+            return (answer.StatusCode, answer.Headers.RetryAfter?.Delta?.TotalSeconds);
+        }
+
+        Assert.Equal((HttpStatusCode.TooManyRequests, 6), await Ask(waiting[2])); // too soon: the place is kept, not lost
+        _laneClock.Advance(TimeSpan.FromSeconds(2));
+        Assert.Equal((HttpStatusCode.TooManyRequests, 4), await Ask(waiting[2])); // asking again moves nobody back
+        Assert.Equal((HttpStatusCode.TooManyRequests, 2), await Ask(waiting[1]));
+        Assert.Equal(HttpStatusCode.OK, (await Ask(waiting[0])).Status);
+        _laneClock.Advance(TimeSpan.FromSeconds(2));
+        Assert.Equal(HttpStatusCode.OK, (await Ask(waiting[1])).Status);
+        Assert.Equal((HttpStatusCode.TooManyRequests, 2), await Ask(waiting[2]));
+        _laneClock.Advance(TimeSpan.FromSeconds(2));
+        Assert.Equal(HttpStatusCode.OK, (await Ask(waiting[2])).Status);
+    }
+
+    [Fact]
     public async Task Only_the_backer_of_a_waiting_pledge_can_ask_for_its_card_form()
     {
         var given = new Scenario(_database, _host);

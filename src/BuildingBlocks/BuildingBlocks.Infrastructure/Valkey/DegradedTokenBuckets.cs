@@ -22,6 +22,10 @@ public sealed class DegradedTokenBuckets(int tasks, TimeProvider clock) : IToken
 
     public Task Drain(Bucket bucket, CancellationToken cancellationToken) => _local.Drain(Share(bucket), cancellationToken);
 
+    /// <summary>Places in line are this task's own while Valkey is down: a backer who asks another task waits again there.</summary>
+    public Task<TokenGrant> TryEnter(Lane lane, string place, CancellationToken cancellationToken) =>
+        _local.TryEnter(lane with { Turns = Share(lane.Turns), AlsoTake = [.. lane.AlsoTake.Select(Share)] }, place, cancellationToken);
+
     private Bucket Share(Bucket bucket) =>
         bucket with { Rate = new BucketRate(bucket.Rate.PerSecond / tasks, Math.Max(1, bucket.Rate.Capacity / tasks)) };
 }

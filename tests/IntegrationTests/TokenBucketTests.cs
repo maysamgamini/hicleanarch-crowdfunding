@@ -105,6 +105,36 @@ public sealed class TokenBucketTests(Valkey valkey) : IClassFixture<Valkey>, IDi
     }
 
     [Fact]
+    public async Task A_lane_serves_its_waiting_callers_in_order_at_its_rate()
+    {
+        var buckets = Task();
+        var account = NewBucket(perSecond: 1_000, capacity: 1_000);
+        var lane = new Lane(NewBucket(perSecond: 5, capacity: 1), [account], TimeSpan.FromMinutes(1)); // a turn every 200 ms
+        Assert.True((await buckets.TryEnter(lane, "first", Ct)).Granted);
+
+        var waits = new List<TimeSpan>();
+        foreach (var place in new[] { "a", "b", "c" })
+        {
+            var refused = await buckets.TryEnter(lane, place, Ct);
+            Assert.False(refused.Granted);
+            waits.Add(refused.RetryAfter);
+        }
+
+        // Each is told its own turn, a turn apart, in the order they asked (the clock moves a little meanwhile).
+        Assert.True(waits[0] < waits[1] && waits[1] < waits[2]);
+        Assert.InRange((waits[2] - waits[0]).TotalMilliseconds, 200, 400);
+        var early = await buckets.TryEnter(lane, "c", Ct);
+        Assert.False(early.Granted);
+        Assert.True(early.RetryAfter <= waits[2]); // asking early keeps the place
+
+        await System.Threading.Tasks.Task.Delay(waits[2] + TimeSpan.FromMilliseconds(100), Ct);
+        foreach (var place in new[] { "c", "a", "b" })
+        {
+            Assert.True((await buckets.TryEnter(lane, place, Ct)).Granted); // each at its turn, whoever comes back first
+        }
+    }
+
+    [Fact]
     public async Task Without_Valkey_the_buckets_live_in_the_process_and_keep_the_same_rule()
     {
         var buckets = new InProcessTokenBuckets(TimeProvider.System);
