@@ -43,11 +43,15 @@ public static class CampaignsModule
         services.AddEventHandler<FundingCancelled, RecordFundingCancelled>(CampaignsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, FollowFundingDecision>(CampaignsModuleName.Value);
         services.AddEventHandler<Payments.Contracts.CampaignSettled, FollowSettlement>(CampaignsModuleName.Value);
+        // Queries read the reader endpoint; without one (development, tests) the writer, read-only.
+        services.AddReadSide<CampaignsDbContext>(
+            configuration.GetConnectionString("CampaignsRead") ?? connectionString, CampaignsDbOptions.Configure);
         services.AddSingleton<IModuleMigrator, CampaignsMigrator>();
         services.AddSingleton(new ModuleDatabase("Campaigns", CampaignsDbContext.Schema, connectionString));
         return services
             .AddCampaignsApplication()
             .AddScoped<ICampaignRepository, EfCampaignRepository>()
+            .AddScoped<ICampaignReads, EfCampaignReads>()
             .AddScoped<IdempotentRequests<CampaignsDbContext>>()
             .AddSingleton<IdempotencyKeyPurge<CampaignsDbContext>>()
             .AddSingleton<IIdempotencyKeyPurge>(sp => sp.GetRequiredService<IdempotencyKeyPurge<CampaignsDbContext>>())

@@ -57,6 +57,8 @@ public static class PledgesModule
         services.AddKeyedScoped<ITransactionScope>(PledgesModuleName.Value, (sp, _) => new ModuleTransaction<PledgesDbContext>(sp.GetRequiredService<PledgesDbContext>()));
         services.AddSingleton<IModuleMigrator, PledgesMigrator>();
         services.AddSingleton(new ModuleDatabase(PledgesModuleName.Value, PledgesDbContext.Schema, connectionString));
+        services.AddReadSide<PledgesDbContext>(
+            configuration.GetConnectionString("PledgesRead") ?? connectionString, PledgesDbOptions.Configure);
         services.AddScoped<EfPledges>();
         return services
             .AddPledgesApplication()
@@ -66,7 +68,7 @@ public static class PledgesModule
             .AddScoped<ITierSlots>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IHolds>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IClosing, EfClosing>()
-            .AddScoped<ICampaignTotals>(sp => sp.GetRequiredService<EfPledges>())
+            .AddScoped<ICampaignTotals, EfCampaignTotals>()
             .AddScoped<IdempotentRequests<PledgesDbContext>>();
     }
 

@@ -28,6 +28,12 @@ variable "max_count" {
   default     = 6
 }
 
+variable "reader_count" {
+  description = "Aurora readers behind the reader endpoint; 0 sends reads to the writer."
+  type        = number
+  default     = 1
+}
+
 variable "aurora_engine_version" {
   description = "Aurora PostgreSQL version; 17 is the engine the course targets."
   type        = string

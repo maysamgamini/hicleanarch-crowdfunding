@@ -23,6 +23,8 @@ locals {
     { name = "ConnectionStrings__Payments", valueFrom = aws_secretsmanager_secret.connection["payments"].arn },
     { name = "Payments__WebhookSecret", valueFrom = aws_secretsmanager_secret.webhook.arn },
     { name = "ConnectionStrings__Notifications", valueFrom = aws_secretsmanager_secret.connection["notifications"].arn },
+    { name = "ConnectionStrings__CampaignsRead", valueFrom = aws_secretsmanager_secret.read_connection["campaigns_read"].arn },
+    { name = "ConnectionStrings__PledgesRead", valueFrom = aws_secretsmanager_secret.read_connection["pledges_read"].arn },
   ]
   owner_secret = { name = "ConnectionStrings__Owner", valueFrom = aws_secretsmanager_secret.connection["owner"].arn }
 

@@ -31,3 +31,8 @@ output "user_pool_id" {
 output "user_pool_client_id" {
   value = aws_cognito_user_pool_client.api.id
 }
+
+output "database_reader_endpoint" {
+  description = "Where queries read; a moment behind the writer."
+  value       = aws_rds_cluster.main.reader_endpoint
+}

@@ -23,8 +23,12 @@ resource "aws_iam_role_policy_attachment" "execution" {
 
 data "aws_iam_policy_document" "read_connection_strings" {
   statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = concat([for s in aws_secretsmanager_secret.connection : s.arn], [aws_secretsmanager_secret.webhook.arn])
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = concat(
+      [for s in aws_secretsmanager_secret.connection : s.arn],
+      [for s in aws_secretsmanager_secret.read_connection : s.arn],
+      [aws_secretsmanager_secret.webhook.arn],
+    )
   }
 }
 

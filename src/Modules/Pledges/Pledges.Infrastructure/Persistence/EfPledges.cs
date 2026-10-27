@@ -5,7 +5,7 @@ using Pledges.Domain;
 
 namespace Pledges.Infrastructure.Persistence;
 
-internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, ITierSlots, IHolds, Contracts.ICampaignTotals
+internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, ITierSlots, IHolds
 {
     public async Task<bool> TryAdd(Pledge pledge, CancellationToken cancellationToken)
     {
@@ -151,10 +151,4 @@ internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, 
         var unlimited = await db.TierCounters.AsNoTracking().AnyAsync(t => t.TierId == to && t.LimitQty == null, cancellationToken);
         return unlimited || await TryClaim(to, cancellationToken);
     }
-
-    public async Task<Contracts.CampaignTotals?> Get(Guid campaignId, CancellationToken cancellationToken) =>
-        await db.FundingWindows.AsNoTracking()
-            .Where(w => w.CampaignId == campaignId)
-            .Select(w => new Contracts.CampaignTotals(w.PledgedMinor, w.Backers))
-            .SingleOrDefaultAsync(cancellationToken);
 }

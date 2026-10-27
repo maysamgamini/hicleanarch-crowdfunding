@@ -24,8 +24,11 @@ public sealed record CampaignView(
 
 public sealed record TierView(string TierId, string Title, long MinPledgeMinor, int? Limit);
 
-/// <summary>The catalog is Campaigns' own; the total comes from Pledges, through its contract.</summary>
-public sealed class GetCampaignHandler(ICampaignRepository campaigns, ICampaignTotals totals) : IQueryHandler<GetCampaign, CampaignView>
+/// <summary>
+/// The catalog is Campaigns' own; the total comes from Pledges, through its contract. Both are read
+/// from the reader endpoint: a page may be a moment behind.
+/// </summary>
+public sealed class GetCampaignHandler(ICampaignReads campaigns, ICampaignTotals totals) : IQueryHandler<GetCampaign, CampaignView>
 {
     public async Task<Result<CampaignView>> Handle(GetCampaign query, CancellationToken cancellationToken)
     {

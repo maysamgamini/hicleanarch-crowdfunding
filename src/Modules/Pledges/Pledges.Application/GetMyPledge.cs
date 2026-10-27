@@ -10,6 +10,7 @@ public sealed record GetMyPledge(Guid PledgeId, Guid BackerId) : IQuery<PledgeVi
 
 public sealed record PledgeView(string PledgeId, string CampaignId, string Status, long AmountMinor, string? TierId, DateTimeOffset CreatedAt);
 
+[ReadsTheWriter]
 public sealed class GetMyPledgeHandler(IPledges pledges) : IQueryHandler<GetMyPledge, PledgeView>
 {
     public async Task<Result<PledgeView>> Handle(GetMyPledge query, CancellationToken cancellationToken)
