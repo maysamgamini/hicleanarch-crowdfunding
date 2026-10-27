@@ -9,7 +9,19 @@
 # Each window is a CloudWatch alarm with no action; each pair is a composite alarm, which pages.
 #
 # Request objectives (availability, latency) are counted in requests: the window is the alarm's period,
-# and the burn rate is metric math on its sums. The lag objective is counted in minutes: an alarm with a
+# and the burn rate is metric math on its sums.
+#
+# Not verified (CQA-2122): the latency windows count the requests within the threshold with the trimmed
+# count statistic TC(:threshold). CloudWatch computes it only from raw data points, and its statistics page
+# names the services whose metrics support it: API Gateway, Application Load Balancer, EC2, ELB, Kinesis
+# and RDS. The gateway's metrics (its load balancer's) are among them. Service Connect's are not: the
+# Amazon ECS metrics page gives TargetResponseTime's useful statistics as Average, Minimum and Maximum,
+# and scripts/measure-services.sh reads only those. If TC returns no data for a service, its latency
+# windows see missing data, which counts as good, and its latency pages never fire. Check it in your own
+# account before relying on them:
+#   aws cloudwatch get-metric-statistics --namespace AWS/ECS --metric-name TargetResponseTime \
+#     --dimensions Name=TargetDiscoveryName,Value=pledges-public --extended-statistics "TC(:200)" \
+#     --start-time <an hour ago> --end-time <now> --period 300 The lag objective is counted in minutes: an alarm with a
 # 1-minute period counts the bad minutes of the window (M out of N datapoints).
 
 locals {
