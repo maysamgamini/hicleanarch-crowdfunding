@@ -12,7 +12,7 @@ using Payments.Infrastructure.Persistence;
 namespace Payments.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(PaymentsDbContext))]
-    [Migration("20261031000100_ChargeClaims")]
+    [Migration("20261031000600_ChargeClaims")]
     partial class ChargeClaims
     {
         /// <inheritdoc />
@@ -64,6 +64,10 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("delivered_at");
 
+                    b.Property<DateTimeOffset?>("DeliveryClaimedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("delivery_claimed_until");
+
                     b.Property<string>("LastError")
                         .HasColumnType("text")
                         .HasColumnName("last_error");
@@ -76,6 +80,18 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb")
                         .HasColumnName("payload");
+
+                    b.Property<DateTimeOffset?>("PublishClaimedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("publish_claimed_until");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("published_at");
+
+                    b.PrimitiveCollection<string[]>("Sinks")
+                        .HasColumnType("text[]")
+                        .HasColumnName("sinks");
 
                     b.Property<string>("TraceParent")
                         .HasMaxLength(60)
@@ -95,9 +111,13 @@ namespace Payments.Infrastructure.Persistence.Migrations
                     b.HasKey("Id")
                         .HasName("pk_outbox");
 
-                    b.HasIndex("OccurredAt")
+                    b.HasIndex(new[] { "OccurredAt" }, "outbox_undelivered")
                         .HasDatabaseName("outbox_undelivered")
-                        .HasFilter("delivered_at IS NULL");
+                        .HasFilter("delivered_at IS NULL AND (sinks IS NULL OR cardinality(array_remove(sinks, 'broker')) > 0)");
+
+                    b.HasIndex(new[] { "OccurredAt" }, "outbox_unpublished")
+                        .HasDatabaseName("outbox_unpublished")
+                        .HasFilter("published_at IS NULL AND 'broker' = ANY (sinks)");
 
                     b.ToTable("outbox", "payments");
                 });
@@ -180,10 +200,16 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(20)")
                         .HasColumnName("status");
 
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("trace_parent");
+
                     b.HasKey("Id")
                         .HasName("pk_card_setups");
 
                     b.HasIndex("PledgeId")
+                        .IsUnique()
                         .HasDatabaseName("ix_card_setups_pledge_id");
 
                     b.HasIndex("PspSetupId")
@@ -276,6 +302,11 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)")
                         .HasColumnName("status");
+
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("trace_parent");
 
                     b.HasKey("PledgeId")
                         .HasName("pk_charges");
