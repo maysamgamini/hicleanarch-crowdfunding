@@ -35,7 +35,7 @@ public sealed class FakePaymentProviderTests
         var psp = NewPsp();
         var lost = 0;
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(Ct);
-        var chargers = Enumerable.Range(0, 8).Select(_ => Task.Run(async () =>
+        var chargers = Enumerable.Range(0, 4).Select(_ => Task.Run(async () =>
         {
             while (!stop.IsCancellationRequested)
             {
@@ -47,8 +47,10 @@ public sealed class FakePaymentProviderTests
         }, Ct)).ToArray();
 
         // Each round asks for one lost reply while the chargers run, and waits until a charger took it.
-        // A request wiped by a charger that was between its two steps would never be taken.
-        const int Rounds = 20_000;
+        // A request wiped by a charger that was between its two steps would never be taken; the old
+        // code lost one within the first hundred rounds, so two thousand are enough without loading
+        // the machine the rest of the suite shares.
+        const int Rounds = 2_000;
         var taken = 0;
         while (taken < Rounds)
         {

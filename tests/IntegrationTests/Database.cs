@@ -97,6 +97,12 @@ public sealed class Database : IAsyncLifetime
             .Run(Owner, CancellationToken.None);
         await host.Payments().Services.GetRequiredService<BuildingBlocks.Infrastructure.Persistence.DatabaseMigrator>()
             .Run(Owner, CancellationToken.None);
+
+        // A role's settings apply to sessions that log in after them. This host's jobs opened pooled
+        // sessions before the migrator set pledges_app's time limit, and the time fence refuses a
+        // pledge on such a session; in a deploy, migrate runs before any serving task starts. Every
+        // test host logs in afresh, as a new task would.
+        Npgsql.NpgsqlConnection.ClearAllPools();
     }
 
     public async ValueTask DisposeAsync()
