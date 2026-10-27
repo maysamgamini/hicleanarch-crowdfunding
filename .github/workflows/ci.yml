@@ -35,6 +35,8 @@ jobs:
         run: docker build -q -t crowdfunding-api:ci .
       - name: The gateway image builds
         run: docker build -q -f src/Gateway/Dockerfile -t crowdfunding-gateway:ci .
+      - name: The Payments service image builds
+        run: docker build -q -f src/Services/Payments.Host/Dockerfile -t crowdfunding-payments:ci .
 
   terraform:
     runs-on: ubuntu-latest

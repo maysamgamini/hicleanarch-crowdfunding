@@ -3,7 +3,7 @@
     "Payments.Host": {
       "commandName": "Project",
       "launchBrowser": false,
-      "applicationUrl": "http://localhost:5081",
+      "applicationUrl": "http://localhost:5081;http://localhost:5181",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }

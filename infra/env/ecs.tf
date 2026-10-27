@@ -55,9 +55,13 @@ locals {
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
       # 8081 serves the endpoints for other services; no target group or rule forwards to it (s4-l03).
       { name = "ASPNETCORE_HTTP_PORTS", value = "8080;8081" },
-      # StartCardSetup goes over HTTP to Payments' internal port, still this task's own (s4-l03).
+      # Where Payments runs (payments-split.tf), and where its command goes: this task's own internal
+      # port while Payments runs here (s4-l03), Payments' service through Service Connect once it does not (s4-l05).
+      { name = "Modules__Payments__Mode", value = local.payments_mode },
       { name = "Modules__Payments__Calls", value = "Http" },
-      { name = "Modules__Payments__BaseAddress", value = "http://localhost:8081" },
+      { name = "Modules__Payments__BaseAddress", value = local.payments_mode == "Remote" ? "http://payments:8081" : "http://localhost:8081" },
+      # One budget at the PSP while both hosts run Payments' code.
+      { name = "Payments__Budget__Prefix", value = local.psp_budget_prefix },
     ], local.broker_environment, local.service_identity_environment)
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30
@@ -153,6 +157,12 @@ resource "aws_ecs_service" "api" {
     subnets          = aws_subnet.public[*].id
     security_groups  = [aws_security_group.tasks.id]
     assign_public_ip = true
+  }
+
+  # A client of Service Connect: payments:8081 resolves to the Payments service's tasks.
+  service_connect_configuration {
+    enabled   = true
+    namespace = aws_service_discovery_http_namespace.services.arn
   }
 
   load_balancer {

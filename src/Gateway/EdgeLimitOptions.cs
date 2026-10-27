@@ -23,4 +23,20 @@ public sealed class EdgeLimitOptions
     /// viewer's address in CloudFront-Viewer-Address; from anywhere else that header is ignored.
     /// </summary>
     public string CloudFrontNetworks { get; set; } = "";
+
+    /// <summary>
+    /// The PSP's webhook route: not limited per address, because the PSP sends about 250 a second during
+    /// settlement from a short published list of addresses, but limited for the whole route.
+    /// </summary>
+    public RouteLimitOptions Webhook { get; set; } = new();
+}
+
+/// <summary>One bucket for every caller of a route, shared by every gateway task.</summary>
+public sealed class RouteLimitOptions
+{
+    /// <summary>Four times the settlement rate of 250 webhooks a second.</summary>
+    public double PerSecond { get; set; } = 1000;
+
+    /// <summary>A second's worth.</summary>
+    public int Burst { get; set; } = 1000;
 }

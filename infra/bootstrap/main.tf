@@ -140,6 +140,8 @@ data "aws_iam_policy_document" "deploy_services" {
     actions = [
       "ecs:*", "elasticloadbalancing:*", "rds:*", "elasticache:*", "cognito-idp:*",
       "application-autoscaling:*", "cloudwatch:*", "ses:*",
+      # Stage 4: the queues between services, and the Cloud Map namespace Service Connect names them in.
+      "sqs:*", "servicediscovery:*",
     ]
     resources = ["*"]
     condition {
@@ -210,7 +212,7 @@ data "aws_iam_policy_document" "deploy_services" {
       "ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload",
       "ecr:PutImage", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:DescribeImages", "ecr:DescribeRepositories",
     ]
-    resources = [aws_ecr_repository.api.arn, aws_ecr_repository.gateway.arn]
+    resources = [aws_ecr_repository.api.arn, aws_ecr_repository.gateway.arn, aws_ecr_repository.payments.arn]
   }
   # The environment's state: read, write, and the lock file S3 itself keeps (use_lockfile).
   statement {
@@ -244,6 +246,9 @@ data "aws_iam_policy_document" "task_boundary" {
       "xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets",
       "cloudwatch:PutMetricData",
       "ses:SendEmail", "ses:SendRawEmail", "cognito-idp:ListUsers",
+      # Events between services (Stage 4): read a queue, publish to a topic, check subscriptions.
+      "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes",
+      "sns:Publish", "sns:ListSubscriptionsByTopic", "sns:GetSubscriptionAttributes",
     ]
     resources = ["*"]
   }

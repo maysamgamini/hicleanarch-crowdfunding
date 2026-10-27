@@ -48,6 +48,8 @@ locals {
   valkey_users = {
     api     = "on ~* &* +@all"
     gateway = "on ~gateway:* &* +@all"
+    # The PSP budget and the card-setup lane (Payments:Budget:Prefix), shared with the monolith's Payments code.
+    payments = "on ~psp:* &* +@all"
   }
 }
 

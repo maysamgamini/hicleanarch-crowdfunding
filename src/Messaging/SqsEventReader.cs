@@ -48,8 +48,15 @@ public sealed partial class SqsEventReader(
 
     public string Name => "SQS event reader";
 
+    /// <summary>
+    /// Reads each configured queue whose service has a module running here. A queue none of whose
+    /// modules run here is left to the host that runs them: the monolith with Payments in its own service
+    /// (s4-l05) must not take Payments' messages, which it could only fail into the dead-letter queue.
+    /// </summary>
     protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
-        Task.WhenAll(options.Read.Select(service => Read(service, stoppingToken)));
+        Task.WhenAll(options.Read
+            .Where(service => plan.Services.TryGetValue(service, out var modules) && modules.Any(routes.RunsHere))
+            .Select(service => Read(service, stoppingToken)));
 
     public async Task Stop(CancellationToken cancellationToken)
     {

@@ -20,9 +20,9 @@ using Payments.Infrastructure;
 namespace Payments.Host;
 
 /// <summary>
-/// The Payments service: the same module the monolith runs, composed alone. Until its events and its
-/// command can cross a process boundary (s4-l02, s4-l03), it refuses to start: Pledges, Campaigns and
-/// Notifications consume its events and do not run here.
+/// The Payments service (s4-l05): the same module the monolith runs, composed alone. Its events reach
+/// Pledges, Campaigns and Notifications through the broker, the only route it has to them (without one
+/// it refuses to start), and the monolith sends it StartCardSetup on its internal port (8081).
 /// </summary>
 public static class PaymentsProgram
 {
@@ -77,6 +77,13 @@ public static class PaymentsProgram
             var owner = app.Configuration.GetConnectionString("Owner")
                 ?? throw new InvalidOperationException("ConnectionStrings:Owner is not set.");
             await app.Services.GetRequiredService<DatabaseMigrator>().Run(owner, CancellationToken.None);
+            return;
+        }
+
+        // `replay-events --module Payments --from … --to …` publishes a range of published events again, and exits.
+        if (args.FirstOrDefault() == "replay-events")
+        {
+            Environment.ExitCode = await EventReplay.Run(app.Services, [.. args.Skip(1)], Console.Out, CancellationToken.None);
             return;
         }
 

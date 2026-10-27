@@ -45,9 +45,9 @@ resource "aws_security_group" "internal_alb" {
   vpc_id      = aws_vpc.main.id
 }
 
-resource "aws_vpc_security_group_ingress_rule" "internal_alb_from_tasks" {
+resource "aws_vpc_security_group_ingress_rule" "internal_alb_from_gateway" {
   security_group_id            = aws_security_group.internal_alb.id
-  referenced_security_group_id = aws_security_group.tasks.id
+  referenced_security_group_id = aws_security_group.gateway.id
   from_port                    = 80
   to_port                      = 80
   ip_protocol                  = "tcp"
@@ -107,9 +107,14 @@ resource "aws_ecs_task_definition" "gateway" {
     portMappings = [{ containerPort = 8080, protocol = "tcp" }]
     environment = [
       { name = "ReverseProxy__Clusters__monolith__Destinations__monolith__Address", value = "http://${aws_lb.internal.dns_name}/" },
+      # Payments' four public paths: the Payments service through Service Connect, or the monolith (payments-split.tf).
+      { name = "ReverseProxy__Clusters__payments__Destinations__payments__Address", value = local.payments_public_address },
       { name = "EdgeLimits__GatewayTasks", value = tostring(var.gateway_count) },
       { name = "EdgeLimits__PerSecond", value = tostring(var.edge_limit_per_second) },
       { name = "EdgeLimits__Burst", value = tostring(var.edge_limit_per_second * 2) },
+      # The PSP's webhook: one limit for the route, not one per address (CQA-1306).
+      { name = "EdgeLimits__Webhook__PerSecond", value = "1000" },
+      { name = "EdgeLimits__Webhook__Burst", value = "1000" },
       # X-Forwarded-For is trusted only from the load balancer, inside the VPC.
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
       # A caller from CloudFront's edges is limited by the viewer's address, not the edge's.
@@ -145,8 +150,14 @@ resource "aws_ecs_service" "gateway" {
 
   network_configuration {
     subnets          = aws_subnet.public[*].id
-    security_groups  = [aws_security_group.tasks.id]
+    security_groups  = [aws_security_group.gateway.id]
     assign_public_ip = true
+  }
+
+  # A client of Service Connect: payments:8080 resolves to the Payments service's tasks.
+  service_connect_configuration {
+    enabled   = true
+    namespace = aws_service_discovery_http_namespace.services.arn
   }
 
   load_balancer {

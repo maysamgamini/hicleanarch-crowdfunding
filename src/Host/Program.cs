@@ -60,10 +60,16 @@ builder.Services.AddOpenApi();
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
 builder.Services.AddPledgesModule(builder.Configuration);
-builder.Services.AddPaymentsModule(builder.Configuration);
+// Payments runs here (Modules:Payments:Mode = InProcess) or in its own service (Remote, s4-l05), and its
+// command goes through the dispatcher in memory or over HTTP (Calls); either switch back is the rollback.
+var payments = PaymentsPlacement.From(builder.Configuration);
+if (payments.RunsHere)
+{
+    builder.Services.AddPaymentsModule(builder.Configuration);
+}
+
 builder.Services.AddNotificationsModule(builder.Configuration);
-// With Modules:Payments:Calls = Http, the commands to Payments go over HTTP to its internal port (s4-l03).
-builder.Services.AddPaymentsClient(builder.Configuration);
+builder.Services.AddPaymentsClient(payments, builder.Configuration);
 
 // With an Events:Broker section, the events whose consumers are routed to the broker go through SNS and SQS.
 if (builder.Configuration.GetSection("Events:Broker").Exists())
@@ -100,7 +106,11 @@ app.UseAuthorization();
 app.MapHealth();
 app.MapCampaignsEndpoints();
 app.MapPledgesEndpoints();
-app.MapPaymentsEndpoints();
+if (payments.RunsHere)
+{
+    app.MapPaymentsEndpoints();
+}
+
 app.MapNotificationsEndpoints();
 
 // The API's description, generated from the endpoints, for a developer's tools and the tests; not published in production.

@@ -13,29 +13,61 @@ using Pledges.Application;
 
 namespace IntegrationTests;
 
+/// <summary>Lesson s1-a02's rules with the monolith alone, as in Release 1.</summary>
+public sealed class RuleTests(Database database) : RuleChecks(database, RuleHosts.One(database));
+
+/// <summary>The same rules, assertions unchanged, with Payments in a host of its own (lesson s4-l05).</summary>
+public sealed class RuleTestsWithTwoHosts(Database database) : RuleChecks(database, RuleHosts.Two(database));
+
+/// <summary>
+/// Where the rule tests send their requests (the monolith) and their Payments commands and PSP checks
+/// (the monolith too, or the Payments service once it has a host of its own).
+/// </summary>
+public sealed record RuleHosts(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> Monolith, Func<IServiceProvider> Payments, IDisposable Owner)
+{
+    // Rule 3 sends thirty pledges at one tier at once and expects every place taken; under a busy
+    // machine some would wait longer than the 300 ms a pledge waits for a tier row in production and
+    // be told to try again. The rules, not that wait, are under test here.
+    private static void TierWait(IWebHostBuilder web) => web.UseSetting("Pledges:TierWait", "00:00:10");
+
+    public static RuleHosts One(Database database)
+    {
+        var host = database.StartHost().WithWebHostBuilder(TierWait);
+        return new RuleHosts(host, () => host.Services, host);
+    }
+
+    public static RuleHosts Two(Database database)
+    {
+        var hosts = new TwoHosts(database, TierWait);
+        return new RuleHosts(hosts.Monolith, () => hosts.Payments.Services, hosts);
+    }
+}
+
 /// <summary>
 /// Lesson s1-a02's rules, one test each, named after the rule. Each drives the real system into the
 /// situation that would break the rule, then asks the database the rule's own question, which must
 /// have the answer "none" (lesson s1-a02's checks, scoped to the test's campaign).
 /// </summary>
-public sealed class RuleTests(Database database) : IDisposable
+public abstract class RuleChecks(Database database, RuleHosts hosts) : IDisposable
 {
-    // Rule 3 sends thirty pledges at one tier at once and expects every place taken; under a busy
-    // machine some would wait longer than the 300 ms a pledge waits for a tier row in production and
-    // be told to try again. The rules, not that wait, are under test here.
-    private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host =
-        database.StartHost().WithWebHostBuilder(web => web.UseSetting("Pledges:TierWait", "00:00:10"));
+    private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host = hosts.Monolith;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    public void Dispose() => _host.Dispose();
+    public void Dispose()
+    {
+        hosts.Owner.Dispose();
+        GC.SuppressFinalize(this);
+    }
 
-    private FakePaymentProvider Psp => _host.Services.GetRequiredService<FakePaymentProvider>();
+    private FakePaymentProvider Psp => hosts.Payments().GetRequiredService<FakePaymentProvider>();
 
+    /// <summary>A command goes to the host that runs its module.</summary>
     private async Task Send<TCommand, T>(TCommand command)
         where TCommand : ICommand<T>
     {
-        await using var scope = _host.Services.CreateAsyncScope();
+        var services = typeof(TCommand).Namespace!.StartsWith("Payments.", StringComparison.Ordinal) ? hosts.Payments() : _host.Services;
+        await using var scope = services.CreateAsyncScope();
         await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<TCommand, T>(command, Ct);
     }
 

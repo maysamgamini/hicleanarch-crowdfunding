@@ -10,6 +10,9 @@ public readonly record struct BucketDecision(bool Allowed, TimeSpan RetryAfter);
 public interface ITokenBuckets
 {
     Task<BucketDecision> Take(string client);
+
+    /// <summary>One bucket for every caller of <paramref name="route"/>, at the route's own limit.</summary>
+    Task<BucketDecision> TakeRouteWide(string route);
 }
 
 /// <summary>
@@ -18,7 +21,7 @@ public interface ITokenBuckets
 /// </summary>
 internal sealed class ValkeyTokenBuckets(IConnectionMultiplexer valkey, EdgeLimitOptions options) : ITokenBuckets
 {
-    // KEYS[1] the client's bucket; ARGV[1] tokens per second; ARGV[2] burst.
+    // KEYS[1] the bucket (a client's, or a route's); ARGV[1] tokens per second; ARGV[2] burst.
     // Returns {1, 0} when a token was taken, {0, ms to wait} when the bucket is empty.
     private const string Script = """
         local t = redis.call('TIME')
@@ -44,12 +47,16 @@ internal sealed class ValkeyTokenBuckets(IConnectionMultiplexer valkey, EdgeLimi
     /// <summary>False while the connection is down or reconnecting: callers limit locally instead of waiting.</summary>
     public bool IsConnected => valkey.IsConnected;
 
-    public async Task<BucketDecision> Take(string client)
+    public Task<BucketDecision> Take(string client) => TakeFrom($"gateway:bucket:{client}", options.PerSecond, options.Burst);
+
+    public Task<BucketDecision> TakeRouteWide(string route) => TakeFrom($"gateway:route:{route}", options.Webhook.PerSecond, options.Webhook.Burst);
+
+    private async Task<BucketDecision> TakeFrom(string key, double perSecond, int burst)
     {
         var result = (RedisResult[])(await valkey.GetDatabase().ScriptEvaluateAsync(
             Script,
-            [new RedisKey($"gateway:bucket:{client}")],
-            [options.PerSecond, options.Burst]))!;
+            [new RedisKey(key)],
+            [perSecond, burst]))!;
         return new BucketDecision((int)result[0] == 1, TimeSpan.FromMilliseconds((int)result[1]));
     }
 }
@@ -62,17 +69,20 @@ internal sealed class LocalTokenBuckets(EdgeLimitOptions options, TimeProvider c
 {
     private readonly ConcurrentDictionary<string, Bucket> _buckets = new();
 
-    private double Rate => options.PerSecond / Math.Max(1, options.GatewayTasks);
+    public Task<BucketDecision> Take(string client) => TakeFrom(client, options.PerSecond, options.Burst);
 
-    private double Size => Math.Max(1.0, (double)options.Burst / Math.Max(1, options.GatewayTasks));
+    public Task<BucketDecision> TakeRouteWide(string route) => TakeFrom($"route:{route}", options.Webhook.PerSecond, options.Webhook.Burst);
 
-    public Task<BucketDecision> Take(string client)
+    private Task<BucketDecision> TakeFrom(string key, double perSecond, int burst)
     {
-        var bucket = _buckets.GetOrAdd(client, _ => new Bucket(Size, clock.GetTimestamp()));
+        var tasks = Math.Max(1, options.GatewayTasks);
+        var rate = perSecond / tasks;
+        var size = Math.Max(1.0, (double)burst / tasks);
+        var bucket = _buckets.GetOrAdd(key, _ => new Bucket(size, clock.GetTimestamp()));
         lock (bucket)
         {
             var now = clock.GetTimestamp();
-            bucket.Tokens = Math.Min(Size, bucket.Tokens + (clock.GetElapsedTime(bucket.Stamp, now).TotalSeconds * Rate));
+            bucket.Tokens = Math.Min(size, bucket.Tokens + (clock.GetElapsedTime(bucket.Stamp, now).TotalSeconds * rate));
             bucket.Stamp = now;
             if (bucket.Tokens >= 1)
             {
@@ -80,7 +90,7 @@ internal sealed class LocalTokenBuckets(EdgeLimitOptions options, TimeProvider c
                 return Task.FromResult(new BucketDecision(true, TimeSpan.Zero));
             }
 
-            return Task.FromResult(new BucketDecision(false, TimeSpan.FromSeconds((1 - bucket.Tokens) / Rate)));
+            return Task.FromResult(new BucketDecision(false, TimeSpan.FromSeconds((1 - bucket.Tokens) / rate)));
         }
     }
 
