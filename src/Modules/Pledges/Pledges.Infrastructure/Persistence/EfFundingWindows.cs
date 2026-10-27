@@ -30,6 +30,11 @@ internal sealed class EfFundingWindows(PledgesDbContext db) : IFundingWindows
     public Task<FundingWindow?> Find(Guid campaignId, CancellationToken cancellationToken) =>
         db.FundingWindows.AsNoTracking().SingleOrDefaultAsync(w => w.CampaignId == campaignId, cancellationToken);
 
+    public async Task<bool> IsOpen(Guid campaignId, CancellationToken cancellationToken) =>
+        await db.Database.SqlQuery<bool>($"""
+            SELECT EXISTS (SELECT 1 FROM pledges.funding_windows WHERE campaign_id = {campaignId} AND status = 'LIVE' AND now() < deadline) AS "Value"
+            """).SingleAsync(cancellationToken);
+
     // Lesson 7: the update carries the rule, and its row lock is the fence the close waits behind.
     public async Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""

@@ -21,6 +21,25 @@ public interface IPledges
 
     /// <summary>Saves a changed or cancelled pledge, only if it is still ACTIVE. False: it no longer was.</summary>
     Task<bool> TrySaveFromActive(Pledge pledge, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// PENDING_SETUP to ACTIVE with the saved card, only while its hold has not run out by the
+    /// database's clock. False: it was not waiting, or it was too late; EXPIRED is final.
+    /// </summary>
+    Task<bool> TryActivate(Guid pledgeId, string paymentMethodRef, CancellationToken cancellationToken);
+
+    /// <summary>ACTIVE back to EXPIRED, in the same transaction that activated it, when the campaign had closed meanwhile.</summary>
+    Task<bool> TryExpireActivated(Guid pledgeId, CancellationToken cancellationToken);
+}
+
+/// <summary>Pledges waiting for a card, whose places are held.</summary>
+public interface IHolds
+{
+    /// <summary>
+    /// Expires waiting pledges whose hold has run out, each in its own short transaction, and gives
+    /// their tier places back. Returns how many it expired.
+    /// </summary>
+    Task<int> ExpireDue(int batchSize, CancellationToken cancellationToken);
 }
 
 /// <summary>The promise ledger. It can only be appended to; the module's role cannot update or delete it.</summary>
@@ -36,6 +55,15 @@ public interface ITierSlots
 
     /// <summary>Takes a place for an active pledge, only if one is left. False: sold out.</summary>
     Task<bool> TryClaim(Guid tierId, CancellationToken cancellationToken);
+
+    /// <summary>Keeps a place for a pledge waiting for its card, only if one is left. False: sold out.</summary>
+    Task<bool> TryHold(Guid tierId, CancellationToken cancellationToken);
+
+    /// <summary>The card was saved in time: the held place becomes a claimed one.</summary>
+    Task HoldToClaim(Guid tierId, CancellationToken cancellationToken);
+
+    /// <summary>A hold ends without a card: its place is free again.</summary>
+    Task ReleaseHold(Guid tierId, CancellationToken cancellationToken);
 
     /// <summary>
     /// Moves a pledge's place from one tier to another, either of which may be none or unlimited.

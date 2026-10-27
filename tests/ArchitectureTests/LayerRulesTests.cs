@@ -22,6 +22,7 @@ public class LayerRulesTests
         Assert.Superset(
             new HashSet<string> { "CrowdFunding.Host", "Campaigns.Domain", "Campaigns.Application", "Campaigns.Infrastructure", "Campaigns.Contracts",
                 "Pledges.Domain", "Pledges.Application", "Pledges.Infrastructure", "Pledges.Contracts",
+                "Payments.Domain", "Payments.Application", "Payments.Infrastructure", "Payments.Contracts",
                 "BuildingBlocks.Domain", "BuildingBlocks.Application", "BuildingBlocks.Infrastructure" },
             Ours.Select(a => a.GetName().Name!).ToHashSet());
 

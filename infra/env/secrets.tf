@@ -12,12 +12,34 @@ resource "random_password" "pledges" {
   special = false
 }
 
+resource "random_password" "payments" {
+  length  = 32
+  special = false
+}
+
+# The fake PSP signs its webhooks with this; a real PSP's signing secret would replace it.
+resource "random_password" "webhook" {
+  length  = 40
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "webhook" {
+  name                    = "${var.project}/sandbox/psp/webhook-secret"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "webhook" {
+  secret_id     = aws_secretsmanager_secret.webhook.id
+  secret_string = random_password.webhook.result
+}
+
 locals {
   db_host = aws_rds_cluster.main.endpoint
   connection_strings = {
     owner     = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=owner;Password=${random_password.owner.result};Timeout=60"
     campaigns = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=campaigns_app;Password=${random_password.campaigns.result};Timeout=60"
     pledges   = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=pledges_app;Password=${random_password.pledges.result};Timeout=60"
+    payments  = "Host=${local.db_host};Port=5432;Database=crowdfunding;Username=payments_app;Password=${random_password.payments.result};Timeout=60"
   }
 }
 

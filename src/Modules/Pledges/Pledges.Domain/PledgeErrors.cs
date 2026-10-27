@@ -16,5 +16,6 @@ public static class PledgeErrors
     public static readonly Error NotActive = Error.Conflict("pledge_not_active", "Only an active pledge can be changed or cancelled.");
     public static readonly Error NoChange = Error.Validation("no_change", "The pledge already has this amount and tier.");
     public static readonly Error TierSoldOut = Error.Conflict("tier_sold_out", "This tier has no place left. Nothing was created.");
+    public static readonly Error CardSetupFailed = Error.Conflict("card_setup_unavailable", "Saving a card is not possible right now; nothing was created. Try again.");
     public static readonly Error FundingNotOpen = Error.Conflict("funding_not_open", "This campaign's funding is not open yet; try again in a moment.");
 }

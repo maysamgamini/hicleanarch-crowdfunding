@@ -26,7 +26,9 @@ curl -X POST localhost:5080/v1/campaigns -H 'Content-Type: application/json' \
 dotnet test                                   # every test; the integration tests start their own PostgreSQL in Docker
 ```
 
-Each module connects as its own database role (`campaigns_app`), which can use only its own schema. `migrate` connects as the owner, creates the roles and schemas, applies each module's EF Core migrations and grants the module's role its tables.
+Each module connects as its own database role (`campaigns_app`, `pledges_app`, `payments_app`), which can use only its own schema. `migrate` connects as the owner, creates the roles and schemas, applies each module's EF Core migrations and grants the module's role its tables.
+
+Payments runs on a fake PSP in memory. On a laptop, `POST /dev/fake-psp/setups/{setup_id}/complete` plays the backer finishing the card form: the setup id is the start of the `client_secret` a new-card pledge returns.
 
 ## Layout
 

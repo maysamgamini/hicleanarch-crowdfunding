@@ -20,6 +20,12 @@ public interface IFundingWindows
     Task<FundingWindow?> Find(Guid campaignId, CancellationToken cancellationToken);
 
     /// <summary>
+    /// LIVE and before the deadline by the database's clock, without taking the window's lock: for a
+    /// pledge that waits for its card and does not count yet. Its activation passes the fence.
+    /// </summary>
+    Task<bool> IsOpen(Guid campaignId, CancellationToken cancellationToken);
+
+    /// <summary>
     /// The fence's pledge side: adds to the snapshot total only while the window is LIVE and before
     /// the deadline by the database's clock, and holds the window's row lock until this transaction
     /// ends, so the close waits for it. False: pledging has closed.

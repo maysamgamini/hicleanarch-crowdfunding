@@ -9,6 +9,8 @@ using Campaigns.Infrastructure;
 
 using CrowdFunding.Host;
 
+using Payments.Infrastructure;
+
 using Pledges.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,6 +28,7 @@ builder.Services.AddInProcessEvents();
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
 builder.Services.AddPledgesModule(builder.Configuration);
+builder.Services.AddPaymentsModule(builder.Configuration);
 
 var app = builder.Build();
 
@@ -54,6 +57,7 @@ app.UseAuthorization();
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapCampaignsEndpoints();
 app.MapPledgesEndpoints();
+app.MapPaymentsEndpoints();
 
 await app.RunAsync();
 

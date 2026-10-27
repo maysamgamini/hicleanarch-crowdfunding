@@ -65,6 +65,8 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
             pledge.Property(p => p.PaymentMethodRef).HasMaxLength(200);
             pledge.Property(p => p.CreatedAt).HasDefaultValueSql("now()");
             pledge.HasIndex(p => p.CampaignId);
+            // The sweeper finds holds that ran out on this index.
+            pledge.HasIndex(p => p.HoldExpiresAt).HasFilter("status = 'PENDING_SETUP'").HasDatabaseName("pledges_hold_due");
             // Lesson 4: one live pledge per backer per campaign, whatever code path sends a second.
             pledge.HasIndex(p => new { p.CampaignId, p.BackerId })
                 .IsUnique()

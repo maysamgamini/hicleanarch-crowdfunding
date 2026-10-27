@@ -16,6 +16,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+using Payments.Contracts;
+
 using Pledges.Application;
 using Pledges.Contracts;
 using Pledges.Domain;
@@ -39,6 +41,8 @@ public static class PledgesModule
             .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor<PledgesDbContext>>()));
         services.AddModuleEvents<PledgesDbContext>(PledgesModuleName.Value);
         services.AddEventHandler<CampaignPublished, OpenFundingWindow>(PledgesModuleName.Value);
+        services.AddEventHandler<PaymentMethodSaved, ActivatePledge>(PledgesModuleName.Value);
+        services.AddHostedService<HoldSweeper>();
         services.AddPublishedEvent<PledgeActivated>();
         services.AddPublishedEvent<PledgeChanged>();
         services.AddPublishedEvent<PledgeCancelled>();
@@ -53,6 +57,7 @@ public static class PledgesModule
             .AddScoped<IPledges>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IPledgeLedger>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<ITierSlots>(sp => sp.GetRequiredService<EfPledges>())
+            .AddScoped<IHolds>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<ICampaignTotals>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IdempotentRequests<PledgesDbContext>>();
     }
@@ -82,10 +87,22 @@ public static class PledgesModule
 
                 var result = await dispatcher.Send<PlacePledge, PledgePlaced>(
                     new PlacePledge(campaignId, user.UserId(), tierId, request.AmountMinor, request.PaymentMethodId, Cause(user, http)), ct);
-                return result.IsSuccess
-                    ? Result.Success(new Reply(StatusCodes.Status201Created,
-                        new { pledge_id = result.Value.PledgeId, status = result.Value.Status }, $"/v1/pledges/{result.Value.PledgeId}"))
-                    : Result.Failure<Reply>(result.Errors);
+                if (!result.IsSuccess)
+                {
+                    return Result.Failure<Reply>(result.Errors);
+                }
+
+                var placed = result.Value;
+                object body = placed.ClientSecret is null
+                    ? new { pledge_id = placed.PledgeId, status = placed.Status }
+                    : new
+                    {
+                        pledge_id = placed.PledgeId,
+                        status = placed.Status,
+                        hold_expires_at = placed.HoldExpiresAt!.Value.UtcDateTime,
+                        setup = new { provider = "psp", client_secret = placed.ClientSecret },
+                    };
+                return Result.Success(new Reply(StatusCodes.Status201Created, body, $"/v1/pledges/{placed.PledgeId}"));
             })).RequireAuthorization(Policies.Backer).WithTags("Pledges");
 
         // PATCH sends the pledge's new amount and tier; tier_id null means no reward.
@@ -150,7 +167,7 @@ public static class PledgesModule
         $"request:{user.UserId():N}:{http.Request.Headers[IdempotentRequests<PledgesDbContext>.Header]}";
 }
 
-/// <summary>The JSON body of a pledge. <c>payment_method_id</c> is the PSP's reference to a saved card.</summary>
+/// <summary>The JSON body of a pledge. <c>payment_method_id</c> is the PSP's reference to a saved card; without it, the card is saved first.</summary>
 internal sealed record PledgeRequest(long AmountMinor, string? TierId, string? PaymentMethodId);
 
 /// <summary>The JSON body of a change: the pledge's new amount and tier.</summary>

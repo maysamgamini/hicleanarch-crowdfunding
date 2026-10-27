@@ -5,7 +5,7 @@ using Pledges.Domain;
 
 namespace Pledges.Infrastructure.Persistence;
 
-internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, ITierSlots, Contracts.ICampaignTotals
+internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, ITierSlots, IHolds, Contracts.ICampaignTotals
 {
     public async Task<bool> TryAdd(Pledge pledge, CancellationToken cancellationToken)
     {
@@ -39,6 +39,50 @@ internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, 
             """, cancellationToken) == 1;
     }
 
+    public async Task<bool> TryActivate(Guid pledgeId, string paymentMethodRef, CancellationToken cancellationToken) =>
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.pledges SET status = 'ACTIVE', payment_method_ref = {paymentMethodRef}, hold_expires_at = NULL
+            WHERE id = {pledgeId} AND status = 'PENDING_SETUP' AND hold_expires_at > now()
+            """, cancellationToken) == 1;
+
+    public async Task<bool> TryExpireActivated(Guid pledgeId, CancellationToken cancellationToken) =>
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.pledges SET status = 'EXPIRED' WHERE id = {pledgeId} AND status = 'ACTIVE'
+            """, cancellationToken) == 1;
+
+    public async Task<int> ExpireDue(int batchSize, CancellationToken cancellationToken)
+    {
+        var due = await db.Database.SqlQuery<Guid>($"""
+            SELECT id AS "Value" FROM pledges.pledges
+            WHERE status = 'PENDING_SETUP' AND hold_expires_at <= now()
+            ORDER BY hold_expires_at LIMIT {batchSize}
+            """).ToListAsync(cancellationToken);
+        var expired = 0;
+        foreach (var id in due)
+        {
+            // One short transaction per pledge, conditional on it still waiting: a card that arrives
+            // at the same moment either activates it first, or finds it EXPIRED.
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+            var tier = await db.Database.SqlQuery<Guid?>($"""
+                UPDATE pledges.pledges SET status = 'EXPIRED'
+                WHERE id = {id} AND status = 'PENDING_SETUP' AND hold_expires_at <= now()
+                RETURNING tier_id AS "Value"
+                """).ToListAsync(cancellationToken);
+            if (tier.Count == 1)
+            {
+                expired++;
+                if (tier[0] is { } tierId)
+                {
+                    await ReleaseHold(tierId, cancellationToken);
+                }
+            }
+
+            await transaction.CommitAsync(cancellationToken);
+        }
+
+        return expired;
+    }
+
     public async Task Append(LedgerEntry entry, CancellationToken cancellationToken)
     {
         db.Ledger.Add(entry);
@@ -55,6 +99,23 @@ internal sealed class EfPledges(PledgesDbContext db) : IPledges, IPledgeLedger, 
             UPDATE pledges.tier_counters SET claimed = claimed + 1
             WHERE tier_id = {tierId} AND limit_qty IS NOT NULL AND claimed + held + 1 <= limit_qty
             """, cancellationToken) == 1;
+
+    public async Task<bool> TryHold(Guid tierId, CancellationToken cancellationToken) =>
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.tier_counters SET held = held + 1
+            WHERE tier_id = {tierId} AND limit_qty IS NOT NULL AND claimed + held + 1 <= limit_qty
+            """, cancellationToken) == 1;
+
+    public Task HoldToClaim(Guid tierId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.tier_counters SET held = held - 1, claimed = claimed + 1
+            WHERE tier_id = {tierId} AND limit_qty IS NOT NULL
+            """, cancellationToken);
+
+    public Task ReleaseHold(Guid tierId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.tier_counters SET held = held - 1 WHERE tier_id = {tierId} AND limit_qty IS NOT NULL
+            """, cancellationToken);
 
     public async Task<bool> TryMove(Guid? fromTierId, Guid? toTierId, CancellationToken cancellationToken)
     {

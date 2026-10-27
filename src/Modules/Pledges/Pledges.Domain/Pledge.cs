@@ -87,6 +87,35 @@ public sealed class Pledge
     }
 
     /// <summary>
+    /// A pledge whose card is not saved yet: it waits, does not count, and keeps a tier place until
+    /// <paramref name="holdExpiresAt"/>. Every waiting pledge gets an expiry, on any tier or none,
+    /// so none waits forever.
+    /// </summary>
+    public static Result<Pledge> WaitingForCard(Guid campaignId, Guid backerId, TierCounter? tier, long amountMinor, DateTimeOffset holdExpiresAt)
+    {
+        if (amountMinor <= 0)
+        {
+            return Result.Failure<Pledge>(PledgeErrors.AmountNotPositive);
+        }
+
+        if (tier is not null && amountMinor < tier.MinPledgeMinor)
+        {
+            return Result.Failure<Pledge>(PledgeErrors.BelowTierMinimum);
+        }
+
+        return Result.Success(new Pledge
+        {
+            Id = Guid.CreateVersion7(),
+            CampaignId = campaignId,
+            BackerId = backerId,
+            TierId = tier?.TierId,
+            AmountMinor = amountMinor,
+            Status = PledgeStatus.PendingSetup,
+            HoldExpiresAt = holdExpiresAt,
+        });
+    }
+
+    /// <summary>
     /// A new amount or tier for an active pledge. The same rules as a new pledge: positive, and at
     /// least the new tier's minimum. A change that changes nothing is refused.
     /// </summary>

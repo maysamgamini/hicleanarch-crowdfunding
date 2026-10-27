@@ -301,6 +301,10 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                     b.HasIndex("CampaignId")
                         .HasDatabaseName("ix_pledges_campaign_id");
 
+                    b.HasIndex("HoldExpiresAt")
+                        .HasDatabaseName("pledges_hold_due")
+                        .HasFilter("status = 'PENDING_SETUP'");
+
                     b.HasIndex("CampaignId", "BackerId")
                         .IsUnique()
                         .HasDatabaseName("one_live_pledge_per_backer")
