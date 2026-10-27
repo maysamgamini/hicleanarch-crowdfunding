@@ -28,7 +28,7 @@ internal sealed class EfOutbox<TContext>(TContext db, PendingEvents<TContext> pe
         var message = EventBus.ToMessage(integrationEvent);
         db.Add(message);
         await db.SaveChangesAsync(cancellationToken);
-        pending.Records.Add(new OutboxRecord(module, message.Id, message.Type, message.Payload));
+        pending.Records.Add(new OutboxRecord(module, message.Id, message.Type, message.Payload, message.TraceParent));
     }
 }
 

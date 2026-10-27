@@ -20,6 +20,9 @@ public sealed class OutboxMessage
     public int Attempts { get; set; }
 
     public string? LastError { get; set; }
+
+    /// <summary>The trace of the change that wrote the event, so its handlers continue it.</summary>
+    public string? TraceParent { get; set; }
 }
 
 /// <summary>An event one handler of this module has already handled.</summary>
@@ -44,6 +47,7 @@ public static class OutboxModel
             outbox.Property(m => m.Type).HasMaxLength(200);
             outbox.Property(m => m.Payload).HasColumnType("jsonb");
             outbox.Property(m => m.OccurredAt);
+            outbox.Property(m => m.TraceParent).HasMaxLength(60);
             outbox.HasIndex(m => m.OccurredAt).HasFilter("delivered_at IS NULL").HasDatabaseName("outbox_undelivered");
         });
         modelBuilder.Entity<InboxMessage>(inbox =>

@@ -45,6 +45,7 @@ public static class PaymentsModule
         services.AddOptions<SettlementOptions>().Bind(configuration.GetSection("Payments:Settlement"));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SettlementOptions>>().Value);
         services.AddHostedService<SettlementWorker>();
+        services.AddHostedService<PaymentsMonitor>();
         services.AddSingleton<IModuleMigrator, PaymentsMigrator>();
         services.AddSingleton(new ModuleDatabase(PaymentsModuleName.Value, PaymentsDbContext.Schema, connectionString));
         services.AddOptions<PaymentsOptions>().Bind(configuration.GetSection("Payments"))

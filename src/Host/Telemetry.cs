@@ -24,12 +24,14 @@ internal static class Telemetry
             .WithTracing(tracing => tracing
                 .AddAspNetCoreInstrumentation(o => o.Filter = http => http.Request.Path != "/health")
                 .AddHttpClientInstrumentation()
-                .AddNpgsql())
+                .AddNpgsql()
+                .AddSource(OutboxDispatcher.ActivitySourceName))
             .WithMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()
-                .AddMeter(OutboxDispatcher.MeterName));
+                .AddMeter(OutboxDispatcher.MeterName)
+                .AddMeter(BuildingBlocks.Infrastructure.Operations.MeterName));
 
         // The collector's address comes from the standard variable; without it, nothing is sent.
         if (!string.IsNullOrEmpty(configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))

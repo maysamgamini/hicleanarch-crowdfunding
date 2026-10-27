@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Text.Json;
 
@@ -41,6 +42,11 @@ public sealed partial class OutboxDispatcher(
     ILogger<OutboxDispatcher> logger) : BackgroundService
 {
     public const string MeterName = "CrowdFunding.Outbox";
+
+    /// <summary>The source of the spans that hand events to handlers.</summary>
+    public const string ActivitySourceName = "CrowdFunding.Events";
+
+    private static readonly ActivitySource Source = new(ActivitySourceName);
 
     private static readonly Meter Meter = new(MeterName);
 
@@ -87,6 +93,11 @@ public sealed partial class OutboxDispatcher(
             return;
         }
 
+        // The delivery continues the trace of the change that wrote the event, even after a restart.
+        using var activity = Source.StartActivity($"deliver {record.Type}", ActivityKind.Consumer, record.TraceParent);
+        activity?.SetTag("messaging.system", "in-process");
+        activity?.SetTag("messaging.message.id", record.EventId.ToString());
+        activity?.SetTag("crowdfunding.module", record.Module);
         var integrationEvent = (IntegrationEvent)JsonSerializer.Deserialize(record.Payload, type, EventBus.Json)!;
         var source = modules.Single(m => m.Module == record.Module);
         var allHandled = true;
@@ -118,6 +129,7 @@ public sealed partial class OutboxDispatcher(
         {
             try
             {
+                using var handling = Source.StartActivity($"handle {handler.Handler}", ActivityKind.Internal);
                 await target.HandleOnce(handler.Handler, record.EventId,
                     (scope, ct) => handler.Invoke(scope, integrationEvent, ct), cancellationToken);
                 return true;

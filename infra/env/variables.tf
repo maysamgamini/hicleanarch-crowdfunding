@@ -39,3 +39,9 @@ variable "notifications_from" {
   type        = string
   default     = ""
 }
+
+variable "alarm_email" {
+  description = "Where alarms are sent. Empty: alarms change state, and nobody is emailed."
+  type        = string
+  default     = ""
+}

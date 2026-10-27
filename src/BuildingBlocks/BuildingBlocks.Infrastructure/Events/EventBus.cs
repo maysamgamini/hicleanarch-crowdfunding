@@ -6,7 +6,11 @@ using BuildingBlocks.Application;
 namespace BuildingBlocks.Infrastructure.Events;
 
 /// <summary>A committed outbox row, as it travels inside the process.</summary>
-public sealed record OutboxRecord(string Module, Guid EventId, string Type, string Payload);
+/// <summary>
+/// A committed outbox row, as it travels inside the process. <see cref="TraceParent"/> is the W3C id
+/// of the trace that wrote it, so the handlers' work continues that trace, across modules.
+/// </summary>
+public sealed record OutboxRecord(string Module, Guid EventId, string Type, string Payload, string? TraceParent = null);
 
 /// <summary>The in-process transport: committed events wait here for the dispatcher.</summary>
 public sealed class EventBus
@@ -26,5 +30,6 @@ public sealed class EventBus
         Version = integrationEvent.Version,
         OccurredAt = integrationEvent.OccurredAt,
         Payload = JsonSerializer.Serialize(integrationEvent, integrationEvent.GetType(), Json),
+        TraceParent = System.Diagnostics.Activity.Current?.Id,
     };
 }

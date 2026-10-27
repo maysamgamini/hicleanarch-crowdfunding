@@ -35,7 +35,7 @@ internal sealed class ModuleEvents<TContext>(string module, IServiceScopeFactory
         return await db.Set<OutboxMessage>().AsNoTracking()
             .Where(m => m.DeliveredAt == null)
             .OrderBy(m => m.OccurredAt)
-            .Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload))
+            .Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload, m.TraceParent))
             .ToListAsync(cancellationToken);
     }
 

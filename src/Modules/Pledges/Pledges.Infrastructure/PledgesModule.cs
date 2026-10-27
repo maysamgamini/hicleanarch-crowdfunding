@@ -46,6 +46,8 @@ public static class PledgesModule
         services.AddEventHandler<PledgeChargeFailed, FollowCharges>(PledgesModuleName.Value);
         services.AddHostedService<HoldSweeper>();
         services.AddHostedService<CloseJob>();
+        services.AddHostedService<PledgesMonitor>();
+        services.AddHostedService<SnapshotCheck>();
         services.AddPublishedEvent<PledgeActivated>();
         services.AddPublishedEvent<PledgeChanged>();
         services.AddPublishedEvent<PledgeCancelled>();

@@ -74,6 +74,11 @@ namespace Notifications.Migrations
                         .HasColumnType("jsonb")
                         .HasColumnName("payload");
 
+                    b.Property<string>("TraceParent")
+                        .HasMaxLength(60)
+                        .HasColumnType("character varying(60)")
+                        .HasColumnName("trace_parent");
+
                     b.Property<string>("Type")
                         .IsRequired()
                         .HasMaxLength(200)
