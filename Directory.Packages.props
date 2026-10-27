@@ -51,7 +51,7 @@
           Condition="Exists('$(MSBuildThisFileDirectory)artifacts/packages/local-contracts-version.props')" />
   <PropertyGroup>
     <CampaignsContractsVersion Condition="'$(CampaignsContractsVersion)' == ''">1.0.0</CampaignsContractsVersion>
-    <PledgesContractsVersion Condition="'$(PledgesContractsVersion)' == ''">1.0.0</PledgesContractsVersion>
+    <PledgesContractsVersion Condition="'$(PledgesContractsVersion)' == ''">1.1.0</PledgesContractsVersion>
     <PaymentsContractsVersion Condition="'$(PaymentsContractsVersion)' == ''">1.0.0</PaymentsContractsVersion>
   </PropertyGroup>
   <ItemGroup Label="Contracts">

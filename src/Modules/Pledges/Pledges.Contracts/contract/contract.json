@@ -1,6 +1,6 @@
 {
   "package": "CrowdFunding.Pledges.Contracts",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "events": {
     "CampaignFundingDecided": {
       "version": 1,
@@ -334,6 +334,64 @@
           "eventId",
           "occurredAt",
           "paymentMethodRef",
+          "pledgeId"
+        ]
+      }
+    },
+    "PledgeDecided": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "amountMinor": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "backerId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "pledgeId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "amountMinor",
+          "backerId",
+          "campaignId",
+          "currency",
+          "eventId",
+          "occurredAt",
+          "outcome",
           "pledgeId"
         ]
       }
