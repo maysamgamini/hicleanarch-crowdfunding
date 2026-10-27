@@ -87,3 +87,8 @@ output "deployment_alarm_names" {
   description = "The alarms ECS watches during a deployment and rolls back on (lesson s5-l14)."
   value       = local.deployment_alarm_names
 }
+
+output "execution_secrets_policy" {
+  description = "The execution role's rendered secrets policy (the roots' tests read it, CQA-2120)."
+  value       = data.aws_iam_policy_document.secrets.json
+}
