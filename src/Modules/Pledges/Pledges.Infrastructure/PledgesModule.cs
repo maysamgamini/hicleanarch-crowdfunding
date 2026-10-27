@@ -16,7 +16,6 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 using Payments.Contracts;
@@ -28,8 +27,6 @@ using Pledges.Infrastructure.HotTier;
 using Pledges.Infrastructure.Persistence;
 using Pledges.Infrastructure.Sharding;
 using Pledges.Infrastructure.Totals;
-
-using StackExchange.Redis;
 
 namespace Pledges.Infrastructure;
 
@@ -137,9 +134,9 @@ public static class PledgesModule
         services.AddEventHandler<PledgeCancelled, MarkCampaignDirty>(PledgesModuleName.Value);
         services.AddHostedService<TotalsAggregator>();
         services.AddScoped<ITotalsSource, EfTotalsSource>();
-        if (configuration.GetConnectionString("Valkey") is { } valkey)
+        if (configuration.HasValkey())
         {
-            services.TryAddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(valkey)); // one connection, shared with the query cache
+            services.AddSharedValkey(configuration); // the program's one connection, with its client settings
             services.AddSingleton<ITotalsStore, ValkeyTotalsStore>();
         }
         else
