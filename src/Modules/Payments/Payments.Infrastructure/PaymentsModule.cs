@@ -97,7 +97,9 @@ public static class PaymentsModule
         // through the circuit first, then the shared budget (lesson s3-a04).
         services.AddSingleton<FakePaymentProvider>();
         services.AddOptions<CircuitBreakerOptions>().Bind(configuration.GetSection("Payments:Breaker"))
-            .Validate(o => o.FailuresToOpen > 0 && o.OpenFor > TimeSpan.Zero, "Payments:Breaker: FailuresToOpen and OpenFor must be positive.")
+            .Validate(o => o.FailureRatio is > 0 and <= 1 && o.MinimumThroughput >= 2 && o.SamplingDuration >= TimeSpan.FromMilliseconds(500)
+                    && o.OpenFor >= TimeSpan.FromMilliseconds(500) && o.OpenJitter >= 0,
+                "Payments:Breaker: FailureRatio in (0, 1], MinimumThroughput at least 2, SamplingDuration and OpenFor at least 500 ms.")
             .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<CircuitBreakerOptions>>().Value);
         services.AddSingleton<CircuitBreaker>();

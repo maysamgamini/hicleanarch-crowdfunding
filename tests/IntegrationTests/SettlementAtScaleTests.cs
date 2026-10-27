@@ -167,7 +167,7 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
     [Fact]
     public async Task The_breaker_opens_when_the_PSP_fails_and_settlement_pauses_without_calling_it()
     {
-        await using var host = Host(("Payments:Breaker:FailuresToOpen", "2"), ("Payments:Breaker:OpenFor", "00:00:00.500"));
+        await using var host = Host(("Payments:Breaker:MinimumThroughput", "2"), ("Payments:Breaker:OpenFor", "00:00:00.500"), ("Payments:Breaker:OpenJitter", "0"));
         var (given, campaign) = await Funded(host, 2);
         var psp = host.Services.GetRequiredService<FakePaymentProvider>();
         psp.Unreachable(true);
