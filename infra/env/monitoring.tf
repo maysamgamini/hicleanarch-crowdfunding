@@ -54,6 +54,12 @@ locals {
       threshold   = 300
       description = "An event has waited more than 5 minutes to be published to its topic: SNS refuses it, or no task is publishing (s4-l02). Every task reports this gauge, with or without a publisher, so a task left without its Events:Broker section raises it too."
     }
+    remote_call_refusals = {
+      metric      = "remote_calls.refused"
+      meter       = "CrowdFunding.RemoteCalls"
+      threshold   = 0
+      description = "Another service refused a call with a 4xx that names no reason (a bare 400, 401, 403 or 404): a wrong address, client, scope or command shape, usually after a deploy. Not an outage: retrying does not help. See the task's error log for the service and status."
+    }
     broker_subscriptions = {
       metric      = "broker.subscription_problems"
       meter       = "CrowdFunding.Messaging"
@@ -78,7 +84,7 @@ locals {
   # The gauges are reported by every task at every export, even at 0, so a minute with no data means
   # that no task, or no collector, is reporting: the failure the alarm is there for, so it breaches.
   # A counter reports nothing until it first counts; for these, no data is the normal case.
-  counters = ["close_recheck_mismatch", "reconciliation_differences"]
+  counters = ["close_recheck_mismatch", "reconciliation_differences", "remote_call_refusals"]
 }
 
 resource "aws_cloudwatch_metric_alarm" "failure_mode" {

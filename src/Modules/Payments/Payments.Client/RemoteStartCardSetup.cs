@@ -20,11 +20,13 @@ namespace Payments.Client;
 /// <summary>
 /// <see cref="StartCardSetup"/> sent to Payments over HTTP, in place of the in-process handler, with the
 /// same result: Payments' refusals come back as the same <see cref="Error"/> (by <c>reason</c>), a full
-/// lane as 429 with its wait, and a Payments that does not answer, times out or has the circuit open
-/// as <see cref="ErrorKind.Unavailable"/> with a wait, which Pledges treats as it treats a full lane:
-/// the pledge keeps its place and the backer asks for the card form again later.
+/// lane as 429 with its wait, and a Payments that does not answer, times out, answers 5xx or has the
+/// circuit open as <see cref="ErrorKind.Unavailable"/> with a wait, which Pledges treats as it treats a
+/// full lane: the pledge keeps its place and the backer asks for the card form again later. A 4xx with
+/// no reason is a fault of contract or configuration, not an outage: <see cref="PaymentsRefused"/>, with
+/// no wait, so Pledges keeps nothing; it is counted and logged (<see cref="RefusedCalls"/>).
 /// </summary>
-public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<RemoteStartCardSetup> logger)
+public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<RemoteStartCardSetup> logger, RefusedCalls refused)
     : ICommandHandler<StartCardSetup, CardSetupStarted>
 {
     /// <summary>The command's method and path, from its contract (s4-l06).</summary>
@@ -36,6 +38,13 @@ public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<Remote
 
     public static readonly Error PaymentsUnavailable =
         Error.Unavailable("payments_unavailable", "Payments did not answer; your pledge keeps its place. Ask for the card form again shortly.", UnavailableFor);
+
+    /// <summary>
+    /// Payments refused the call without a reason of its own (a binding 400, the wrong port's bare 404, the
+    /// token check's 401 or 403): asking again later will not help, so there is no wait.
+    /// </summary>
+    public static readonly Error PaymentsRefused =
+        Error.Conflict("payments_refused", "Payments refused the card setup; nothing was kept.");
 
     public async Task<Result<CardSetupStarted>> Handle(StartCardSetup command, CancellationToken cancellationToken)
     {
@@ -61,7 +70,7 @@ public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<Remote
     }
 
     /// <summary>A problem detail from Payments, back to the error it was made from.</summary>
-    private static async Task<Error> ErrorOf(HttpResponseMessage response, CancellationToken cancellationToken)
+    private async Task<Error> ErrorOf(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         string? reason = null, title = null;
         try
@@ -80,12 +89,18 @@ public sealed partial class RemoteStartCardSetup(HttpClient http, ILogger<Remote
         {
             HttpStatusCode.TooManyRequests => Error.TooManyRequests(reason ?? "too_many_requests", title ?? "Try again shortly.", wait ?? TimeSpan.FromSeconds(1)),
             >= HttpStatusCode.InternalServerError => PaymentsUnavailable with { RetryAfter = wait ?? UnavailableFor },
-            _ when reason is null => PaymentsUnavailable,
+            _ when reason is null => Refused(response.StatusCode),
             HttpStatusCode.NotFound => Error.NotFound(reason, title ?? reason),
             HttpStatusCode.Conflict => Error.Conflict(reason, title ?? reason),
             HttpStatusCode.Forbidden => Error.Forbidden(reason, title ?? reason),
             _ => Error.Validation(reason, title ?? reason),
         };
+    }
+
+    private Error Refused(HttpStatusCode status)
+    {
+        refused.Record("payments", nameof(StartCardSetup), status);
+        return PaymentsRefused;
     }
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Payments did not answer the card setup of pledge {PledgeId}; the pledge keeps its place")]

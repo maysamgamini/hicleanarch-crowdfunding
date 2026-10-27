@@ -1,7 +1,9 @@
 using System.Net;
 
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Http.Resilience;
+using Microsoft.Extensions.Logging;
 
 using Polly;
 using Polly.CircuitBreaker;
@@ -14,8 +16,11 @@ namespace CrowdFunding.RemoteCalls;
 /// The HTTP client a module uses to call another service. One pipeline, outermost first: a total
 /// timeout, retries, a circuit breaker, and a timeout per attempt.
 /// <list type="bullet">
-/// <item>Only a request that carries an <c>Idempotency-Key</c> is retried: the receiver recognises the
-/// second attempt and answers it from the first. Anything else is sent once.</item>
+/// <item>Only a request that carries an <c>Idempotency-Key</c> is retried. The header is the caller's
+/// statement that the command is idempotent at the receiver by that key: the receiver does not read
+/// it and stores no reply, so a retry runs the command again from the start, and only a command that
+/// ends the same way the second time may carry it. <c>StartCardSetup</c> does, per pledge: the PSP call
+/// carries the pledge's key and a pledge has one setup row. Anything else is sent once.</item>
 /// <item>A 429 is the other service's deliberate back-pressure: it is never retried here and never
 /// counts as a failure for the breaker; the caller passes its Retry-After on.</item>
 /// </list>
@@ -30,6 +35,8 @@ public static class RemoteCalls
     {
         var o = options ?? new RemoteCallOptions();
         o.Validate();
+        services.TryAddSingleton(sp => new RefusedCalls(
+            sp.GetService<TimeProvider>() ?? TimeProvider.System, sp.GetRequiredService<ILogger<RefusedCalls>>()));
 
         var client = services.AddHttpClient<TClient>(http =>
         {

@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
@@ -296,14 +297,16 @@ public sealed class ServiceTokenTests(Database database)
     }
 
     [Fact]
-    public async Task A_refused_token_is_dropped_and_the_next_call_asks_for_a_new_one()
+    public async Task A_held_token_refused_later_is_dropped_and_the_next_call_asks_for_a_new_one()
     {
         await using var receiver = await StartReceiver();
         var clock = new ManualClock(DateTimeOffset.UtcNow);
         var cognito = new FakeTokenEndpoint() { IssueFor = "a-client-payments-no-longer-lists" };
         using var services = Caller(clock, cognito, receiver);
         var payments = services.GetRequiredService<IHttpClientFactory>().CreateClient("payments");
+        await services.GetRequiredService<ServiceTokenSource>().Get("payments/commands", Ct); // held since a while
 
+        clock.Advance(TimeSpan.FromMinutes(10)); // then the receiver's list changes, or a key rotates
         using (var refused = await payments.PostAsync(InternalPath, null, Ct))
         {
             Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
@@ -314,6 +317,41 @@ public sealed class ServiceTokenTests(Database database)
 
         Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
         Assert.Equal(2, cognito.Requests);
+    }
+
+    [Fact]
+    public async Task A_receiver_that_refuses_every_fresh_token_costs_one_token_request_per_back_off_not_one_per_call()
+    {
+        await using var receiver = await StartReceiver();
+        var clock = new ManualClock(DateTimeOffset.UtcNow);
+        var cognito = new FakeTokenEndpoint() { IssueFor = "a-client-payments-does-not-list" };
+        var log = new Refusals.ErrorLog();
+        using var services = Caller(clock, cognito, receiver, log);
+        var payments = services.GetRequiredService<IHttpClientFactory>().CreateClient("payments");
+
+        for (var i = 0; i < 10; i++)
+        {
+            using var refused = await payments.PostAsync(InternalPath, null, Ct);
+            Assert.Equal(HttpStatusCode.Unauthorized, refused.StatusCode);
+            clock.Advance(TimeSpan.FromSeconds(5));
+        }
+
+        Assert.Equal(1, cognito.Requests);
+        Assert.Single(log.Entries, e => e.Contains("fresh service token for payments/commands was refused", StringComparison.Ordinal));
+
+        clock.Advance(TimeSpan.FromMinutes(1)); // the back-off has passed: one new request, refused again
+        using (var again = await payments.PostAsync(InternalPath, null, Ct))
+        {
+            Assert.Equal(HttpStatusCode.Unauthorized, again.StatusCode);
+        }
+
+        Assert.Equal(2, cognito.Requests);
+
+        cognito.IssueFor = Monolith; // the configuration is fixed: the next token after the back-off is accepted
+        clock.Advance(TimeSpan.FromMinutes(1));
+        using var accepted = await payments.PostAsync(InternalPath, null, Ct);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        Assert.Equal(3, cognito.Requests);
     }
 
     [Fact]
@@ -329,7 +367,7 @@ public sealed class ServiceTokenTests(Database database)
     }
 
     /// <summary>The monolith's side: its service identity, and a client to Payments that carries the token.</summary>
-    private static ServiceProvider Caller(ManualClock clock, FakeTokenEndpoint? cognito, WebApplication? receiver = null)
+    private static ServiceProvider Caller(ManualClock clock, FakeTokenEndpoint? cognito, WebApplication? receiver = null, Refusals.ErrorLog? log = null)
     {
         var settings = new Dictionary<string, string?>
         {
@@ -339,6 +377,7 @@ public sealed class ServiceTokenTests(Database database)
             ["ServiceIdentity:TokenEndpoint"] = cognito is null ? null : "https://auth.example.test/oauth2/token",
         };
         var services = new ServiceCollection()
+            .AddLogging(logging => logging.AddProvider(log ?? new Refusals.ErrorLog()))
             .AddSingleton<TimeProvider>(clock)
             .AddServiceIdentity(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
         if (cognito is not null)

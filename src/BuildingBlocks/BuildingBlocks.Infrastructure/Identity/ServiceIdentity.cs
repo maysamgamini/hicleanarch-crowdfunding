@@ -34,6 +34,13 @@ public sealed class ServiceIdentityOptions
 
     /// <summary>One token request; it runs inside the first call's attempt, so it must leave that attempt time.</summary>
     public TimeSpan RequestTimeout { get; set; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// When the receiver refuses a token fetched less than this long ago, the cause is configuration (the
+    /// client is not listed, the issuer or scope is wrong), not a stale token: the refused token is kept
+    /// this long, and no new one is asked for meanwhile, so the token requests Cognito bills stay bounded.
+    /// </summary>
+    public TimeSpan RefusedTokenBackoff { get; set; } = TimeSpan.FromMinutes(1);
 }
 
 public static class ServiceIdentity
@@ -48,8 +55,8 @@ public static class ServiceIdentity
             .Validate(o => o.TokenEndpoint is null || o.ClientSecret.Length > 0, "ServiceIdentity:ClientSecret is not set.")
             .Validate(o => o.TokenEndpoint is not null || configuration["Auth:LocalSigningKey"] is { Length: > 0 },
                 "Set ServiceIdentity:TokenEndpoint, or Auth:LocalSigningKey for local tokens.")
-            .Validate(o => o.RefreshBefore > TimeSpan.Zero && o.RequestTimeout > TimeSpan.Zero,
-                "ServiceIdentity: RefreshBefore and RequestTimeout must be positive.")
+            .Validate(o => o.RefreshBefore > TimeSpan.Zero && o.RequestTimeout > TimeSpan.Zero && o.RefusedTokenBackoff > TimeSpan.Zero,
+                "ServiceIdentity: RefreshBefore, RequestTimeout and RefusedTokenBackoff must be positive.")
             .ValidateOnStart();
         services.AddHttpClient(TokenClient, (sp, http) => http.Timeout = sp.GetRequiredService<IOptions<ServiceIdentityOptions>>().Value.RequestTimeout);
         services.TryAddSingleton(sp => new ServiceTokenSource(
@@ -100,7 +107,7 @@ public sealed partial class ServiceTokenSource(
                 var (token, lifetime) = await Request(scope, now, cancellationToken);
                 // A token shorter than twice the margin is kept for half its life instead.
                 var margin = lifetime > options.RefreshBefore * 2 ? options.RefreshBefore : lifetime / 2;
-                var fresh = new Held(token, now + lifetime - margin, now + lifetime);
+                var fresh = new Held(token, now + lifetime - margin, now + lifetime, now);
                 _held[scope] = fresh;
                 Fetched(scope, fresh.RefreshAt);
                 return token;
@@ -120,12 +127,28 @@ public sealed partial class ServiceTokenSource(
 
     public void Dispose() => _asking.Dispose();
 
-    /// <summary>The receiver refused this token (a key rotated, a client changed): the next call asks again.</summary>
+    /// <summary>
+    /// The receiver refused this token. A token held for a while is stale (a key rotated, a client
+    /// changed): it is dropped, and the next call asks for a new one. A token refused within
+    /// <see cref="ServiceIdentityOptions.RefusedTokenBackoff"/> of its fetch would be refused again: it
+    /// is kept until that time has passed, and calls meanwhile fail without asking the endpoint, so a
+    /// refusal that persists costs one token request per back-off, not one per call.
+    /// </summary>
     public void Forget(string scope, string token)
     {
-        if (_held.TryGetValue(scope, out var held) && held.Token == token)
+        if (!_held.TryGetValue(scope, out var held) || held.Token != token || held.Refused)
+        {
+            return;
+        }
+
+        var now = clock.GetUtcNow();
+        if (now - held.FetchedAt >= options.RefusedTokenBackoff)
         {
             _held.TryRemove(new KeyValuePair<string, Held>(scope, held));
+        }
+        else if (_held.TryUpdate(scope, held with { RefreshAt = now + options.RefusedTokenBackoff, Refused = true }, held))
+        {
+            FreshTokenRefused(scope, now + options.RefusedTokenBackoff);
         }
     }
 
@@ -177,14 +200,20 @@ public sealed partial class ServiceTokenSource(
     [LoggerMessage(Level = LogLevel.Warning, Message = "Service token for {Scope} not renewed; the current one is used until {ExpiresAt}")]
     private partial void RefreshFailed(Exception e, string scope, DateTimeOffset expiresAt);
 
-    private sealed record Held(string Token, DateTimeOffset RefreshAt, DateTimeOffset ExpiresAt);
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A fresh service token for {Scope} was refused: the receiver does not accept this client, issuer or scope. No new token is asked for before {RetryAt}")]
+    private partial void FreshTokenRefused(string scope, DateTimeOffset retryAt);
+
+    private sealed record Held(string Token, DateTimeOffset RefreshAt, DateTimeOffset ExpiresAt, DateTimeOffset FetchedAt, bool Refused = false);
 
     private sealed record TokenReply(
         [property: JsonPropertyName("access_token")] string AccessToken,
         [property: JsonPropertyName("expires_in")] int ExpiresIn);
 }
 
-/// <summary>Puts the service's token on each request; a 401 back makes the next request ask for a new one.</summary>
+/// <summary>
+/// Puts the service's token on each request; a 401 back makes the source drop the token, or keep a fresh
+/// one it would only get again for a while (<see cref="ServiceTokenSource.Forget"/>).
+/// </summary>
 public sealed class ServiceTokenHandler(ServiceTokenSource tokens, string scope) : DelegatingHandler
 {
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)

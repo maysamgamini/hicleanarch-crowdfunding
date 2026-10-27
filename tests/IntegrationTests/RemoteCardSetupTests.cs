@@ -136,6 +136,56 @@ public sealed class RemoteCardSetupTests(Database database)
         Assert.Equal("payments_unavailable", (await resumed.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
     }
 
+    /// <summary>
+    /// A misconfiguration after a deploy: the monolith calls the wrong port (a bare 404), or Payments does
+    /// not list its client (the token check's bare 401). Neither is an outage: the backer gets a refusal
+    /// with no wait and nothing is kept, each refusal is counted, and one error line names the status.
+    /// </summary>
+    [Theory]
+    [InlineData("Payments:Internal:Port", "8081", 404)]
+    [InlineData("Auth:ServiceClients:0", "some-other-service", 401)]
+    public async Task A_refusal_from_payments_with_no_reason_is_a_fault_not_an_outage(string key, string value, int status)
+    {
+        var log = new Refusals.ErrorLog();
+        var counted = 0;
+        using var listener = new System.Diagnostics.Metrics.MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (instrument.Meter.Name == CrowdFunding.RemoteCalls.RefusedCalls.MeterName)
+            {
+                l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((_, _, tags, _) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (tag.Key == "status" && (int)tag.Value! == status)
+                {
+                    Interlocked.Increment(ref counted);
+                }
+            }
+        });
+        listener.Start();
+        await using var host = database.StartHost(services => services.AddSingleton<Microsoft.Extensions.Logging.ILoggerProvider>(log))
+            .WithWebHostBuilder(web => web.UseSetting(key, value));
+        var given = new Scenario(database, host);
+        var campaign = await given.Publish(1_000);
+
+        for (var i = 0; i < 2; i++)
+        {
+            var refused = await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", NewCard(5_000), Ct);
+
+            Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+            Assert.Null(refused.Headers.RetryAfter);
+            Assert.Equal("card_setup_unavailable", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
+        }
+
+        Assert.Equal(0, await given.Scalar<long>("SELECT count(*) FROM pledges.pledges WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.True(Volatile.Read(ref counted) >= 2, $"counted {counted}");
+        Assert.Single(log.Entries, e => e.StartsWith("Error", StringComparison.Ordinal) && e.Contains($"payments refused StartCardSetup with {status}", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task The_internal_endpoint_does_not_exist_on_the_public_port()
     {
