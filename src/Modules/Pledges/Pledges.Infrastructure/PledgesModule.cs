@@ -43,10 +43,13 @@ public static class PledgesModule
         services.AddEventHandler<CampaignPublished, OpenFundingWindow>(PledgesModuleName.Value);
         services.AddEventHandler<PaymentMethodSaved, ActivatePledge>(PledgesModuleName.Value);
         services.AddHostedService<HoldSweeper>();
+        services.AddHostedService<CloseJob>();
         services.AddPublishedEvent<PledgeActivated>();
         services.AddPublishedEvent<PledgeChanged>();
         services.AddPublishedEvent<PledgeCancelled>();
         services.AddPublishedEvent<FundingCancelled>();
+        services.AddPublishedEvent<CampaignFundingDecided>();
+        services.AddPublishedEvent<PledgeChargeRequested>();
         services.AddKeyedScoped<ITransactionScope>(PledgesModuleName.Value, (sp, _) => new ModuleTransaction<PledgesDbContext>(sp.GetRequiredService<PledgesDbContext>()));
         services.AddSingleton<IModuleMigrator, PledgesMigrator>();
         services.AddSingleton(new ModuleDatabase(PledgesModuleName.Value, PledgesDbContext.Schema, connectionString));
@@ -58,6 +61,7 @@ public static class PledgesModule
             .AddScoped<IPledgeLedger>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<ITierSlots>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IHolds>(sp => sp.GetRequiredService<EfPledges>())
+            .AddScoped<IClosing, EfClosing>()
             .AddScoped<ICampaignTotals>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IdempotentRequests<PledgesDbContext>>();
     }

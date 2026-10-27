@@ -33,3 +33,31 @@ public sealed record PledgeCancelled(
     Guid CampaignId,
     Guid BackerId,
     long AmountMinor) : IntegrationEvent(EventId, OccurredAt);
+
+/// <summary>
+/// A campaign's funding was decided from the exact ledger sum after the close: FUNDED or
+/// UNSUCCESSFUL. Campaigns shows it; Payments starts settling a funded campaign.
+/// </summary>
+public sealed record CampaignFundingDecided(
+    Guid EventId,
+    DateTimeOffset OccurredAt,
+    Guid CampaignId,
+    string Outcome,
+    long FinalMinor,
+    int Backers,
+    long GoalMinor) : IntegrationEvent(EventId, OccurredAt)
+{
+    public const string Funded = "FUNDED";
+    public const string Unsuccessful = "UNSUCCESSFUL";
+}
+
+/// <summary>A pledge of a funded campaign is to be charged, once, with its saved card.</summary>
+public sealed record PledgeChargeRequested(
+    Guid EventId,
+    DateTimeOffset OccurredAt,
+    Guid PledgeId,
+    Guid CampaignId,
+    Guid BackerId,
+    long AmountMinor,
+    string Currency,
+    string PaymentMethodRef) : IntegrationEvent(EventId, OccurredAt);

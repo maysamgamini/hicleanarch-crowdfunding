@@ -24,8 +24,11 @@ internal sealed class EfCampaignRepository(CampaignsDbContext db) : ICampaignRep
                 .SetProperty(c => c.Status, CampaignStatus.Live)
                 .SetProperty(c => c.PublishedAt, publishedAt), cancellationToken) == 1;
 
-    public async Task<bool> TryCancel(CampaignId id, CampaignStatus from, CancellationToken cancellationToken) =>
+    public Task<bool> TryCancel(CampaignId id, CampaignStatus from, CancellationToken cancellationToken) =>
+        TryMove(id, from, CampaignStatus.Cancelled, cancellationToken);
+
+    public async Task<bool> TryMove(CampaignId id, CampaignStatus from, CampaignStatus to, CancellationToken cancellationToken) =>
         await db.Campaigns
             .Where(c => c.Id == id && c.Status == from)
-            .ExecuteUpdateAsync(set => set.SetProperty(c => c.Status, CampaignStatus.Cancelled), cancellationToken) == 1;
+            .ExecuteUpdateAsync(set => set.SetProperty(c => c.Status, to), cancellationToken) == 1;
 }

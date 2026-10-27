@@ -14,4 +14,7 @@ public interface ICampaignRepository
 
     /// <summary>Moves the campaign from <paramref name="from"/> to CANCELLED, only if it is still there.</summary>
     Task<bool> TryCancel(CampaignId id, CampaignStatus from, CancellationToken cancellationToken);
+
+    /// <summary>Moves the status people see from <paramref name="from"/> to <paramref name="to"/>, only if it is still there.</summary>
+    Task<bool> TryMove(CampaignId id, CampaignStatus from, CampaignStatus to, CancellationToken cancellationToken);
 }
