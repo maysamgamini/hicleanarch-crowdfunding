@@ -97,8 +97,15 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
         var (given, campaign, transaction) = await PledgeInFlightAcrossTheDeadline();
 
         var closing = CloseUntilDecided(campaign.CampaignId);
-        await Task.Delay(300, Ct);
-        await transaction.CommitAsync(Ct); // under a second after it began: inside the two-second limit
+        await Scenario.Eventually(async () => await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId) == "ENDED");
+
+        // The close has ended the campaign; half a second later, by the database's clock, it still
+        // has not summed, because a transaction that read LIVE may still be open.
+        await Scenario.Eventually(async () => await given.Scalar<bool>(
+            "SELECT final_minor IS NOT NULL OR clock_timestamp() >= ended_at + interval '500 milliseconds' FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal("ENDED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+
+        await transaction.CommitAsync(Ct); // well inside the two-second limit
         await closing;
 
         Assert.Equal(6_000L, await given.Scalar<long>("SELECT final_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
@@ -114,6 +121,26 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
         Assert.Equal(0L, await given.Scalar<long>("SELECT final_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         await Assert.ThrowsAnyAsync<Exception>(() => transaction.CommitAsync(Ct));
         Assert.Equal(0L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
+    }
+
+    [Fact]
+    public async Task A_decision_sooner_than_the_fences_wait_after_the_close_changes_nothing()
+    {
+        // A campaign another task has just ended, decided by a pass that did not wait: a stranded
+        // campaign's next pass, or a second pass on another task.
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+        await given.Execute("UPDATE pledges.funding_windows SET status = 'ENDED', deadline = now() - interval '1 second', ended_at = clock_timestamp() WHERE campaign_id = @id", campaign.CampaignId);
+        await using var scope = _host.Services.CreateAsyncScope();
+        var closing = scope.ServiceProvider.GetRequiredService<IClosing>();
+
+        Assert.False(await closing.TryDecide(campaign.CampaignId, funded: false, finalMinor: 0, Ct));
+        Assert.Equal("ENDED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.True(await given.Scalar<bool>("SELECT final_minor IS NULL AND decided_at IS NULL FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+
+        // Once the wait is behind it, the same decision is taken.
+        await given.Execute("UPDATE pledges.funding_windows SET ended_at = clock_timestamp() - interval '4 seconds' WHERE campaign_id = @id", campaign.CampaignId);
+        Assert.True(await closing.TryDecide(campaign.CampaignId, funded: false, finalMinor: 0, Ct));
     }
 
     [Fact]
@@ -208,14 +235,13 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
 
     /// <summary>
     /// A campaign whose deadline passes while a pledge transaction is open: the transaction has read
-    /// LIVE and added a ledger entry, and has not committed. It began about half a second ago.
+    /// LIVE and added a ledger entry, and has not committed. The deadline is moved to the database's
+    /// now() only after that read, so the transaction began just before it, with no sleep to outlast.
     /// </summary>
     private async Task<(Scenario Given, Scenario.Published Campaign, Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction Transaction)> PledgeInFlightAcrossTheDeadline()
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish();
-        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() + interval '400 milliseconds' WHERE campaign_id = @id", campaign.CampaignId);
-
         var scope = _host.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<PledgesDbContext>();
         var transaction = await db.Database.BeginTransactionAsync(Ct);
@@ -224,7 +250,7 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
             INSERT INTO pledges.pledge_ledger (campaign_id, pledge_id, cause_id, delta_minor, kind)
             VALUES ({campaign.CampaignId}, {Guid.NewGuid()}, {"test:" + Guid.NewGuid().ToString("N")}, 6000, 'ACTIVATE')
             """, Ct);
-        await Task.Delay(500, Ct); // the deadline has passed
+        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() WHERE campaign_id = @id", campaign.CampaignId);
         return (given, campaign, transaction);
     }
 

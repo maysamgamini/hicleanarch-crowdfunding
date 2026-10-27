@@ -118,7 +118,6 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish(50_000);
-        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() + interval '400 milliseconds' WHERE campaign_id = @id", campaign.CampaignId);
 
         // Pledge A, through the real handler, inside a transaction it keeps open past the deadline.
         await using var scopeA = _host.Services.CreateAsyncScope();
@@ -128,11 +127,12 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
             new PlacePledge(campaign.CampaignId, Guid.NewGuid(), null, 6_000, "pm_card_visa", $"test:{Guid.NewGuid():N}"), Ct);
         Assert.True(placedA.IsSuccess);
 
-        await Task.Delay(500, Ct); // the deadline passes while A is still open
+        // The deadline passes while A is still open: A read LIVE before it.
+        await PassDeadline(given, campaign);
         // The close ends the campaign at once and waits out the request path's time limit before it
         // sums (lesson s3-l05).
         var close = Task.Run(() => ClosePass(campaign), Ct);
-        await Task.Delay(300, Ct);
+        await Scenario.Eventually(async () => await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId) == "ENDED");
 
         var late = await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(4_000), Ct);
         Assert.Equal(HttpStatusCode.Conflict, late.StatusCode);
