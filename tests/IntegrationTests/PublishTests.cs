@@ -87,7 +87,7 @@ public sealed class PublishTests(Database database) : IDisposable
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
         Assert.Equal("deadline_too_far", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
-        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
+        var read = await Creator().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
         Assert.Equal("DRAFT", read.GetProperty("status").GetString());
     }
 
