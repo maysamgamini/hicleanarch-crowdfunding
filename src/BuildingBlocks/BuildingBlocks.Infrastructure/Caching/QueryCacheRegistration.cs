@@ -22,9 +22,8 @@ public static class QueryCacheRegistration
             return services.AddSingleton<IQueryCache, NoQueryCache>();
         }
 
-        var options = ConfigurationOptions.Parse(valkey);
-        options.AbortOnConnectFail = false;
-        services.TryAddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(options));
+        // The program's one connection, with the short timeouts every Valkey client here uses.
+        services.TryAddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(Valkey.ValkeyRegistration.ClientOptions(valkey)));
         return services.AddSingleton<IQueryCache, ValkeyQueryCache>();
     }
 }
