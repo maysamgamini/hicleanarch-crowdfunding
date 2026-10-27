@@ -5,6 +5,7 @@ using System.Text.Json;
 
 using BuildingBlocks.Application;
 
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 using Payments.Infrastructure.Psp;
@@ -205,6 +206,44 @@ public sealed class CardSetupTests(Database database) : IDisposable
         Assert.False(WebhookSignature.Verify("secret-0123456789abcdef", $"{t},v1=0000,v1=1111", "{\"a\":1}", now));
         Assert.False(WebhookSignature.Verify("secret-0123456789abcdef", $"{t},{t},garbage", "{\"a\":1}", now));
         Assert.False(WebhookSignature.Verify("secret-0123456789abcdef", $"t=99999999999999999,v1={v1}", "{\"a\":1}", now));
+    }
+
+    [Fact]
+    public void Any_of_our_secrets_may_match_while_a_new_one_is_rolled_out()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var byOld = WebhookSignature.Sign("old-secret-0123456789abcdef", "{\"a\":1}", now);
+
+        Assert.True(WebhookSignature.Verify(["new-secret-0123456789abcdef", "old-secret-0123456789abcdef"], byOld, "{\"a\":1}", now));
+        Assert.False(WebhookSignature.Verify(["new-secret-0123456789abcdef"], byOld, "{\"a\":1}", now));
+    }
+
+    [Fact]
+    public async Task A_message_signed_with_the_previous_secret_is_accepted_while_it_is_configured()
+    {
+        const string Previous = "whsec_previous_only_0123456789";
+        await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("Payments:PreviousWebhookSecret", Previous));
+        var body = $$$"""{"id":"evt_{{{Guid.NewGuid():N}}}","type":"setup_failed","data":{"setup_id":"seti_unknown"}}""";
+        var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(body, Encoding.UTF8, "application/json") };
+        request.Headers.Add(WebhookSignature.Header, WebhookSignature.Sign(Previous, body, DateTimeOffset.UtcNow));
+
+        var response = await host.CreateClient().SendAsync(request, Ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("setup_succeeded", "{}")]
+    [InlineData("setup_succeeded", "{\"setup_id\":\"seti_1\"}")]
+    [InlineData("charge_failed", "{\"pledge_id\":\"plg_1\",\"payment_id\":\"pi_1\",\"attempt_no\":\"one\",\"decline_code\":\"x\"}")]
+    [InlineData("payment_failed", "[]")]
+    public async Task A_signed_message_whose_data_lacks_what_its_type_needs_is_a_400(string type, string data)
+    {
+        var body = $$$"""{"id":"evt_{{{Guid.NewGuid():N}}}","type":"{{{type}}}","data":{{{data}}}}""";
+
+        var response = await Deliver(new SignedWebhook(body, WebhookSignature.Sign(Database.WebhookSecret, body, DateTimeOffset.UtcNow)));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]

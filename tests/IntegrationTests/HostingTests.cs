@@ -63,6 +63,20 @@ public sealed class HostingTests(Database database)
         Assert.Equal("database_unavailable", problem.GetProperty("reason").GetString());
     }
 
+    [Theory]
+    [InlineData("Payments:WebhookSecret", "too-short", "WebhookSecret")]
+    [InlineData("Pledges:MarkBatchSize", "0", "MarkBatchSize")]
+    [InlineData("Payments:Dunning:MaxAttempts", "0", "Dunning")]
+    [InlineData("Outbox:MaxConcurrentDeliveries", "0", "MaxConcurrentDeliveries")]
+    public void A_wrong_setting_stops_the_program_at_start_not_at_first_use(string key, string value, string named)
+    {
+        using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting(key, value));
+
+        var failure = Assert.ThrowsAny<Exception>(() => host.Server);
+
+        Assert.Contains(named, failure.ToString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Stopping_gives_every_participant_its_turn_even_after_one_fails()
     {

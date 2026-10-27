@@ -52,11 +52,23 @@ public static class PaymentsModule
         services.AddEventHandler<PledgeChargeRequested, CreateCharge>(PaymentsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, CreateSettlementJob>(PaymentsModuleName.Value);
         services.AddSharedValkey(configuration);
-        services.AddOptions<PspBudget>().Bind(configuration.GetSection("Payments:Budget"));
+        // Every section is checked when the program starts, so a wrong setting fails the deploy, not the first call.
+        services.AddOptions<PspBudget>().Bind(configuration.GetSection("Payments:Budget"))
+            .Validate(b => new[] { b.AccountPerSecond, b.CustomersPerSecond, b.CardSetupsPerSecond, b.ChargesPerSecond, b.LookUpsPerSecond }.All(r => r > 0),
+                "Payments:Budget: every rate must be positive.")
+            .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<PspBudget>>().Value);
-        services.AddSingleton((configuration.GetSection("Payments:Dunning").Get<DunningOptions>() ?? new DunningOptions()).Policy);
+        services.AddOptions<DunningOptions>().Bind(configuration.GetSection("Payments:Dunning"))
+            .Validate(d => d.Window > TimeSpan.Zero && d.MaxAttempts > 0 && d.SoftRetries.All(r => r > TimeSpan.Zero && r < d.Window),
+                "Payments:Dunning: the window and attempts must be positive, and every retry inside the window.")
+            .ValidateOnStart();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<DunningOptions>>().Value.Policy);
         services.AddEventHandler<CampaignPublished, RecordPayee>(PaymentsModuleName.Value);
-        services.AddOptions<MoneyOptions>().Bind(configuration.GetSection("Payments:Money"));
+        services.AddOptions<MoneyOptions>().Bind(configuration.GetSection("Payments:Money"))
+            .Validate(m => m.PlatformFeeBasisPoints is >= 0 and <= 10_000 && m.ReserveBasisPoints is >= 0 and <= 10_000
+                    && m.PlatformFeeBasisPoints + m.ReserveBasisPoints <= 10_000 && m.PollEvery > TimeSpan.Zero,
+                "Payments:Money: fee and reserve between 0 and 10,000 basis points together, and PollEvery positive.")
+            .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<MoneyOptions>>().Value);
         services.AddHostedService<MoneyWorker>();
         services.AddSingleton(sp =>
@@ -64,7 +76,10 @@ public static class PaymentsModule
             var money = sp.GetRequiredService<IOptions<MoneyOptions>>().Value;
             return new MoneyPolicy(money.PlatformFeeBasisPoints, money.ReserveBasisPoints);
         });
-        services.AddOptions<SettlementOptions>().Bind(configuration.GetSection("Payments:Settlement"));
+        services.AddOptions<SettlementOptions>().Bind(configuration.GetSection("Payments:Settlement"))
+            .Validate(s => s.PollEvery > TimeSpan.Zero && s.BatchSize > 0 && s.PspCallTimeout > TimeSpan.Zero && s.Lease > s.PspCallTimeout,
+                "Payments:Settlement: PollEvery, BatchSize and PspCallTimeout must be positive, and the lease longer than a PSP call.")
+            .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SettlementOptions>>().Value);
         services.AddSingleton<SettlementWorker>();
         services.AddHostedService(sp => sp.GetRequiredService<SettlementWorker>());
@@ -73,12 +88,18 @@ public static class PaymentsModule
         services.AddSingleton<IModuleMigrator, PaymentsMigrator>();
         services.AddSingleton(new ModuleDatabase(PaymentsModuleName.Value, PaymentsDbContext.Schema, connectionString));
         services.AddOptions<PaymentsOptions>().Bind(configuration.GetSection("Payments"))
-            .Validate(o => o.WebhookSecret.Length >= 16, "Payments:WebhookSecret must be at least 16 characters.");
+            .Validate(o => o.WebhookSecret.Length >= 16, "Payments:WebhookSecret must be at least 16 characters.")
+            .Validate(o => o.PreviousWebhookSecret is null or "" || o.PreviousWebhookSecret.Length >= 16,
+                "Payments:PreviousWebhookSecret, when set, must be at least 16 characters.")
+            .ValidateOnStart();
 
         // The course runs on the fake PSP. A real adapter implements the same port. Every call goes
         // through the circuit first, then the shared budget (lesson s3-a04).
         services.AddSingleton<FakePaymentProvider>();
-        services.AddSingleton(configuration.GetSection("Payments:Breaker").Get<CircuitBreakerOptions>() ?? new CircuitBreakerOptions());
+        services.AddOptions<CircuitBreakerOptions>().Bind(configuration.GetSection("Payments:Breaker"))
+            .Validate(o => o.FailuresToOpen > 0 && o.OpenFor > TimeSpan.Zero, "Payments:Breaker: FailuresToOpen and OpenFor must be positive.")
+            .ValidateOnStart();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<CircuitBreakerOptions>>().Value);
         services.AddSingleton<CircuitBreaker>();
         services.AddSingleton<IPaymentProvider>(sp => new CircuitBreakingPaymentProvider(
             new BudgetedPaymentProvider(sp.GetRequiredService<FakePaymentProvider>(), sp.GetRequiredService<ITokenBuckets>(),
@@ -174,8 +195,8 @@ public static class PaymentsModule
 
     internal static async Task<IResult> Receive(IServiceProvider services, string body, string? signature, CancellationToken ct)
     {
-        var secret = services.GetRequiredService<IOptions<PaymentsOptions>>().Value.WebhookSecret;
-        if (!WebhookSignature.Verify(secret, signature, body, services.GetRequiredService<TimeProvider>().GetUtcNow()))
+        var secrets = services.GetRequiredService<IOptions<PaymentsOptions>>().Value.WebhookSecrets;
+        if (!WebhookSignature.Verify(secrets, signature, body, services.GetRequiredService<TimeProvider>().GetUtcNow()))
         {
             return Results.Problem(statusCode: StatusCodes.Status400BadRequest, title: "The signature does not match.");
         }
@@ -186,6 +207,10 @@ public static class PaymentsModule
             using var message = JsonDocument.Parse(body);
             var root = message.RootElement;
             command = new HandlePspWebhook(root.GetProperty("id").GetString()!, root.GetProperty("type").GetString()!, root.GetProperty("data").Clone());
+            if (!HandlePspWebhook.IsReadable(command.Type, command.Data))
+            {
+                throw new JsonException($"A {command.Type} message without the fields it needs.");
+            }
         }
         catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException)
         {

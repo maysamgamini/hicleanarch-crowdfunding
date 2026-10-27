@@ -10,7 +10,28 @@ using Payments.Contracts;
 namespace Payments.Application;
 
 /// <summary>A PSP message whose signature was already verified. <see cref="Data"/> is its payload.</summary>
-public sealed record HandlePspWebhook(string MessageId, string Type, JsonElement Data) : ICommand<WebhookHandled>;
+public sealed record HandlePspWebhook(string MessageId, string Type, JsonElement Data) : ICommand<WebhookHandled>
+{
+    /// <summary>
+    /// Whether the payload has every field its type needs, of the right kind. One that does not is
+    /// refused before anything is recorded; a type we do not handle is acknowledged and ignored.
+    /// </summary>
+    public static bool IsReadable(string type, JsonElement data) => data.ValueKind == JsonValueKind.Object && type switch
+    {
+        "setup_succeeded" => Text(data, "setup_id") && Text(data, "payment_method"),
+        "setup_failed" => Text(data, "setup_id"),
+        "charge_succeeded" => Text(data, "pledge_id") && Text(data, "payment_id") && Number(data, "attempt_no"),
+        "charge_failed" => Text(data, "pledge_id") && Text(data, "payment_id") && Number(data, "attempt_no") && Text(data, "decline_code"),
+        "payment_succeeded" or "payment_failed" => Text(data, "payment_id"),
+        _ => true,
+    };
+
+    private static bool Text(JsonElement data, string name) =>
+        data.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrEmpty(value.GetString());
+
+    private static bool Number(JsonElement data, string name) =>
+        data.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out _);
+}
 
 public enum WebhookHandled
 {

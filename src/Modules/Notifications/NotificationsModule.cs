@@ -48,7 +48,11 @@ public static class NotificationsModule
         services.AddScoped<Notifier>();
 
         var options = configuration.GetSection(Name);
-        services.AddOptions<NotificationsOptions>().Bind(options);
+        services.AddOptions<NotificationsOptions>().Bind(options)
+            .Validate(o => o.Sender is "InMemory" or "Ses", "Notifications:Sender must be InMemory or Ses.")
+            .Validate(o => o.Sender != "Ses" || (o.FromAddress.Contains('@', StringComparison.Ordinal) && o.UserPoolId.Length > 0),
+                "Notifications: sending through SES needs FromAddress and UserPoolId.")
+            .ValidateOnStart();
         if (options["Sender"] == "Ses")
         {
             services.AddSingleton<IAmazonSimpleEmailServiceV2, AmazonSimpleEmailServiceV2Client>();

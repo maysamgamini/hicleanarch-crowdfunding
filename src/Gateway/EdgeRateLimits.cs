@@ -10,7 +10,9 @@ public static class EdgeRateLimits
 {
     public static IServiceCollection AddEdgeRateLimits(this IServiceCollection services, IConfiguration section)
     {
-        services.Configure<EdgeLimitOptions>(section);
+        services.AddOptions<EdgeLimitOptions>().Bind(section)
+            .Validate(o => o.PerSecond > 0 && o.Burst > 0 && o.GatewayTasks > 0, "EdgeLimits: PerSecond, Burst and GatewayTasks must be positive.")
+            .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<EdgeLimitOptions>>().Value);
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<EdgeClients>();

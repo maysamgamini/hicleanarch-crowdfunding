@@ -17,6 +17,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 using Payments.Contracts;
 
@@ -84,7 +85,10 @@ public static class PledgesModule
         services.AddReadSide<PledgesDbContext>(
             configuration.GetConnectionString("PledgesRead") ?? connectionString, PledgesDbOptions.Configure);
         services.AddScoped<EfPledges>();
-        services.AddSingleton(configuration.GetSection("Pledges").Get<MarkingOptions>() ?? new MarkingOptions());
+        services.AddOptions<MarkingOptions>().Bind(configuration.GetSection("Pledges"))
+            .Validate(m => m.MarkBatchSize > 0 && m.MarkBatchesPerPass > 0, "Pledges: MarkBatchSize and MarkBatchesPerPass must be positive.")
+            .ValidateOnStart();
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<MarkingOptions>>().Value);
         services.AddSharedValkey(configuration);
         if (configuration.HasValkey())
         {

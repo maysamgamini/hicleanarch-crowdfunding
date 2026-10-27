@@ -8,7 +8,8 @@ namespace Payments.Infrastructure.Psp;
 /// The PSP signs each webhook: <c>Psp-Signature: t=&lt;unix seconds&gt;,v1=&lt;hex HMAC-SHA256 of "t.body"&gt;</c>,
 /// with a secret only it and we know. We check the signature over the raw body, and refuse a
 /// timestamp older than the tolerance, so a captured request cannot be replayed later. While the
-/// PSP rotates its secret it may send several <c>v1</c> values: any one that matches passes.
+/// PSP rotates its secret it sends several <c>v1</c> values, and while we roll a new secret out to
+/// every task we accept the previous one too: any value that matches any of our secrets passes.
 /// </summary>
 public static class WebhookSignature
 {
@@ -22,7 +23,10 @@ public static class WebhookSignature
         return $"t={t},v1={Hmac(secret, t, body)}";
     }
 
-    public static bool Verify(string secret, string? header, string body, DateTimeOffset now)
+    public static bool Verify(string secret, string? header, string body, DateTimeOffset now) =>
+        Verify([secret], header, body, now);
+
+    public static bool Verify(IReadOnlyCollection<string> secrets, string? header, string body, DateTimeOffset now)
     {
         if (string.IsNullOrEmpty(header))
         {
@@ -44,8 +48,8 @@ public static class WebhookSignature
             return false;
         }
 
-        var expected = Encoding.ASCII.GetBytes(Hmac(secret, t, body));
-        return signatures.Any(v1 => CryptographicOperations.FixedTimeEquals(expected, Encoding.ASCII.GetBytes(v1)));
+        var expected = secrets.Select(secret => Encoding.ASCII.GetBytes(Hmac(secret, t, body))).ToList();
+        return signatures.Any(v1 => expected.Any(e => CryptographicOperations.FixedTimeEquals(e, Encoding.ASCII.GetBytes(v1))));
     }
 
     private static string Hmac(string secret, string t, string body) =>
