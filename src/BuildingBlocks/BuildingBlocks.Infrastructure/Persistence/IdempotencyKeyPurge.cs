@@ -12,8 +12,16 @@ public interface IIdempotencyKeyPurge
 }
 
 /// <summary>
+/// Points the purge's context at another connection of the same module, for a module whose request
+/// role has a short transaction limit (Pledges' jobs role). Registered by that module; optional.
+/// </summary>
+public sealed record PurgeConnection<TContext>(Action<TContext> Use)
+    where TContext : DbContext;
+
+/// <summary>
 /// Deletes a module's idempotency keys once they are older than any client keeps retrying: 7 days.
-/// Every task runs it every hour; two tasks deleting the same old rows do no harm.
+/// Every task runs it every hour; two tasks deleting the same old rows do no harm. It deletes in
+/// batches, each its own short statement, so a day of keys never makes one long transaction.
 /// </summary>
 public sealed partial class IdempotencyKeyPurge<TContext>(IServiceScopeFactory scopes, ILogger<IdempotencyKeyPurge<TContext>> logger)
     : BackgroundService, IIdempotencyKeyPurge
@@ -21,12 +29,26 @@ public sealed partial class IdempotencyKeyPurge<TContext>(IServiceScopeFactory s
 {
     public static readonly TimeSpan KeepFor = TimeSpan.FromDays(7);
 
+    public const int BatchSize = 5_000;
+
     public async Task<int> PurgeOnce(CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<TContext>();
+        scope.ServiceProvider.GetService<PurgeConnection<TContext>>()?.Use(db);
         var cutoff = DateTimeOffset.UtcNow - KeepFor;
-        return await db.Set<IdempotencyKey>().Where(k => k.CreatedAt < cutoff).ExecuteDeleteAsync(cancellationToken);
+        var purged = 0;
+        int deleted;
+        do
+        {
+            deleted = await db.Set<IdempotencyKey>().Where(k => k.CreatedAt < cutoff)
+                .OrderBy(k => k.CreatedAt).Take(BatchSize)
+                .ExecuteDeleteAsync(cancellationToken);
+            purged += deleted;
+        }
+        while (deleted == BatchSize);
+
+        return purged;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

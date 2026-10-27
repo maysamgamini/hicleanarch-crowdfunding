@@ -115,7 +115,12 @@ public static class PledgesModule
             .AddScoped<ILastDayRule, EfLastDayRule>()
             .AddScoped<ICampaignTotals, CachedCampaignTotals>()
             .AddScoped<IPublicTotalsReads, EfPublicTotals>()
-            .AddScoped<IdempotentRequests<PledgesDbContext>>();
+            .AddScoped<IdempotentRequests<PledgesDbContext>>()
+            // The hourly purge of week-old keys, as the jobs role: pledges_app's two-second limit is for requests.
+            .AddSingleton(sp => new PurgeConnection<PledgesDbContext>(sp.GetRequiredService<PledgesJobsConnection>().Use))
+            .AddSingleton<IdempotencyKeyPurge<PledgesDbContext>>()
+            .AddSingleton<IIdempotencyKeyPurge>(sp => sp.GetRequiredService<IdempotencyKeyPurge<PledgesDbContext>>())
+            .AddHostedService(sp => sp.GetRequiredService<IdempotencyKeyPurge<PledgesDbContext>>());
     }
 
     /// <summary>

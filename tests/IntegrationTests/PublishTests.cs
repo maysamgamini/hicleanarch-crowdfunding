@@ -173,4 +173,27 @@ public sealed class PublishTests(Database database) : IDisposable
         Assert.Equal(0, await database.Count("campaigns.idempotency_keys", "key", oldKey));
         Assert.Equal(1, await database.Count("campaigns.idempotency_keys", "key", newKey));
     }
+
+    [Theory]
+    [InlineData("campaigns")]
+    [InlineData("pledges")]
+    [InlineData("payments")]
+    public async Task Every_module_purges_its_keys_older_than_seven_days(string schema)
+    {
+        var oldKey = Guid.NewGuid().ToString();
+        var newKey = Guid.NewGuid().ToString();
+        await database.Execute($"""
+            INSERT INTO {schema}.idempotency_keys (caller_id, key, request_hash, reply_status, created_at)
+            VALUES (gen_random_uuid(), '{oldKey}', '\x00', 200, now() - interval '8 days'),
+                   (gen_random_uuid(), '{newKey}', '\x00', 200, now())
+            """);
+
+        foreach (var purge in _host.Services.GetServices<BuildingBlocks.Infrastructure.Persistence.IIdempotencyKeyPurge>())
+        {
+            await purge.PurgeOnce(Ct);
+        }
+
+        Assert.Equal(0, await database.Count($"{schema}.idempotency_keys", "key", oldKey));
+        Assert.Equal(1, await database.Count($"{schema}.idempotency_keys", "key", newKey));
+    }
 }
