@@ -4,6 +4,7 @@ using System.Text.Json;
 
 using BuildingBlocks.Infrastructure.Identity;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace IntegrationTests;
@@ -88,6 +89,49 @@ public sealed class PublishTests(Database database) : IDisposable
         Assert.Equal("deadline_too_far", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
         var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
         Assert.Equal("DRAFT", read.GetProperty("status").GetString());
+    }
+
+    /// <summary>
+    /// Two publishes of one draft, each in its own open transaction, both past the domain's check: the
+    /// database's DRAFT condition lets one win. The second waits for the first's row lock, then finds
+    /// the campaign LIVE and moves nothing.
+    /// </summary>
+    [Fact]
+    public async Task Two_publishes_at_once_give_one_live_campaign_and_one_event()
+    {
+        var id = await CreateDraft();
+        var campaignId = Campaigns.Domain.CampaignId.TryParse(id, out var parsed) ? parsed : throw new InvalidOperationException(id);
+        await using var first = _host.Services.CreateAsyncScope();
+        await using var second = _host.Services.CreateAsyncScope();
+        var firstDb = first.ServiceProvider.GetRequiredService<Campaigns.Infrastructure.Persistence.CampaignsDbContext>();
+        var secondDb = second.ServiceProvider.GetRequiredService<Campaigns.Infrastructure.Persistence.CampaignsDbContext>();
+        await using var firstTransaction = await firstDb.Database.BeginTransactionAsync(Ct);
+        await using var secondTransaction = await secondDb.Database.BeginTransactionAsync(Ct);
+        Task<BuildingBlocks.Domain.Result<Campaigns.Domain.CampaignStatus>> Publish(AsyncServiceScope scope) =>
+            scope.ServiceProvider.GetRequiredService<BuildingBlocks.Application.IDispatcher>()
+                .Send<Campaigns.Application.PublishCampaign, Campaigns.Domain.CampaignStatus>(new Campaigns.Application.PublishCampaign(campaignId, _creator), Ct);
+
+        var won = await Publish(first); // holds the row's lock until its transaction ends
+        var firstSession = await firstDb.Database.SqlQuery<int>($"SELECT pg_backend_pid() AS \"Value\"").SingleAsync(Ct);
+        var racing = Publish(second); // reads DRAFT, passes the domain check, waits for the lock
+        await Scenario.Eventually(async () => await BlockedBy(firstSession) == 1);
+        await firstTransaction.CommitAsync(Ct);
+        var lost = await racing;
+        await secondTransaction.CommitAsync(Ct);
+
+        Assert.True(won.IsSuccess);
+        Assert.Equal("not_a_draft", Assert.Single(lost.Errors).Code);
+        Assert.Equal(1L, await database.Count("campaigns.outbox", "payload->>'campaignId'", campaignId.Value.ToString()));
+    }
+
+    /// <summary>Sessions waiting for a lock the given session holds, as PostgreSQL reports them.</summary>
+    private async Task<long> BlockedBy(int session)
+    {
+        await using var owner = new Npgsql.NpgsqlConnection(database.Owner);
+        await owner.OpenAsync(Ct);
+        await using var read = new Npgsql.NpgsqlCommand("SELECT count(*) FROM pg_stat_activity WHERE @session = ANY(pg_blocking_pids(pid))", owner);
+        read.Parameters.AddWithValue("session", session);
+        return (long)(await read.ExecuteScalarAsync(Ct))!;
     }
 
     [Fact]
