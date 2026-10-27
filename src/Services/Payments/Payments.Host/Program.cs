@@ -3,7 +3,6 @@ using BuildingBlocks.Infrastructure.Hosting;
 using CrowdFunding.Messaging;
 
 using Payments.Infrastructure;
-using Payments.Infrastructure.Cutover;
 
 namespace Payments.Host;
 
@@ -26,9 +25,6 @@ public static class PaymentsProgram
         var builder = WebApplication.CreateBuilder(args);
         builder.AddServiceDefaults("crowdfunding-payments", BrokerHosting.IfConfigured);
         builder.Services.AddPaymentsModule(builder.Configuration);
-        // `move-payments <step>` runs one step of moving Payments' tables to their own cluster (s4-l07).
-        builder.Services.AddServiceCommand(new ServiceCommand("move-payments",
-            (services, rest, ct) => services.MovePayments(rest.Count > 0 ? rest[0] : null, ct)));
 
         var app = builder.Build();
         app.UseServiceDefaults();

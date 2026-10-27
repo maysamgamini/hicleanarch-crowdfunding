@@ -2,6 +2,7 @@
 using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Identity;
 
+using CrowdFunding.Host;
 using CrowdFunding.Messaging;
 
 using Payments.Client;
@@ -39,6 +40,12 @@ builder.Services.AddOpenApi();
 builder.Services.AddOpenSinks();
 builder.Services.AddServiceCommand(new ServiceCommand("open-sinks", (services, rest, ct) => OpenSinks.Run(services, rest, Console.Out, ct)));
 builder.Services.AddOpenSinksCheck("Notifications");
+
+// What s4-l07's move left of Payments on the shared cluster leaves a week after the fence (CQA-2102):
+// `drop-moved-payments` runs, as the shared cluster's owner, after every deploy's migrate.
+builder.Services.AddServiceCommand(new ServiceCommand(MovedPayments.Command, (services, _, ct) =>
+    MovedPayments.Run(services.GetRequiredService<IConfiguration>().GetConnectionString("Owner")
+        ?? throw new InvalidOperationException("ConnectionStrings:Owner is not set."), Console.Out, DateTimeOffset.UtcNow, ct)));
 
 // Campaigns runs only in its own service (lesson s5-l09): as for Notifications, this program refuses to start
 // while a row here still owes it an in-process delivery.

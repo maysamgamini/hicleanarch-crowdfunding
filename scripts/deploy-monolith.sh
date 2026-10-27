@@ -2,7 +2,8 @@
 # Deploys the shared layer and the monolith (infra/env), as the deploy role. Two complete applies,
 # never a targeted one:
 #   prepare  everything, with the API service kept on the task definition it runs now; then the migration task
-#            runs the release (it prepares every module's schema the monolith compiles)
+#            runs the release (it prepares every module's schema the monolith compiles), then its
+#            drop-moved-payments (CQA-2102)
 #   roll     first the release's `open-sinks --module Notifications` (s5-l04) and `--module Campaigns`
 #            (s5-l09): each fails while a row of the monolith's outboxes still owes that module an
 #            in-process delivery, which the release, running neither, would refuse to start over;
@@ -36,6 +37,8 @@ case "$step" in
     running=$(tf output -raw service_task_definition 2>/dev/null || true)
     tf apply -input=false -auto-approve -lock-timeout=15m -var "service_image=$current" -var "service_task_definition=$running"
     "$(dirname "$0")/run-migration.sh" infra/env
+    # What s4-l07's move left of Payments on the shared cluster, a week after the fence (CQA-2102).
+    "$(dirname "$0")/run-migration.sh" infra/env "" drop-moved-payments
     ;;
   roll)
     "$(dirname "$0")/run-migration.sh" infra/env "" open-sinks --module Notifications
