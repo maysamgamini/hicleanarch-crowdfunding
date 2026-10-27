@@ -7,12 +7,16 @@ namespace Pledges.Infrastructure.Persistence;
 internal sealed class EfClosing(PledgesDbContext db) : IClosing
 {
     // The partial index funding_windows_due holds exactly these rows.
-    public async Task<IReadOnlyList<Guid>> Due(int batchSize, CancellationToken cancellationToken) =>
-        await db.Database.SqlQuery<Guid>($"""
+    public async Task<IReadOnlyList<Guid>> Due(int batchSize, Guid? campaignId, CancellationToken cancellationToken)
+    {
+        var any = campaignId is null;
+        var only = campaignId ?? Guid.Empty;
+        return await db.Database.SqlQuery<Guid>($"""
             SELECT campaign_id AS "Value" FROM pledges.funding_windows
-            WHERE status IN ('LIVE', 'ENDED') AND deadline <= now()
+            WHERE status IN ('LIVE', 'ENDED') AND deadline <= now() AND ({any} OR campaign_id = {only})
             ORDER BY deadline LIMIT {batchSize}
             """).ToListAsync(cancellationToken);
+    }
 
     public async Task<bool> TryEnd(Guid campaignId, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""

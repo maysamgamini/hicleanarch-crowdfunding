@@ -1,5 +1,7 @@
 using System.Reflection;
 
+using Microsoft.EntityFrameworkCore;
+
 namespace ArchitectureTests;
 
 /// <summary>
@@ -77,6 +79,44 @@ public class LayerRulesTests
 
         var foreign = ReferencesOf(name).Where(r => ModuleOf(r) != module && Modules.Contains(ModuleOf(r)));
         Assert.All(foreign, r => Assert.EndsWith(".Contracts", r, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [MemberData(nameof(OurAssemblies))]
+    public void An_infrastructure_layer_depends_only_on_its_own_module_the_shared_blocks_and_contracts(string name)
+    {
+        if (!name.EndsWith(".Infrastructure", StringComparison.Ordinal) || ModuleOf(name) == "BuildingBlocks")
+        {
+            return;
+        }
+
+        var module = ModuleOf(name);
+        Assert.All(ReferencesOf(name), r => Assert.True(
+            ModuleOf(r) == module || r.StartsWith("BuildingBlocks.", StringComparison.Ordinal) || r.EndsWith(".Contracts", StringComparison.Ordinal),
+            $"{name} references {r}"));
+    }
+
+    /// <summary>
+    /// Each module's database model lives in its own schema, named after the module: a table of
+    /// another module's schema in a model would be a cross-module read waiting to happen. The models
+    /// are built by each module's design-time factory, without a database.
+    /// </summary>
+    [Fact]
+    public void Every_database_model_stays_in_its_own_modules_schema()
+    {
+        var factories = Ours.SelectMany(a => a.GetTypes())
+            .Where(t => !t.IsAbstract && t.GetInterfaces().Any(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(Microsoft.EntityFrameworkCore.Design.IDesignTimeDbContextFactory<>)))
+            .ToList();
+        Assert.Equal(4, factories.Count);
+
+        foreach (var factory in factories)
+        {
+            var module = ModuleOf(factory.Assembly.GetName().Name!);
+            var create = factory.GetMethod("CreateDbContext")!;
+            using var context = (DbContext)create.Invoke(Activator.CreateInstance(factory, nonPublic: true), [Array.Empty<string>()])!;
+            var schemas = context.Model.GetEntityTypes().Select(e => e.GetSchema()).Distinct().ToList();
+            Assert.Equal([module.ToLowerInvariant()], schemas);
+        }
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using BuildingBlocks.Application;
 
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,13 +14,13 @@ namespace Pledges.Infrastructure;
 /// The deadline only says when; the fence and the conditional updates make it correct, so a pass
 /// that runs twice, or late, decides each campaign once.
 /// </summary>
-internal sealed partial class CloseJob(IServiceScopeFactory scopes, ILogger<CloseJob> logger) : BackgroundService
+internal sealed partial class CloseJob(IServiceScopeFactory scopes, IConfiguration configuration, ILogger<CloseJob> logger) : BackgroundService
 {
     public static readonly TimeSpan Every = TimeSpan.FromSeconds(30);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(Every);
+        using var timer = new PeriodicTimer(configuration.GetValue("Pledges:CloseEvery", Every));
         while (await timer.WaitForNextTickAsync(stoppingToken))
         {
             try

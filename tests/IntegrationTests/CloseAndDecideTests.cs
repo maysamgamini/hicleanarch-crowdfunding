@@ -21,10 +21,10 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
 
     public void Dispose() => _host.Dispose();
 
-    private async Task<int> ClosePass()
+    private async Task<int> ClosePass(Scenario.Published campaign)
     {
         await using var scope = _host.Services.CreateAsyncScope();
-        return (await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<CloseDueCampaigns, int>(new CloseDueCampaigns(), Ct)).Value;
+        return (await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<CloseDueCampaigns, int>(new CloseDueCampaigns(campaign.CampaignId), Ct)).Value;
     }
 
     private static async Task Pledge(Scenario given, Scenario.Published campaign, long amount)
@@ -48,7 +48,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         await Pledge(given, campaign, 5_000);
         await PassDeadline(given, campaign);
 
-        await ClosePass();
+        await ClosePass(campaign);
 
         Assert.Equal("FUNDED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(11_000L, await given.Scalar<long>("SELECT final_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
@@ -65,7 +65,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         await Pledge(given, campaign, 6_000);
         await PassDeadline(given, campaign);
 
-        await ClosePass();
+        await ClosePass(campaign);
 
         Assert.Equal("UNSUCCESSFUL", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledges WHERE campaign_id = @id AND status = 'RELEASED'", campaign.CampaignId));
@@ -81,7 +81,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         await Pledge(given, campaign, 6_000);
         await PassDeadline(given, campaign);
 
-        await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => Task.Run(ClosePass, Ct)));
+        await Task.WhenAll(Enumerable.Range(0, 4).Select(_ => Task.Run(() => ClosePass(campaign), Ct)));
 
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.outbox WHERE type = 'CampaignFundingDecided' AND payload::jsonb ->> 'campaignId' = @id::text", campaign.CampaignId));
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.outbox WHERE type = 'PledgeChargeRequested' AND payload::jsonb ->> 'campaignId' = @id::text", campaign.CampaignId));
@@ -95,7 +95,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         await Pledge(given, campaign, 6_000);
         await given.Execute("UPDATE pledges.funding_windows SET status = 'ENDED', ended_at = now(), deadline = now() - interval '1 minute' WHERE campaign_id = @id", campaign.CampaignId);
 
-        await ClosePass();
+        await ClosePass(campaign);
 
         Assert.Equal("FUNDED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
     }
@@ -108,7 +108,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         (await given.Creator().PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct)).EnsureSuccessStatusCode();
         await PassDeadline(given, campaign);
 
-        await ClosePass();
+        await ClosePass(campaign);
 
         Assert.Equal("CANCELLED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
     }
@@ -129,7 +129,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         Assert.True(placedA.IsSuccess);
 
         await Task.Delay(1_800, Ct); // the deadline passes while A is still open
-        var close = Task.Run(ClosePass, Ct);
+        var close = Task.Run(() => ClosePass(campaign), Ct);
         await Task.Delay(300, Ct);
         Assert.False(close.IsCompleted); // the close waits for A's lock on the funding window
 

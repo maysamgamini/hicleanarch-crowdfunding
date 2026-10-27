@@ -108,6 +108,7 @@ public sealed class Database : IAsyncLifetime
             .UseSetting("Payments:WebhookSecret", WebhookSecret)
             // Tests drive settlement passes themselves; the background worker waits an hour.
             .UseSetting("Payments:Settlement:PollEvery", "01:00:00")
+            .UseSetting("Pledges:CloseEvery", "01:00:00")
             .UseSetting("Auth:ClientId", ClientId)
             .UseSetting("Auth:LocalSigningKey", SigningKey));
 

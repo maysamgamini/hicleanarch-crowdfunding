@@ -51,7 +51,7 @@ public sealed class NotificationTests(Database database) : IDisposable
         await given.Execute("UPDATE pledges.funding_windows SET deadline = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
         await using (var scope = _host.Services.CreateAsyncScope())
         {
-            await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<CloseDueCampaigns, int>(new CloseDueCampaigns(), Ct);
+            await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<CloseDueCampaigns, int>(new CloseDueCampaigns(campaign.CampaignId), Ct);
         }
 
         await Scenario.Eventually(() => Task.FromResult(SentTo(stays, "The campaign was not funded") == 1));

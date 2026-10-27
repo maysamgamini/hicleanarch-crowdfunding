@@ -10,8 +10,11 @@ namespace Pledges.Application;
 /// <summary>The close and the decision, as the database does them.</summary>
 public interface IClosing
 {
-    /// <summary>Campaigns whose deadline has passed and that are still LIVE, or ENDED and undecided.</summary>
-    Task<IReadOnlyList<Guid>> Due(int batchSize, CancellationToken cancellationToken);
+    /// <summary>
+    /// Campaigns whose deadline has passed and that are still LIVE, or ENDED and undecided. With
+    /// <paramref name="campaignId"/>, only that one.
+    /// </summary>
+    Task<IReadOnlyList<Guid>> Due(int batchSize, Guid? campaignId, CancellationToken cancellationToken);
 
     /// <summary>
     /// The fence's close side: LIVE to ENDED once the deadline has passed by the database's clock.
@@ -38,7 +41,8 @@ public interface IClosing
 
 public sealed record ChargeablePledge(Guid PledgeId, Guid BackerId, long AmountMinor, string PaymentMethodRef);
 
-public sealed record CloseDueCampaigns : ICommand<int>;
+/// <summary>One pass of the close job. With <see cref="CampaignId"/>, only that campaign (an operator's or a test's pass).</summary>
+public sealed record CloseDueCampaigns(Guid? CampaignId = null) : ICommand<int>;
 
 /// <summary>
 /// One pass of the close job. For each due campaign, two transactions: the close, which waits for
@@ -55,7 +59,7 @@ public sealed class CloseDueCampaignsHandler(
     public async Task<Result<int>> Handle(CloseDueCampaigns command, CancellationToken cancellationToken)
     {
         var decided = 0;
-        foreach (var campaignId in await closing.Due(50, cancellationToken))
+        foreach (var campaignId in await closing.Due(50, command.CampaignId, cancellationToken))
         {
             await transaction.Run(async ct => Result.Success(await closing.TryEnd(campaignId, ct)), cancellationToken);
             var outcome = await transaction.Run(ct => Decide(campaignId, ct), cancellationToken);

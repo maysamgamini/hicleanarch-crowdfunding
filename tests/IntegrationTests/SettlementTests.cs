@@ -47,7 +47,7 @@ public sealed class SettlementTests(Database database) : IDisposable
         }
 
         await given.Execute("UPDATE pledges.funding_windows SET deadline = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
-        await Send<CloseDueCampaigns, int>(new CloseDueCampaigns());
+        await Send<CloseDueCampaigns, int>(new CloseDueCampaigns(campaign.CampaignId));
         await Scenario.Eventually(async () =>
             await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId) == cards.Length
             && await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId) == 1);
