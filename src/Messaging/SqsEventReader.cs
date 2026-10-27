@@ -27,6 +27,7 @@ public sealed partial class SqsEventReader(
     BrokerPlan plan,
     EventRoutes routes,
     IEnumerable<EventHandlerRegistration> handlers,
+    IEnumerable<IEventFlowPause> pauses,
     IEnumerable<IModuleEvents> modules,
     ILogger<SqsEventReader> logger) : BackgroundService, IStopParticipant
 {
@@ -73,6 +74,13 @@ public sealed partial class SqsEventReader(
         {
             try
             {
+                if (await Paused(service, taking.Token))
+                {
+                    // A data move holds the queue's modules (s4-l07): the messages wait in the queue.
+                    await Task.Delay(TimeSpan.FromSeconds(5), taking.Token);
+                    continue;
+                }
+
                 var received = await sqs.ReceiveMessageAsync(new ReceiveMessageRequest
                 {
                     QueueUrl = queueUrl,
@@ -107,6 +115,22 @@ public sealed partial class SqsEventReader(
                 }
             }
         }
+    }
+
+    private async Task<bool> Paused(string service, CancellationToken cancellationToken)
+    {
+        foreach (var module in plan.Services[service].Where(routes.RunsHere))
+        {
+            foreach (var pause in pauses)
+            {
+                if (await pause.IsPaused(module, cancellationToken))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private async Task HandleAndRelease(string service, string queueUrl, Message message, CancellationToken cancellationToken)
