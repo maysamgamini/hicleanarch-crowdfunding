@@ -99,7 +99,7 @@ public sealed class HandlePspWebhookHandler(
                 ChargeOutcome outcome = command.Type == "payment_succeeded"
                     ? new ChargeOutcome.Succeeded(paymentId, FeeOf(command.Data))
                     : new ChargeOutcome.Declined(command.Data.TryGetProperty("decline_code", out var code) && code.GetString() is { } c ? c : "authentication_required", paymentId, Advice(command.Data));
-                return Result.Success(await outcomes.Record(payment.Charge, payment.AttemptNo, outcome, cancellationToken)
+                return Result.Success(await Recorded(payment.Charge, payment.AttemptNo, outcome, cancellationToken)
                     ? WebhookHandled.Applied
                     : WebhookHandled.Ignored);
 
@@ -122,7 +122,19 @@ public sealed class HandlePspWebhookHandler(
         ChargeOutcome outcome = command.Type == "charge_succeeded"
             ? new ChargeOutcome.Succeeded(paymentId, FeeOf(data))
             : new ChargeOutcome.Declined(data.GetProperty("decline_code").GetString()!, paymentId, Advice(data));
-        return await outcomes.Record(found.Work with { CampaignId = found.CampaignId }, n, outcome, ct);
+        return await Recorded(found.Work with { CampaignId = found.CampaignId }, n, outcome, ct);
+    }
+
+    // A settlement pass that waits for this charge's look-up days ahead would not see it end until then.
+    private async Task<bool> Recorded(ChargeWork charge, int n, ChargeOutcome outcome, CancellationToken ct)
+    {
+        if (!await outcomes.Record(charge, n, outcome, ct))
+        {
+            return false;
+        }
+
+        await settlements.WakeUp(charge.CampaignId, ct);
+        return true;
     }
 
     private static long? FeeOf(JsonElement data) =>

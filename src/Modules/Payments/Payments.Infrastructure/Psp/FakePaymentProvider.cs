@@ -40,6 +40,9 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     private readonly ConcurrentDictionary<string, BalanceTransaction> _report = new();
     private long _reportLagTicks;
     private int _loseNextReplies;
+    private long _latencyTicks;
+    private int _inFlight;
+    private int _mostInFlight;
     private int _unreachable;
     private int _rateLimitNext;
     private int _concurrencyLimitNext;
@@ -57,6 +60,15 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
 
     /// <summary>The next <paramref name="count"/> charges are carried out, but their replies never arrive.</summary>
     public void LoseNextReplies(int count) => Interlocked.Exchange(ref _loseNextReplies, count);
+
+    /// <summary>Every charge and on-session payment takes this long to answer, as a real PSP's call does.</summary>
+    public void TakesToAnswer(TimeSpan latency) => Interlocked.Exchange(ref _latencyTicks, latency.Ticks);
+
+    /// <summary>Charges and on-session payments being answered right now.</summary>
+    public int InFlight => Volatile.Read(ref _inFlight);
+
+    /// <summary>The most that were ever in flight at once.</summary>
+    public int MostInFlight => Volatile.Read(ref _mostInFlight);
 
     /// <summary>Calls fail before they reach the PSP, as if the network were down.</summary>
     public void Unreachable(bool unreachable) => Interlocked.Exchange(ref _unreachable, unreachable ? 1 : 0);
@@ -115,9 +127,10 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
             : throw new InvalidOperationException($"Idempotency key {idempotencyKey} was used with another customer.");
     }
 
-    public Task<ChargeOutcome> Charge(ChargeRequest request, string idempotencyKey, CancellationToken ct)
+    public async Task<ChargeOutcome> Charge(ChargeRequest request, string idempotencyKey, CancellationToken ct)
     {
         Reach("charge");
+        await Answering(ct);
         var outcome = _byKey.GetOrAdd(idempotencyKey, _ =>
         {
             var paymentId = $"pi_{Guid.NewGuid():N}";
@@ -140,7 +153,29 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
             return result;
         });
 
-        return Task.FromResult(TakeLostReply() ? new ChargeOutcome.Unknown("timeout") : outcome);
+        return TakeLostReply() ? new ChargeOutcome.Unknown("timeout") : outcome;
+    }
+
+    // The PSP's own time to answer, counted as in flight while it lasts.
+    private async Task Answering(CancellationToken ct)
+    {
+        var now = Interlocked.Increment(ref _inFlight);
+        for (var most = Volatile.Read(ref _mostInFlight); now > most; most = Volatile.Read(ref _mostInFlight))
+        {
+            Interlocked.CompareExchange(ref _mostInFlight, now, most);
+        }
+
+        try
+        {
+            if (Interlocked.Read(ref _latencyTicks) is var ticks and > 0)
+            {
+                await Task.Delay(TimeSpan.FromTicks(ticks), clock, ct);
+            }
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _inFlight);
+        }
     }
 
     public Task<ChargeOutcome> LookUp(ChargeReference reference, CancellationToken ct)
@@ -155,9 +190,10 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
         return Task.FromResult(found ?? new ChargeOutcome.NotFound());
     }
 
-    public Task<OnSessionPayment> StartOnSessionPayment(ChargeRequest request, string idempotencyKey, CancellationToken ct)
+    public async Task<OnSessionPayment> StartOnSessionPayment(ChargeRequest request, string idempotencyKey, CancellationToken ct)
     {
         Reach("charge");
+        await Answering(ct);
         var outcome = _byKey.GetOrAdd(idempotencyKey, _ =>
         {
             var waiting = new ChargeOutcome.Unknown(ChargeOutcome.WaitingForBacker);
@@ -167,7 +203,7 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
             return new ChargeOutcome.Declined("requires_action", paymentId);
         });
         var id = ((ChargeOutcome.Declined)outcome).PspPaymentId!;
-        return Task.FromResult(new OnSessionPayment(id, $"{id}_secret_{Guid.NewGuid():N}"));
+        return new OnSessionPayment(id, $"{id}_secret_{Guid.NewGuid():N}");
     }
 
     public Task<ChargeOutcome> Cancel(ChargeReference reference, CancellationToken ct)

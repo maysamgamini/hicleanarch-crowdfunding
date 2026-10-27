@@ -78,9 +78,12 @@ public abstract class RuleChecks(Database database, RuleHosts hosts) : IDisposab
     private async Task SettleUntilDone(Scenario given, Scenario.Published campaign)
     {
         await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId) == 1);
-        for (var i = 0; i < 10 && await given.Scalar<string>("SELECT status FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId) != "DONE"; i++)
+        // A lost reply is looked up after the settings' back-off, a few seconds: passes go on until then.
+        var until = DateTimeOffset.UtcNow.AddSeconds(30);
+        for (var i = 0; DateTimeOffset.UtcNow < until && await given.Scalar<string>("SELECT status FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId) != "DONE"; i++)
         {
             await Send<RunSettlement, bool>(new RunSettlement($"rules-{i}", campaign.CampaignId));
+            await Task.Delay(TimeSpan.FromMilliseconds(250), Ct);
         }
     }
 

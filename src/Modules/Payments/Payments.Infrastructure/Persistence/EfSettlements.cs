@@ -21,7 +21,7 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
             ON CONFLICT (campaign_id) DO NOTHING
             """, cancellationToken);
 
-    public async Task<Guid?> Claim(string worker, TimeSpan lease, Guid? campaignId, IReadOnlyCollection<Guid>? among, CancellationToken cancellationToken)
+    public async Task<Guid?> TakeTurn(Guid? campaignId, IReadOnlyCollection<Guid>? among, CancellationToken cancellationToken)
     {
         var only = campaignId ?? Guid.Empty;
         var any = campaignId is null;
@@ -29,12 +29,13 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
         Guid[] chosen = [.. among ?? []];
         return (await db.Database.SqlQuery<Guid>($"""
             UPDATE payments.settlement_jobs
-            SET status = 'RUNNING', lease_owner = {worker}, lease_until = now() + {lease}, not_before = NULL
+            SET status = 'RUNNING', last_turn_at = clock_timestamp()
             WHERE campaign_id = (
                 SELECT campaign_id FROM payments.settlement_jobs
-                WHERE status <> 'DONE' AND (lease_until IS NULL OR lease_until < now())
-                  AND (({any} AND (not_before IS NULL OR not_before <= now()) AND ({everywhere} OR campaign_id = ANY({chosen})))
-                       OR campaign_id = {only})   -- a named job is claimed at once
+                WHERE status <> 'DONE'
+                  AND (({any} AND (not_before IS NULL OR not_before <= now()) AND (paused_until IS NULL OR paused_until <= now())
+                        AND ({everywhere} OR campaign_id = ANY({chosen})))
+                       OR campaign_id = {only})   -- a named job is taken at once
                 ORDER BY last_turn_at NULLS FIRST, created_at
                 LIMIT 1
                 FOR UPDATE SKIP LOCKED)
@@ -42,62 +43,93 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
             """).ToListAsync(cancellationToken)).Select(id => (Guid?)id).SingleOrDefault();
     }
 
-    public async Task<bool> Renew(Guid campaignId, string worker, TimeSpan lease, CancellationToken cancellationToken) =>
+    public async Task<IReadOnlyList<ChargeWork>> ClaimCharges(Guid campaignId, string worker, TimeSpan lease, int batchSize, CancellationToken cancellationToken)
+    {
+        // A charge in its recovery window is due again at its next attempt's time (lesson s3-a04); a
+        // CHARGING one at its next look-up. The row locks last only for this statement: the lease
+        // columns are what keep the other workers off the charges afterwards.
+        var rows = await db.Database.SqlQuery<ChargeRow>($"""
+            WITH due AS (
+                SELECT pledge_id FROM payments.charges
+                WHERE campaign_id = {campaignId}
+                  AND status IN ('TO_CHARGE', 'PAYMENT_FAILED', 'CHARGING')
+                  AND (next_attempt_at IS NULL OR next_attempt_at <= now())
+                  AND (claimed_until IS NULL OR claimed_until < now())
+                ORDER BY created_at, pledge_id
+                LIMIT {batchSize}
+                FOR UPDATE SKIP LOCKED)
+            UPDATE payments.charges c SET claimed_by = {worker}, claimed_until = now() + {lease}
+            FROM due WHERE c.pledge_id = due.pledge_id
+            RETURNING c.pledge_id, c.campaign_id, c.backer_id, c.amount_minor, c.currency, c.payment_method_ref, c.status, c.attempt_no,
+                c.psp_payment_id, c.next_attempt_at, c.payment_failed_at, c.last_decline_code, c.last_advice_code, c.created_at,
+                coalesce((SELECT a.on_session FROM payments.charge_attempts a WHERE a.pledge_id = c.pledge_id AND a.attempt_no = c.attempt_no), false) AS on_session
+            """).ToListAsync(cancellationToken);
+        return [.. rows.OrderBy(r => r.CreatedAt).ThenBy(r => r.PledgeId).Select(r => r.ToWork())];
+    }
+
+    public async Task<bool> Renew(Guid pledgeId, string worker, TimeSpan lease, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE payments.settlement_jobs SET lease_until = now() + {lease}
-            WHERE campaign_id = {campaignId} AND lease_owner = {worker} AND status = 'RUNNING'
+            UPDATE payments.charges SET claimed_until = now() + {lease}
+            WHERE pledge_id = {pledgeId} AND claimed_by = {worker}
             """, cancellationToken) == 1;
+
+    public Task RenewAll(Guid campaignId, string worker, TimeSpan lease, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE payments.charges SET claimed_until = now() + {lease}
+            WHERE campaign_id = {campaignId} AND claimed_by = {worker}
+            """, cancellationToken);
 
     public Task Release(Guid campaignId, string worker, TimeSpan unknownBackoff, TimeSpan pause, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE payments.charges SET claimed_by = NULL, claimed_until = NULL
+            WHERE campaign_id = {campaignId} AND claimed_by = {worker};
+
             UPDATE payments.settlement_jobs j
-            SET status = 'PENDING', lease_owner = NULL, lease_until = NULL, last_turn_at = clock_timestamp(),
-                not_before = greatest(now() + {pause}, CASE
-                    WHEN EXISTS (SELECT 1 FROM payments.charges c
-                                 WHERE c.campaign_id = j.campaign_id AND c.status IN ('TO_CHARGE', 'PAYMENT_FAILED')
-                                   AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now()))
-                        THEN NULL                       -- work is waiting now
-                    WHEN EXISTS (SELECT 1 FROM payments.charges c WHERE c.campaign_id = j.campaign_id AND c.status = 'CHARGING')
-                      OR (SELECT count(*) FROM payments.charges c WHERE c.campaign_id = j.campaign_id) < j.expected_charges
-                        THEN LEAST(                     -- an unknown attempt, or charges still to be created
-                            (SELECT min(c.next_attempt_at) FROM payments.charges c
-                             WHERE c.campaign_id = j.campaign_id AND c.status IN ('TO_CHARGE', 'PAYMENT_FAILED')),
-                            now() + {unknownBackoff})
-                    ELSE COALESCE(                      -- only retries, each due at its own time
-                        (SELECT min(c.next_attempt_at) FROM payments.charges c
-                         WHERE c.campaign_id = j.campaign_id AND c.status IN ('TO_CHARGE', 'PAYMENT_FAILED')),
-                        now() + {unknownBackoff})
-                END)
-            WHERE j.campaign_id = {campaignId} AND j.lease_owner = {worker} AND j.status = 'RUNNING'
+            SET status = CASE WHEN o.claimed THEN 'RUNNING' ELSE 'PENDING' END,
+                paused_until = CASE WHEN {pause} > interval '0' THEN now() + {pause} ELSE j.paused_until END,
+                not_before = CASE
+                    WHEN o.due <= now() THEN NULL                   -- work is waiting now
+                    WHEN o.created < j.expected_charges THEN least(o.due, now() + {unknownBackoff}) -- charges still to be created
+                    ELSE o.due                                      -- the earliest attempt, look-up or lease end; NULL: nothing open
+                END
+            FROM (SELECT count(*) AS created,
+                         -- a charge is workable once its own time has come and no other worker's lease holds it
+                         min(greatest(coalesce(c.next_attempt_at, '-infinity'), coalesce(c.claimed_until, '-infinity')))
+                             FILTER (WHERE c.status IN ('TO_CHARGE', 'PAYMENT_FAILED', 'CHARGING')) AS due,
+                         coalesce(bool_or(c.claimed_until > now()), false) AS claimed
+                  FROM payments.charges c WHERE c.campaign_id = {campaignId}) o
+            WHERE j.campaign_id = {campaignId} AND j.status <> 'DONE'
             """, cancellationToken);
 
     public Task ReleaseAll(string worker, CancellationToken cancellationToken) =>
         db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE payments.settlement_jobs SET status = 'PENDING', lease_owner = NULL, lease_until = NULL
-            WHERE lease_owner = {worker} AND status = 'RUNNING'
+            WITH freed AS (
+                UPDATE payments.charges SET claimed_by = NULL, claimed_until = NULL
+                WHERE claimed_by = {worker}
+                RETURNING campaign_id)
+            UPDATE payments.settlement_jobs j SET status = 'PENDING', not_before = NULL
+            WHERE j.campaign_id IN (SELECT campaign_id FROM freed) AND j.status = 'RUNNING'
+              AND NOT EXISTS (SELECT 1 FROM payments.charges c         -- this statement still sees its own worker's leases
+                              WHERE c.campaign_id = j.campaign_id AND c.claimed_by <> {worker} AND c.claimed_until > now())
             """, cancellationToken);
 
-    public async Task<bool> TryFinish(Guid campaignId, string worker, CancellationToken cancellationToken) =>
+    public async Task<bool> TryFinish(Guid campaignId, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE payments.settlement_jobs SET status = 'DONE', lease_owner = NULL, lease_until = NULL
-            WHERE campaign_id = {campaignId} AND lease_owner = {worker} AND status = 'RUNNING'
+            UPDATE payments.settlement_jobs SET status = 'DONE', not_before = NULL
+            WHERE campaign_id = {campaignId} AND status <> 'DONE'
             """, cancellationToken) == 1;
 
-    public async Task<IReadOnlyList<ChargeWork>> Workable(Guid campaignId, int batchSize, CancellationToken cancellationToken)
-    {
-        // A charge in its recovery window is due again at its next attempt's time (lesson s3-a04).
-        var rows = await db.Database.SqlQuery<ChargeRow>($"""
-            SELECT c.*, coalesce(a.on_session, false) AS on_session
-            FROM payments.charges c
-            LEFT JOIN payments.charge_attempts a ON a.pledge_id = c.pledge_id AND a.attempt_no = c.attempt_no
-            WHERE c.campaign_id = {campaignId}
-              AND (c.status = 'CHARGING'
-                   OR (c.status IN ('TO_CHARGE', 'PAYMENT_FAILED') AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())))
-            ORDER BY c.status = 'CHARGING' DESC, c.created_at
-            LIMIT {batchSize}
-            """).ToListAsync(cancellationToken);
-        return [.. rows.Select(r => r.ToWork())];
-    }
+    public Task WakeUp(Guid campaignId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE payments.settlement_jobs SET not_before = NULL
+            WHERE campaign_id = {campaignId} AND status <> 'DONE' AND not_before > now()
+            """, cancellationToken);
+
+    public Task LookUpAt(Guid pledgeId, int attemptNo, DateTimeOffset at, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE payments.charges SET next_attempt_at = {at}
+            WHERE pledge_id = {pledgeId} AND status = 'CHARGING' AND attempt_no = {attemptNo}
+            """, cancellationToken);
 
     public async Task<ChargeOfPledge?> FindCharge(Guid pledgeId, CancellationToken cancellationToken)
     {
@@ -185,18 +217,22 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
         return (counts, Names.Of(job.Status), shared);
     }
 
-    public async Task<int?> TryStartAttempt(Guid pledgeId, string pledgePublicId, bool onSession, CancellationToken cancellationToken)
+    public async Task<int?> TryStartAttempt(Guid pledgeId, string pledgePublicId, bool onSession, DateTimeOffset? lookUpAt, CancellationToken cancellationToken)
     {
-        // Its own transaction, committed before the PSP is called; inside a backer's request, that request's.
-        await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
+        if (db.Database.CurrentTransaction is not null)
+        {
+            throw new InvalidOperationException("An attempt is committed before the PSP is called: it cannot be started inside a caller's transaction.");
+        }
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
         var started = await db.Database.SqlQuery<int>($"""
-            UPDATE payments.charges SET status = 'CHARGING', attempt_no = attempt_no + 1, next_attempt_at = NULL, psp_payment_id = NULL
+            UPDATE payments.charges SET status = 'CHARGING', attempt_no = attempt_no + 1, next_attempt_at = {lookUpAt}, psp_payment_id = NULL
             WHERE pledge_id = {pledgeId} AND status IN ('TO_CHARGE', 'PAYMENT_FAILED')
             RETURNING attempt_no AS "Value"
             """).ToListAsync(cancellationToken);
         if (started.Count == 0)
         {
-            return null; // another worker has it
+            return null; // another worker, or the backer, has it
         }
 
         var n = started[0];
@@ -204,10 +240,7 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
             INSERT INTO payments.charge_attempts (pledge_id, attempt_no, idempotency_key, status, on_session)
             VALUES ({pledgeId}, {n}, {Charge.KeyFor(pledgePublicId, n)}, 'IN_FLIGHT', {onSession})
             """, cancellationToken);
-        if (transaction is not null)
-        {
-            await transaction.CommitAsync(cancellationToken); // recorded before the PSP is called
-        }
+        await transaction.CommitAsync(cancellationToken); // recorded before the PSP is called
         return n;
     }
 
