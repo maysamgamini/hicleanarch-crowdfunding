@@ -69,6 +69,7 @@ public static class PledgesModule
             .AddScoped<IHolds>(sp => sp.GetRequiredService<EfPledges>())
             .AddScoped<IClosing, EfClosing>()
             .AddScoped<ICampaignTotals, EfCampaignTotals>()
+            .AddScoped<IPublicTotalsReads, EfPublicTotals>()
             .AddScoped<IdempotentRequests<PledgesDbContext>>();
     }
 
@@ -175,6 +176,27 @@ public static class PledgesModule
                     ? Result.Success(new Reply(StatusCodes.Status200OK, result.Value))
                     : Result.Failure<Reply>(result.Errors);
             })).RequireAuthorization(Policies.Backer).WithTags("Pledges");
+
+        // Public, polled by every campaign page, and cached by CloudFront for at most 2 seconds.
+        app.MapGet("/v1/campaigns/{id}/totals", async (string id, HttpContext http, IDispatcher dispatcher, CancellationToken ct) =>
+        {
+            if (!PublicId.TryParse("cmp", id, out var campaignId))
+            {
+                return new[] { PledgeErrors.CampaignNotFound }.ToProblem();
+            }
+
+            var result = await dispatcher.Query<GetPublicTotals, PublicTotalsReply>(new GetPublicTotals(campaignId), ct);
+            if (!result.IsSuccess)
+            {
+                http.Response.Headers.CacheControl = "no-store";
+                return result.Errors.ToProblem();
+            }
+
+            http.Response.Headers.CacheControl = result.Value.MaxAgeSeconds > 0
+                ? $"public, max-age={result.Value.MaxAgeSeconds}"
+                : "no-store";
+            return Results.Ok(result.Value.View);
+        }).WithTags("Pledges");
 
         app.MapGet("/v1/pledges/{id}", async (string id, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
         {

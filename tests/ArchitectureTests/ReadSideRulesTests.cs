@@ -37,7 +37,8 @@ public class ReadSideRulesTests
         var dependencies = type.GetConstructors().SelectMany(c => c.GetParameters()).Select(p => p.ParameterType);
         Assert.All(dependencies, d => Assert.True(
             d.Name.EndsWith("Reads", StringComparison.Ordinal) || d.Assembly.GetName().Name!.EndsWith(".Contracts", StringComparison.Ordinal)
-                || (d.IsGenericType && d.GetGenericTypeDefinition() == typeof(IQueryHandler<,>)),
+                || (d.IsGenericType && d.GetGenericTypeDefinition() == typeof(IQueryHandler<,>))
+                || d == typeof(TimeProvider),
             $"{type.Name} depends on {d.Name}, a writer-side port; read through a *Reads port or mark it [ReadsTheWriter]."));
     }
 

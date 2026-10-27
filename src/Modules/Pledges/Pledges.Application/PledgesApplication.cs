@@ -16,5 +16,6 @@ public static class PledgesApplication
             .AddScoped<ICommandHandler<CloseDueCampaigns, int>, CloseDueCampaignsHandler>()
             .AddScoped<ICommandHandler<ChangePledge, PledgeView>, ChangePledgeHandler>()
             .AddScoped<ICommandHandler<CancelPledge, PledgeView>, CancelPledgeHandler>()
-            .AddScoped<IQueryHandler<GetMyPledge, PledgeView>, GetMyPledgeHandler>();
+            .AddScoped<IQueryHandler<GetMyPledge, PledgeView>, GetMyPledgeHandler>()
+            .AddScoped<IQueryHandler<GetPublicTotals, PublicTotalsReply>, GetPublicTotalsHandler>();
 }
