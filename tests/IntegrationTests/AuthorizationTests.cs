@@ -4,6 +4,11 @@ using System.Text.Json;
 
 using BuildingBlocks.Infrastructure.Identity;
 
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+
 namespace IntegrationTests;
 
 /// <summary>Who may do what: the token's groups, its client and its kind decide.</summary>
@@ -68,5 +73,53 @@ public sealed class AuthorizationTests(Database database) : IDisposable
         var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
 
         Assert.Equal(creator, read.GetProperty("creator_id").GetGuid());
+    }
+
+    /// <summary>The endpoints anyone may call, signed in or not. Every other endpoint names its requirement.</summary>
+    private static readonly string[] Public =
+    [
+        "* /health",
+        "* /health/live",
+        "* /health/ready",
+        "GET /openapi/{documentName}.json",
+        "GET /v1/campaigns/{id}",
+        "GET /v1/campaigns/{id}/totals",
+        "POST /v1/webhooks/psp",
+    ];
+
+    [Theory]
+    [InlineData("Testing")]
+    [InlineData("Development")]
+    public async Task Every_endpoint_names_its_requirement_and_only_the_public_ones_allow_anyone(string environment)
+    {
+        await using var host = database.StartHost().WithWebHostBuilder(web => web
+            .UseEnvironment(environment)
+            .UseSetting("ConnectionStrings:Valkey", ""));
+        var expected = environment == "Development"
+            ? [.. Public, "POST /dev/fake-psp/setups/{setupId}/complete"]
+            : Public;
+
+        var anonymous = new List<string>();
+        foreach (var (name, endpoint) in MappedEndpoints.Of(host))
+        {
+            if (endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null)
+            {
+                anonymous.Add(name);
+                continue;
+            }
+
+            Assert.True(endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>().Count > 0, $"{name} says neither RequireAuthorization nor AllowAnonymous.");
+        }
+
+        Assert.Equal(expected.Order(StringComparer.Ordinal), anonymous.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task An_endpoint_that_names_no_policy_still_needs_a_signed_in_user()
+    {
+        var fallback = await _host.Services.GetRequiredService<IAuthorizationPolicyProvider>().GetFallbackPolicyAsync();
+
+        Assert.NotNull(fallback);
+        Assert.Contains(fallback.Requirements, r => r is DenyAnonymousAuthorizationRequirement);
     }
 }

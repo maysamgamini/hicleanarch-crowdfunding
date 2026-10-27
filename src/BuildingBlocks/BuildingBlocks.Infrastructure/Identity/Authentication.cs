@@ -1,6 +1,7 @@
 using System.Security.Claims;
 
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -71,7 +72,10 @@ public static class Authentication
             };
         });
 
+        // Deny by default: an endpoint that names no policy still needs a signed-in user, so one that
+        // forgets RequireAuthorization is closed, not public. A public endpoint says AllowAnonymous.
         services.AddAuthorizationBuilder()
+            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build())
             .AddPolicy(Policies.Creator, policy => policy.RequireRole(Roles.Creator))
             .AddPolicy(Policies.Backer, policy => policy.RequireRole(Roles.Backer));
         return services;

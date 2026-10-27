@@ -275,7 +275,7 @@ public static class PledgesModule
                 ? $"public, max-age={result.Value.MaxAgeSeconds}"
                 : "no-store";
             return Results.Ok(result.Value.View);
-        }).WithTags("Pledges");
+        }).AllowAnonymous().WithTags("Pledges");
 
         // The card form, asked for again by a pledge that waited in the card-setup lane (lesson s3-a04).
         // Like the pledge endpoint, it checks the pledge and starts the setup before the key's

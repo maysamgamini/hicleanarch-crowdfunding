@@ -135,7 +135,7 @@ public static class CampaignsModule
 
             var result = await dispatcher.Query<GetCampaign, CampaignView>(new GetCampaign(campaignId), ct);
             return result.IsSuccess ? Results.Ok(result.Value) : result.Errors.ToProblem();
-        });
+        }).AllowAnonymous();
 
         return app;
     }
