@@ -27,7 +27,7 @@ public sealed class TokenBucketTests(Valkey valkey) : IClassFixture<Valkey>, IDi
     {
         var connection = ConnectionMultiplexer.Connect(valkey.Configuration);
         _connections.Add(connection);
-        return new ValkeyTokenBuckets(connection, NullLogger<ValkeyTokenBuckets>.Instance);
+        return new ValkeyTokenBuckets(connection, new DegradedTokenBuckets(1, TimeProvider.System), NullLogger<ValkeyTokenBuckets>.Instance);
     }
 
     private static Bucket NewBucket(double perSecond, int capacity) => new($"tests:{Guid.NewGuid():N}", new BucketRate(perSecond, capacity));

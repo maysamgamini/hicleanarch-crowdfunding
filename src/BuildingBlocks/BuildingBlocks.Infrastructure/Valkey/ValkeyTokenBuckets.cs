@@ -10,10 +10,15 @@ namespace BuildingBlocks.Infrastructure.Valkey;
 
 /// <summary>
 /// Token buckets in Valkey, shared by every task. One Lua script refills and takes atomically across
-/// all the buckets a call names, by Valkey's own clock, so tasks with different clocks agree.
+/// all the buckets a call names, by Valkey's own clock, so tasks with different clocks agree. While
+/// Valkey cannot be reached, the task takes from its <see cref="DegradedTokenBuckets"/>, its share of
+/// each limit, so calls go on at a safe pace instead of stopping; a lost connection is used again as
+/// soon as it comes back.
 /// </summary>
-public sealed partial class ValkeyTokenBuckets(IConnectionMultiplexer valkey, ILogger<ValkeyTokenBuckets> logger) : ITokenBuckets
+public sealed partial class ValkeyTokenBuckets(IConnectionMultiplexer valkey, DegradedTokenBuckets degraded, ILogger<ValkeyTokenBuckets> logger) : ITokenBuckets
 {
+    private int _degraded;
+
     // KEYS: one hash per bucket (tokens, at_ms). ARGV: per bucket, its rate a second and its capacity.
     // Every bucket is refilled for the time since it was last touched; if each has a whole token, one
     // is taken from each; otherwise none is, and the reply is the wait in milliseconds for the
@@ -57,6 +62,12 @@ public sealed partial class ValkeyTokenBuckets(IConnectionMultiplexer valkey, IL
 
     public async Task Drain(Bucket bucket, CancellationToken cancellationToken)
     {
+        await degraded.Drain(bucket, cancellationToken); // the share slows down too, should Valkey go next
+        if (!valkey.IsConnected)
+        {
+            return;
+        }
+
         try
         {
             await valkey.GetDatabase().ScriptEvaluateAsync(Empty, [(RedisKey)$"buckets:{bucket.Name}"],
@@ -67,7 +78,7 @@ public sealed partial class ValkeyTokenBuckets(IConnectionMultiplexer valkey, IL
         }
         catch (Exception e) when (e is RedisException or TimeoutException)
         {
-            LogUnreachable(logger, e);
+            Degrade(e);
         }
     }
 
@@ -79,19 +90,41 @@ public sealed partial class ValkeyTokenBuckets(IConnectionMultiplexer valkey, IL
             b.Rate.PerSecond.ToString(CultureInfo.InvariantCulture),
             b.Rate.Capacity.ToString(CultureInfo.InvariantCulture),
         }).ToArray();
+        // A connection that is down answers from the share at once, not after a timeout on every call.
+        if (!valkey.IsConnected)
+        {
+            Degrade(null);
+            return await degraded.TryTake(buckets, cancellationToken);
+        }
+
         try
         {
             var reply = (RedisResult[])(await valkey.GetDatabase().ScriptEvaluateAsync(Take, keys, args))!;
+            if (Interlocked.Exchange(ref _degraded, 0) == 1)
+            {
+                LogRecovered(logger);
+            }
+
             return (int)reply[0] == 1 ? TokenGrant.Yes : new TokenGrant(false, TimeSpan.FromMilliseconds((long)reply[1]));
         }
         catch (Exception e) when (e is RedisException or TimeoutException)
         {
-            // Without the shared buckets nobody can know the pace: wait and ask again, never call blind.
-            LogUnreachable(logger, e);
-            return new TokenGrant(false, TimeSpan.FromSeconds(1));
+            Degrade(e);
+            return await degraded.TryTake(buckets, cancellationToken);
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Valkey could not be reached for a token; the caller waits")]
-    private static partial void LogUnreachable(ILogger logger, Exception exception);
+    private void Degrade(Exception? exception)
+    {
+        if (Interlocked.Exchange(ref _degraded, 1) == 0)
+        {
+            LogDegraded(logger, degraded.Tasks, exception);
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Valkey cannot be reached: this task takes its 1/{Tasks} share of every limit from its own memory")]
+    private static partial void LogDegraded(ILogger logger, int tasks, Exception? exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Valkey is back: the shared buckets are used again")]
+    private static partial void LogRecovered(ILogger logger);
 }
