@@ -88,12 +88,15 @@ locals {
 
 # The service's task definition runs service_image, which moves to the new release only after
 # `migrate` has run it (see aws_ecs_service.api).
+# CQA-2106: ECS adds a Service Connect proxy to every task of the service. AWS recommends 256 more
+# CPU units and at least 64 MiB for it ("Amazon ECS Service Connect components", Proxy resources);
+# the API and its collector had 512 units and 1 GB, and Fargate's next size above 768 units is 1 vCPU.
 resource "aws_ecs_task_definition" "api" {
   family                   = "${var.project}-api"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 512
-  memory                   = 1024
+  cpu                      = 1024
+  memory                   = 2048
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
   container_definitions    = jsonencode([merge(local.api_container, { image = coalesce(var.service_image, var.image) }), local.collector_container])

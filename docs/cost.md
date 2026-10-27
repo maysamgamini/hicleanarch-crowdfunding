@@ -86,29 +86,39 @@ anything left up.
 
 ## After Payments leaves the monolith (s4-l10)
 
-The same list prices, before and after the split. The monolith's side does not change: its tasks keep
-their size (0.5 vCPU and 1 GB), and the secrets it no longer reads are still stored, now for Payments.
-Secrets Manager bills reads per 10,000 calls, and a task reads its secrets once, at start. Payments
-adds, every hour, whether anyone pledges or not:
+The same list prices, before and after the split. The secrets the monolith no longer reads are still
+stored, now for Payments. Secrets Manager bills reads per 10,000 calls, and a task reads its secrets
+once, at start.
+
+Every task of a Service Connect service also runs ECS's proxy, and AWS recommends adding 256 CPU units
+and at least 64 MiB to the task for it ([Service Connect components](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/service-connect-concepts-deploy.html),
+"Proxy resources"). The monolith and the gateway joined Service Connect for the split (s4-l05), and
+Fargate sells the next sizes up: 1 vCPU and 2 GB for the monolith and Payments, 0.5 vCPU and 1 GB for
+the gateway (CQA-2106; until then the tasks kept their old sizes). So the split adds, every hour,
+whether anyone pledges or not:
 
 | Item | Math | Per hour |
 |---|---|---|
-| One Payments task, 0.5 vCPU and 1 GB | 0.5 × $0.0404784 + 1 × $0.004446 | $0.0247 |
+| One Payments task, 1 vCPU and 2 GB (0.5 vCPU and 1 GB for Payments, and room for its proxy) | 1 × $0.0404784 + 2 × $0.004446 | $0.0494 |
 | Its public IPv4 address | 1 × $0.005 | $0.0050 |
 | Payments' cluster at its 0.5-ACU minimum | 0.5 × $0.12 | $0.0600 |
 | Machine tokens for the two monolith tasks (s4-l04: $1.77 a task a month at Cognito's $0.00225 per token request) | 2 × $1.77 / 720 h | $0.0049 |
-| **Added** | | **≈ $0.095** |
+| Room for the proxy in the two monolith tasks (0.5 to 1 vCPU, 1 to 2 GB) | 2 × (0.5 × $0.0404784 + 1 × $0.004446) | $0.0494 |
+| Room for the proxy in the two gateway tasks (0.25 to 0.5 vCPU, 0.5 to 1 GB) | 2 × (0.25 × $0.0404784 + 0.5 × $0.004446) | $0.0247 |
+| **Added** | | **≈ $0.193** |
 
 | Shape | Idle, per hour |
 |---|---|
 | Before (Release 1's shape, above) | ≈ $0.19 |
-| After s4-l10 | ≈ $0.19 + $0.095 ≈ $0.29 |
+| After s4-l10 | ≈ $0.19 + $0.19 ≈ $0.38 |
+
+AWS's recommendation alone, 0.25 vCPU and 64 MiB on each of the five tasks, would be 5 × (0.25 ×
+$0.0404784 + 0.0625 × $0.004446) ≈ $0.052 an hour; Fargate's fixed sizes are what make it $0.099.
 
 Payments' cluster is the largest line, and it never stops. An Aurora Serverless v2 instance pauses
 only when its minimum capacity is 0 ACUs. Payments' minimum is 0.5, because a resume would not fit in
 the card-setup call's 5-second budget. The shared cluster keeps its minimum of 0 and still pauses after
-5 idle minutes. SNS and SQS requests, the few new secrets and the Service Connect proxies (which
-share their task's CPU and memory) add little at this traffic. A refused service token is asked for
+5 idle minutes. SNS and SQS requests and the few new secrets add little at this traffic. A refused service token is asked for
 again at most once a minute (CQA-1513): 1,440 requests a day, about $3.24 a day per task, while the
 refusal lasts.
 

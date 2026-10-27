@@ -48,14 +48,17 @@ variable "desired_count" {
   type        = number
 }
 
+# Every service joins Service Connect, and ECS adds its proxy to each task. AWS recommends 256 CPU
+# units and at least 64 MiB for the proxy (CQA-2106): the default is 256 units for the program plus
+# the proxy's, at Fargate's matching memory.
 variable "cpu" {
   type    = number
-  default = 256
+  default = 512
 }
 
 variable "memory" {
   type    = number
-  default = 512
+  default = 1024
 }
 
 variable "secrets" {

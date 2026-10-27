@@ -99,12 +99,15 @@ resource "aws_cloudwatch_log_group" "gateway" {
   retention_in_days = 1
 }
 
+# CQA-2106: ECS adds a Service Connect proxy to every task of the service. AWS recommends 256 more
+# CPU units and at least 64 MiB for it ("Amazon ECS Service Connect components", Proxy resources);
+# the gateway had 256 units and 0.5 GB, so it takes Fargate's next size, 0.5 vCPU and 1 GB.
 resource "aws_ecs_task_definition" "gateway" {
   family                   = "${var.project}-gateway"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = 256
-  memory                   = 512
+  cpu                      = 512
+  memory                   = 1024
   execution_role_arn       = aws_iam_role.execution.arn
   container_definitions = jsonencode([{
     name         = "gateway"
