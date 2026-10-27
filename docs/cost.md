@@ -78,6 +78,34 @@ A one-hour lesson with a load test therefore costs well under a dollar, and an e
 forgotten for a month while idle about $0.19 × 730 ≈ $139, which is why the nightly sweep destroys
 anything left up.
 
+## After Payments leaves the monolith (s4-l10)
+
+The same list prices, before and after the split. The monolith's side does not change: its tasks keep
+their size (0.5 vCPU and 1 GB), and the secrets it no longer reads are still stored, now for Payments.
+Secrets Manager bills reads per 10,000 calls, and a task reads its secrets once, at start. Payments
+adds, every hour, whether anyone pledges or not:
+
+| Item | Math | Per hour |
+|---|---|---|
+| One Payments task, 0.5 vCPU and 1 GB | 0.5 × $0.0404784 + 1 × $0.004446 | $0.0247 |
+| Its public IPv4 address | 1 × $0.005 | $0.0050 |
+| Payments' cluster at its 0.5-ACU minimum | 0.5 × $0.12 | $0.0600 |
+| Machine tokens for the two monolith tasks (s4-l04: $1.77 a task a month at Cognito's $0.00225 per token request) | 2 × $1.77 / 720 h | $0.0049 |
+| **Added** | | **≈ $0.095** |
+
+| Shape | Idle, per hour |
+|---|---|
+| Before (Release 1's shape, above) | ≈ $0.19 |
+| After s4-l10 | ≈ $0.19 + $0.095 ≈ $0.29 |
+
+Payments' cluster is the largest line, and it never stops. An Aurora Serverless v2 instance pauses
+only when its minimum capacity is 0 ACUs. Payments' minimum is 0.5, because a resume would not fit in
+the card-setup call's 5-second budget. The shared cluster keeps its minimum of 0 and still pauses after
+5 idle minutes. SNS and SQS requests, the few new secrets and the Service Connect proxies (which
+share their task's CPU and memory) add little at this traffic. A refused service token is asked for
+again at most once a minute (CQA-1513): 1,440 requests a day, about $3.24 a day per task, while the
+refusal lasts.
+
 ## Compared with the loop
 
 The loop's Round 2 production estimate is about $13.4K a month (R2.6), for 30,000 live campaigns,
