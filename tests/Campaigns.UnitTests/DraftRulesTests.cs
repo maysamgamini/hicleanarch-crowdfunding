@@ -4,6 +4,8 @@ namespace Campaigns.UnitTests;
 
 public class DraftRulesTests
 {
+    private static readonly Guid Creator = Guid.NewGuid();
+
     private static readonly DateTimeOffset Deadline = new(2027, 3, 31, 23, 59, 0, TimeSpan.FromHours(-4));
 
     private static Money Usd(long minor) => Money.Create(minor, "USD").Value;
@@ -11,7 +13,7 @@ public class DraftRulesTests
     [Fact]
     public void A_valid_draft_is_a_draft_with_its_deadline_in_utc()
     {
-        var result = Campaign.CreateDraft(" Harbor Lights ", Usd(5_000_000), Deadline,
+        var result = Campaign.CreateDraft(Creator, " Harbor Lights ", Usd(5_000_000), Deadline,
             [new TierDraft("Early Bird", 4_900, 500), new TierDraft("Standard copy", 5_900, null)]);
 
         Assert.True(result.IsSuccess);
@@ -25,25 +27,25 @@ public class DraftRulesTests
 
     [Fact]
     public void A_goal_of_zero_is_refused() =>
-        AssertRefused(Campaign.CreateDraft("Game", Usd(0), Deadline, []), "goal_not_positive");
+        AssertRefused(Campaign.CreateDraft(Creator, "Game", Usd(0), Deadline, []), "goal_not_positive");
 
     [Fact]
     public void A_tier_with_no_minimum_is_refused() =>
-        AssertRefused(Campaign.CreateDraft("Game", Usd(100), Deadline, [new TierDraft("Free", 0, null)]), "tier_minimum_not_positive");
+        AssertRefused(Campaign.CreateDraft(Creator, "Game", Usd(100), Deadline, [new TierDraft("Free", 0, null)]), "tier_minimum_not_positive");
 
     [Fact]
     public void A_tier_limit_of_zero_is_refused() =>
-        AssertRefused(Campaign.CreateDraft("Game", Usd(100), Deadline, [new TierDraft("None", 100, 0)]), "tier_limit_not_positive");
+        AssertRefused(Campaign.CreateDraft(Creator, "Game", Usd(100), Deadline, [new TierDraft("None", 100, 0)]), "tier_limit_not_positive");
 
     [Fact]
     public void Two_tiers_with_the_same_title_are_refused() =>
-        AssertRefused(Campaign.CreateDraft("Game", Usd(100), Deadline,
+        AssertRefused(Campaign.CreateDraft(Creator, "Game", Usd(100), Deadline,
             [new TierDraft("Early Bird", 100, 5), new TierDraft("early bird ", 200, null)]), "duplicate_tier_title");
 
     [Fact]
     public void Every_broken_rule_is_reported_at_once()
     {
-        var result = Campaign.CreateDraft("Game", Usd(0), Deadline, [new TierDraft("A", 0, 0)]);
+        var result = Campaign.CreateDraft(Creator, "Game", Usd(0), Deadline, [new TierDraft("A", 0, 0)]);
 
         Assert.Equal(["goal_not_positive", "tier_minimum_not_positive", "tier_limit_not_positive"],
             result.Errors.Select(e => e.Code));

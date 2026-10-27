@@ -1,11 +1,12 @@
+using System.Security.Claims;
+
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure;
+using BuildingBlocks.Infrastructure.Identity;
+using BuildingBlocks.Infrastructure.Persistence;
 
 using Campaigns.Application;
 using Campaigns.Domain;
-
-using BuildingBlocks.Infrastructure.Persistence;
-
 using Campaigns.Infrastructure.Persistence;
 
 using Microsoft.AspNetCore.Builder;
@@ -40,9 +41,10 @@ public static class CampaignsModule
     {
         var campaigns = app.MapGroup("/v1/campaigns").WithTags("Campaigns");
 
-        campaigns.MapPost("/", async (CreateCampaignRequest request, IDispatcher dispatcher, CancellationToken ct) =>
+        campaigns.MapPost("/", async (CreateCampaignRequest request, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
         {
             var command = new CreateDraft(
+                user.UserId(),
                 request.Title ?? "",
                 request.GoalMinor,
                 request.Currency ?? "",
@@ -52,8 +54,9 @@ public static class CampaignsModule
             return result.IsSuccess
                 ? Results.Created($"/v1/campaigns/{result.Value}", new { campaign_id = result.Value.ToString(), status = "DRAFT" })
                 : result.Errors.ToProblem();
-        });
+        }).RequireAuthorization(Policies.Creator);
 
+        // Anyone may read a campaign, signed in or not.
         campaigns.MapGet("/{id}", async (string id, IDispatcher dispatcher, CancellationToken ct) =>
         {
             if (!CampaignId.TryParse(id, out var campaignId))

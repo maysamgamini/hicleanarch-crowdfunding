@@ -10,6 +10,7 @@ public sealed record GetCampaign(CampaignId Id) : IQuery<CampaignView>;
 /// <summary>What a reader sees. Ids and statuses are strings, and the deadline is UTC, as in the API.</summary>
 public sealed record CampaignView(
     string CampaignId,
+    Guid CreatorId,
     string Status,
     string Title,
     long GoalMinor,
@@ -31,6 +32,7 @@ public sealed class GetCampaignHandler(ICampaignRepository campaigns) : IQueryHa
 
         return Result.Success(new CampaignView(
             campaign.Id.ToString(),
+            campaign.CreatorId,
             campaign.Status.ToString().ToUpperInvariant(),
             campaign.Title,
             campaign.Goal.AmountMinor,

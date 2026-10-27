@@ -30,6 +30,10 @@ namespace Campaigns.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<Guid>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creator_id");
+
                     b.Property<DateTimeOffset>("Deadline")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("deadline");

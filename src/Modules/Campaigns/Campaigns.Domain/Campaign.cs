@@ -42,9 +42,10 @@ public sealed class Campaign
     }
 #pragma warning restore CS8618
 
-    private Campaign(CampaignId id, string title, Money goal, DateTimeOffset deadline, IEnumerable<Tier> tiers)
+    private Campaign(CampaignId id, Guid creatorId, string title, Money goal, DateTimeOffset deadline, IEnumerable<Tier> tiers)
     {
         Id = id;
+        CreatorId = creatorId;
         Title = title;
         Goal = goal;
         Deadline = deadline;
@@ -53,6 +54,9 @@ public sealed class Campaign
     }
 
     public CampaignId Id { get; private set; }
+
+    /// <summary>The creator's user id, from the identity provider.</summary>
+    public Guid CreatorId { get; private set; }
 
     public string Title { get; private set; }
 
@@ -66,7 +70,7 @@ public sealed class Campaign
     public CampaignStatus Status { get; private set; }
 
     /// <summary>Creates a draft, or returns every rule the request breaks.</summary>
-    public static Result<Campaign> CreateDraft(string title, Money goal, DateTimeOffset deadline, IReadOnlyList<TierDraft> tiers)
+    public static Result<Campaign> CreateDraft(Guid creatorId, string title, Money goal, DateTimeOffset deadline, IReadOnlyList<TierDraft> tiers)
     {
         var errors = new List<Error>();
         if (goal.AmountMinor <= 0)
@@ -95,6 +99,6 @@ public sealed class Campaign
         }
 
         var created = tiers.Select(t => new Tier(TierId.New(), t.Title.Trim(), t.MinPledgeMinor, t.Limit));
-        return Result.Success(new Campaign(CampaignId.New(), title.Trim(), goal, deadline.ToUniversalTime(), created));
+        return Result.Success(new Campaign(CampaignId.New(), creatorId, title.Trim(), goal, deadline.ToUniversalTime(), created));
     }
 }

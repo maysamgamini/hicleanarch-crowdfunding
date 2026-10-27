@@ -6,6 +6,7 @@ using Campaigns.Domain;
 namespace Campaigns.Application;
 
 public sealed record CreateDraft(
+    Guid CreatorId,
     string Title,
     long GoalMinor,
     string Currency,
@@ -41,7 +42,7 @@ public sealed class CreateDraftHandler(ICampaignRepository campaigns) : ICommand
             return Result.Failure<CampaignId>(goal.Errors);
         }
 
-        var draft = Campaign.CreateDraft(command.Title, goal.Value, command.Deadline, command.Tiers);
+        var draft = Campaign.CreateDraft(command.CreatorId, command.Title, goal.Value, command.Deadline, command.Tiers);
         if (!draft.IsSuccess)
         {
             return Result.Failure<CampaignId>(draft.Errors);

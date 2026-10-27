@@ -1,3 +1,5 @@
+using BuildingBlocks.Infrastructure.Identity;
+
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +25,15 @@ public sealed class Database : IAsyncLifetime
         Password = "campaigns_test",
     }.ConnectionString;
 
+    public const string ClientId = "test-client";
+
+    public const string SigningKey = "test-only-signing-key-0123456789abcdef";
+
+    /// <summary>A token for a new user in the given groups, as Cognito would issue it.</summary>
+    public static string Token(Guid userId, params string[] groups) => LocalTokens.Issue(SigningKey, ClientId, userId, groups);
+
+    public static string Token(params string[] groups) => Token(Guid.NewGuid(), groups);
+
     public async ValueTask InitializeAsync()
     {
         await _container.StartAsync();
@@ -39,5 +50,7 @@ public sealed class Database : IAsyncLifetime
             .UseEnvironment("Testing")
             // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.
             .UseSetting("ConnectionStrings:Owner", Owner)
-            .UseSetting("ConnectionStrings:Campaigns", Campaigns));
+            .UseSetting("ConnectionStrings:Campaigns", Campaigns)
+            .UseSetting("Auth:ClientId", ClientId)
+            .UseSetting("Auth:LocalSigningKey", SigningKey));
 }

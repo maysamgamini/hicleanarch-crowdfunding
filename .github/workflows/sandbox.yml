@@ -74,7 +74,24 @@ jobs:
           aws ecs wait services-stable --cluster "$(terraform -chdir=infra/env output -raw cluster)" \
             --services "$(terraform -chdir=infra/env output -raw service)"
 
+      - name: Sign in a test creator
+        id: creator
+        run: |
+          pool=$(terraform -chdir=infra/env output -raw user_pool_id)
+          client=$(terraform -chdir=infra/env output -raw user_pool_client_id)
+          email="smoke-${GITHUB_RUN_ID}@example.com"
+          password="Smoke-${GITHUB_RUN_ID}-$(openssl rand -hex 8)"
+          aws cognito-idp admin-create-user --user-pool-id "$pool" --username "$email" --message-action SUPPRESS >/dev/null
+          aws cognito-idp admin-set-user-password --user-pool-id "$pool" --username "$email" --password "$password" --permanent
+          aws cognito-idp admin-add-user-to-group --user-pool-id "$pool" --username "$email" --group-name creator
+          token=$(aws cognito-idp initiate-auth --client-id "$client" --auth-flow USER_PASSWORD_AUTH \
+            --auth-parameters "USERNAME=$email,PASSWORD=$password" --query 'AuthenticationResult.AccessToken' --output text)
+          echo "::add-mask::$token"
+          echo "token=$token" >> "$GITHUB_OUTPUT"
+
       - name: Smoke test
+        env:
+          TOKEN: ${{ steps.creator.outputs.token }}
         run: ./scripts/smoke.sh "$(terraform -chdir=infra/env output -raw api_url)"
 
       - name: Keep it up for a while

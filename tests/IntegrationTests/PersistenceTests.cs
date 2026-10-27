@@ -14,7 +14,9 @@ public sealed class PersistenceTests(Database database)
         string id;
         await using (var first = database.StartHost())
         {
-            var created = await first.CreateClient().PostAsJsonAsync("/v1/campaigns", new
+            var client = first.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new("Bearer", Database.Token(BuildingBlocks.Infrastructure.Identity.Roles.Creator));
+            var created = await client.PostAsJsonAsync("/v1/campaigns", new
             {
                 title = "Harbor Lights",
                 goal_minor = 5_000_000,

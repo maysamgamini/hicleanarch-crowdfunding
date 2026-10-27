@@ -26,6 +26,8 @@ locals {
     environment = [
       { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://localhost:4317" },
       { name = "OTEL_SERVICE_NAME", value = "crowdfunding-api" },
+      { name = "Auth__Authority", value = local.cognito_issuer },
+      { name = "Auth__ClientId", value = aws_cognito_user_pool_client.api.id },
     ]
     secrets = local.module_secrets
     logConfiguration = {
@@ -85,8 +87,11 @@ resource "aws_ecs_task_definition" "migrate" {
     name         = "migrate"
     command      = ["migrate"]
     portMappings = []
-    environment  = []
-    secrets      = concat(local.module_secrets, [local.owner_secret])
+    environment = [
+      { name = "Auth__Authority", value = local.cognito_issuer },
+      { name = "Auth__ClientId", value = aws_cognito_user_pool_client.api.id },
+    ]
+    secrets = concat(local.module_secrets, [local.owner_secret])
   })])
 
   runtime_platform {

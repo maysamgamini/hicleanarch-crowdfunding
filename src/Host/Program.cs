@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 using BuildingBlocks.Application;
+using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Persistence;
 
 using Campaigns.Infrastructure;
@@ -15,6 +16,7 @@ builder.Services.AddProblemDetails();
 builder.Services.AddDispatcher();
 builder.Services.AddSingleton<DatabaseMigrator>();
 builder.Services.AddTelemetry(builder.Configuration);
+builder.Services.AddTokenAuthentication(builder.Configuration);
 
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
@@ -30,8 +32,18 @@ if (args.Contains("migrate"))
     return;
 }
 
+// `dotnet run -- token creator` prints a local token for development: a new user in that group.
+if (args.FirstOrDefault() == "token" && app.Environment.IsDevelopment())
+{
+    var auth = app.Configuration.GetSection("Auth");
+    Console.WriteLine(LocalTokens.Issue(auth["LocalSigningKey"]!, auth["ClientId"]!, Guid.NewGuid(), [.. args.Skip(1)]));
+    return;
+}
+
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 app.MapCampaignsEndpoints();

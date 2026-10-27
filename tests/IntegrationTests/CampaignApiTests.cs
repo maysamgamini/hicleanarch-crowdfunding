@@ -2,6 +2,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
+using BuildingBlocks.Infrastructure.Identity;
+
 namespace IntegrationTests;
 
 /// <summary>The API, run in memory through the real host against a real database: requests in, JSON out.</summary>
@@ -9,7 +11,15 @@ public sealed class CampaignApiTests(Database database) : IDisposable
 {
     private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _host = database.StartHost();
 
-    private HttpClient Client => _host.CreateClient();
+    private HttpClient Client
+    {
+        get
+        {
+            var client = _host.CreateClient();
+            client.DefaultRequestHeaders.Authorization = new("Bearer", Database.Token(Roles.Creator));
+            return client;
+        }
+    }
 
     public void Dispose() => _host.Dispose();
 

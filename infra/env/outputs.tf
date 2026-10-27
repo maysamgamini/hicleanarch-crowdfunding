@@ -23,3 +23,11 @@ output "task_subnets" {
 output "task_security_group" {
   value = aws_security_group.tasks.id
 }
+
+output "user_pool_id" {
+  value = aws_cognito_user_pool.users.id
+}
+
+output "user_pool_client_id" {
+  value = aws_cognito_user_pool_client.api.id
+}
