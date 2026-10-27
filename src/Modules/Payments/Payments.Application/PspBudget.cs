@@ -59,8 +59,17 @@ public sealed class PspBudget
     /// <summary>The buckets one call takes a token from: the account's and its endpoint's.</summary>
     public IReadOnlyList<Bucket> For(PspCall call) => [Account, Endpoint(call)];
 
-    /// <summary>A card setup's turn in the card-setup lane.</summary>
-    public IReadOnlyList<Bucket> CardSetup => For(PspCall.CardSetup);
+    /// <summary>
+    /// How long a pledge keeps its place in the card-setup lane: longer than a pledge's 15-minute hold,
+    /// so a backer who waits keeps it for as long as the pledge waits.
+    /// </summary>
+    public TimeSpan CardSetupPlaceKeptFor { get; set; } = TimeSpan.FromMinutes(20);
+
+    /// <summary>
+    /// The card-setup lane (lesson s3-a04): pledges wait for the card-setup bucket's tokens in line, in
+    /// the order they first asked, each told when its turn comes; at its turn it also takes the account's token.
+    /// </summary>
+    public Lane CardSetupLane => new(Endpoint(PspCall.CardSetup), [Account], CardSetupPlaceKeptFor);
 
     private Bucket Named(string name, double perSecond) =>
         new($"{Prefix}:{name}", new BucketRate(perSecond, Math.Max(1, (int)Math.Floor(perSecond)))); // a second's worth, at least one
