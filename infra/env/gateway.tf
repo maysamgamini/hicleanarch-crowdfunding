@@ -14,6 +14,12 @@ variable "edge_limit_per_second" {
   default     = 20
 }
 
+variable "psp_webhook_sources" {
+  description = "The PSP's published webhook source addresses, as CIDRs (for Stripe, each address of https://stripe.com/files/ips/ips_webhooks.txt as a /32). They share the webhook route's limit; every other address is limited per address there too. Empty: every caller is limited per address, the PSP included (CQA-1517)."
+  type        = list(string)
+  default     = []
+}
+
 variable "gateway_count" {
   description = "How many gateway tasks run. The gateway splits its limits by this number if Valkey is down."
   type        = number
@@ -112,9 +118,11 @@ resource "aws_ecs_task_definition" "gateway" {
       { name = "EdgeLimits__GatewayTasks", value = tostring(var.gateway_count) },
       { name = "EdgeLimits__PerSecond", value = tostring(var.edge_limit_per_second) },
       { name = "EdgeLimits__Burst", value = tostring(var.edge_limit_per_second * 2) },
-      # The PSP's webhook: one limit for the route, not one per address (CQA-1306).
+      # The PSP's webhook: one limit for the route for the PSP's own addresses (CQA-1306), the per-address
+      # limit for anyone else (CQA-1517).
       { name = "EdgeLimits__Webhook__PerSecond", value = "1000" },
       { name = "EdgeLimits__Webhook__Burst", value = "1000" },
+      { name = "EdgeLimits__Webhook__Sources", value = join(",", var.psp_webhook_sources) },
       # X-Forwarded-For is trusted only from the load balancer, inside the VPC.
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
       # A caller from CloudFront's edges is limited by the viewer's address, not the edge's.

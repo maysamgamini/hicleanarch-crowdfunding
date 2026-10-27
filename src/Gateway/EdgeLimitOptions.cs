@@ -25,8 +25,10 @@ public sealed class EdgeLimitOptions
     public string CloudFrontNetworks { get; set; } = "";
 
     /// <summary>
-    /// The PSP's webhook route: not limited per address, because the PSP sends about 250 a second during
-    /// settlement from a short published list of addresses, but limited for the whole route.
+    /// The PSP's webhook route. The PSP sends about 250 a second during settlement from a short published
+    /// list of addresses (<see cref="RouteLimitOptions.Sources"/>): those share one bucket for the whole
+    /// route instead of one per address. Every other address keeps its per-address limit there, so an
+    /// unsigned flood from one address cannot use up the PSP's bucket (CQA-1517).
     /// </summary>
     public RouteLimitOptions Webhook { get; set; } = new();
 }
@@ -39,4 +41,10 @@ public sealed class RouteLimitOptions
 
     /// <summary>A second's worth.</summary>
     public int Burst { get; set; } = 1000;
+
+    /// <summary>
+    /// The caller's published source networks, comma-separated (for Stripe, its ips_webhooks.txt, each
+    /// address as a /32). Only these share the route's bucket; empty, every caller is limited per address.
+    /// </summary>
+    public string Sources { get; set; } = "";
 }

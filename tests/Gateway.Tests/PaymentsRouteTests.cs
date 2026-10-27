@@ -22,11 +22,15 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static WebApplicationFactory<Program> Start(EchoService monolith, EchoService payments, string valkey = "",
-        int perSecond = 20, int burst = 40, double webhookPerSecond = 1000, int webhookBurst = 1000) =>
+        int perSecond = 20, int burst = 40, double webhookPerSecond = 1000, int webhookBurst = 1000, string pspSources = PspSources) =>
         GatewayHost.Start(monolith.Address, valkey, perSecond, burst).WithWebHostBuilder(web => web
             .UseSetting("ReverseProxy:Clusters:payments:Destinations:payments:Address", payments.Address)
+            .UseSetting("EdgeLimits:Webhook:Sources", pspSources)
             .UseSetting("EdgeLimits:Webhook:PerSecond", webhookPerSecond.ToString(CultureInfo.InvariantCulture))
             .UseSetting("EdgeLimits:Webhook:Burst", webhookBurst.ToString(CultureInfo.InvariantCulture)));
+
+    /// <summary>The PSP's published webhook addresses in these tests: 198.51.100.0/24 (TEST-NET-2).</summary>
+    private const string PspSources = "198.51.100.0/24";
 
     private static HttpRequestMessage Webhook(string clientIp, string body = "{}")
     {
@@ -159,5 +163,31 @@ public sealed class PaymentsRouteTests(Valkey valkey) : IClassFixture<Valkey>
         Assert.Equal(1000, limits.Webhook.PerSecond);
         Assert.Equal(1000, limits.Webhook.Burst);
         Assert.Equal(20, limits.PerSecond);
+    }
+
+    [Fact]
+    public async Task A_flood_from_one_address_outside_the_psps_list_is_limited_per_address_and_the_psps_webhooks_still_pass()
+    {
+        await using var monolith = await EchoService.Start("monolith");
+        await using var payments = await EchoService.Start("payments");
+        // The production limits: 20 a second per address with a burst of 40; the route's bucket for the PSP: 50 at once.
+        await using var gateway = Start(monolith, payments, valkey.Configuration, webhookPerSecond: 0.5, webhookBurst: 50);
+        var client = gateway.CreateClient();
+
+        var flood = await Task.WhenAll(Enumerable.Range(0, 200).Select(async _ =>
+        {
+            using var request = Webhook("203.0.113.9"); // not the PSP's: unsigned requests from anyone
+            return (await client.SendAsync(request, Ct)).StatusCode;
+        }));
+        var psp = new List<HttpStatusCode>();
+        for (var i = 0; i < 10; i++)
+        {
+            using var request = Webhook("198.51.100.7");
+            psp.Add((await client.SendAsync(request, Ct)).StatusCode);
+        }
+
+        Assert.InRange(flood.Count(c => c == HttpStatusCode.OK), 1, 45); // its own burst of 40, and what a second refills
+        Assert.Contains((HttpStatusCode)429, flood);
+        Assert.All(psp, code => Assert.Equal(HttpStatusCode.OK, code)); // the route's bucket was not touched by the flood
     }
 }

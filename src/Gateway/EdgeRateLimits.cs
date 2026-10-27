@@ -48,13 +48,15 @@ internal sealed record SharedBuckets(ValkeyTokenBuckets? Buckets);
 /// It runs in YARP's proxy pipeline, so it applies to every request a route sends on, whatever the
 /// case or spelling of its path, and to nothing else. Limits per user, which need a validated token,
 /// are the services' job; the gateway passes the token through untouched. A route whose metadata says
-/// <c>EdgeLimit: Webhook</c> has one bucket for all its callers instead of one per address.
+/// <c>EdgeLimit: Webhook</c> has one bucket for the PSP's published addresses instead of one per
+/// address; any other caller of that route keeps its own per-address bucket (CQA-1517).
 /// </summary>
 internal sealed partial class EdgeRateLimitMiddleware(
     RequestDelegate next,
     EdgeClients clients,
     SharedBuckets shared,
     LocalTokenBuckets local,
+    EdgeLimitOptions options,
     ILogger<EdgeRateLimitMiddleware> logger)
 {
     /// <summary>The client's address as the gateway decided it. Any value a caller sent is replaced.</summary>
@@ -67,12 +69,17 @@ internal sealed partial class EdgeRateLimitMiddleware(
 
     private readonly ValkeyTokenBuckets? _shared = shared.Buckets;
 
+    private readonly IReadOnlyList<System.Net.IPNetwork> _webhookSources = [.. options.Webhook.Sources
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Select(System.Net.IPNetwork.Parse)];
+
     public async Task InvokeAsync(HttpContext context)
     {
         var client = clients.Of(context);
         context.Request.Headers[ClientAddressHeader] = client;
 
-        var routeWide = context.GetReverseProxyFeature().Route.Config.Metadata?.GetValueOrDefault(LimitMetadata) == WebhookLimit;
+        var routeWide = context.GetReverseProxyFeature().Route.Config.Metadata?.GetValueOrDefault(LimitMetadata) == WebhookLimit
+            && FromWebhookSource(client);
         var decision = routeWide ? await TakeRouteWide(context.GetReverseProxyFeature().Route.Config.RouteId) : await Take(client);
         if (decision.Allowed)
         {
@@ -85,6 +92,9 @@ internal sealed partial class EdgeRateLimitMiddleware(
         context.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
         await context.Response.WriteAsJsonAsync(new { reason = "rate_limited", retry_after_seconds = seconds });
     }
+
+    private bool FromWebhookSource(string client) =>
+        System.Net.IPAddress.TryParse(client, out var address) && _webhookSources.Any(n => n.Contains(address));
 
     private async Task<BucketDecision> Take(string client)
     {
