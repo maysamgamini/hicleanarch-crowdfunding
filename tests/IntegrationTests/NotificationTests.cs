@@ -46,7 +46,8 @@ public sealed class NotificationTests(Database database) : IDisposable
         (await given.Backer(stays).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
         var placed = await given.Backer(leaves).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct);
         (await given.Backer(leaves).DeleteAsync(placed.Headers.Location, Ct)).EnsureSuccessStatusCode();
-        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM notifications.campaign_backers WHERE campaign_id = @id", campaign.CampaignId) == 1);
+        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM notifications.campaign_pledges WHERE campaign_id = @id AND activated_at IS NOT NULL", campaign.CampaignId) == 2);
+        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM notifications.campaign_pledges WHERE campaign_id = @id AND cancelled_at IS NOT NULL", campaign.CampaignId) == 1);
 
         await given.Execute("UPDATE pledges.funding_windows SET deadline = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
         await using (var scope = _host.Services.CreateAsyncScope())
@@ -77,6 +78,55 @@ public sealed class NotificationTests(Database database) : IDisposable
         Assert.Equal(1, SentTo(backer));
     }
 
+    /// <summary>One Notifications handler call, in a transaction of its own, as the inbox runs it.</summary>
+    private async Task Handle<TEvent>(TEvent integrationEvent)
+        where TEvent : IntegrationEvent
+    {
+        await using var scope = _host.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<NotificationsDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync(Ct);
+        await ((IIntegrationEventHandler<TEvent>)(object)scope.ServiceProvider.GetRequiredService<Handlers>()).Handle(integrationEvent, Ct);
+        await transaction.CommitAsync(Ct);
+    }
+
+    private static PledgeActivated Activated(Guid pledgeId, Guid campaignId, Guid backerId) =>
+        new(Guid.CreateVersion7(), DateTimeOffset.UtcNow, pledgeId, campaignId, backerId, null, 6_000, "USD");
+
+    private static PledgeCancelled Cancelled(Guid pledgeId, Guid campaignId, Guid backerId) =>
+        new(Guid.CreateVersion7(), DateTimeOffset.UtcNow, pledgeId, campaignId, backerId, 6_000);
+
+    private Task Decided(Guid campaignId) =>
+        Handle(new CampaignFundingDecided(Guid.CreateVersion7(), DateTimeOffset.UtcNow, campaignId, CampaignFundingDecided.Unsuccessful, 6_000, 1, 50_000));
+
+    /// <summary>A backer cancels and pledges again; the first pledge's cancel reaches Notifications last.</summary>
+    [Fact]
+    public async Task A_late_cancel_of_an_earlier_pledge_does_not_drop_a_backer_who_pledged_again()
+    {
+        var (campaign, backer, first, second) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        await Handle(Activated(first, campaign, backer));
+        await Handle(Activated(second, campaign, backer));
+        await Handle(Cancelled(first, campaign, backer));
+        await Decided(campaign);
+
+        await Scenario.Eventually(() => Task.FromResult(SentTo(backer, "The campaign was not funded") == 1));
+    }
+
+    /// <summary>The activation of a pledge is retried and arrives after its cancel.</summary>
+    [Fact]
+    public async Task A_late_activation_does_not_bring_back_a_backer_who_cancelled()
+    {
+        var (campaign, stays, leaves, pledge) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        await Handle(Activated(Guid.NewGuid(), campaign, stays));
+        await Handle(Cancelled(pledge, campaign, leaves));
+        await Handle(Activated(pledge, campaign, leaves));
+        await Decided(campaign);
+
+        await Scenario.Eventually(() => Task.FromResult(SentTo(stays, "The campaign was not funded") == 1));
+        Assert.Equal(0, SentTo(leaves, "The campaign was not funded"));
+    }
+
     [Fact]
     public async Task A_kind_turned_off_is_not_sent()
     {
@@ -87,7 +137,7 @@ public sealed class NotificationTests(Database database) : IDisposable
         Assert.Equal(HttpStatusCode.NoContent, (await client.PutAsJsonAsync("/v1/me/notifications/pledge_confirmed", new { enabled = false }, Ct)).StatusCode);
 
         (await client.PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
-        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM notifications.campaign_backers WHERE campaign_id = @id", campaign.CampaignId) == 1);
+        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM notifications.campaign_pledges WHERE campaign_id = @id AND activated_at IS NOT NULL AND cancelled_at IS NULL", campaign.CampaignId) == 1);
 
         Assert.Equal(0, SentTo(backer));
     }
