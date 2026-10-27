@@ -1,5 +1,5 @@
 <Project>
-  <!-- Pledges.Contracts is a package of its own (see ../../ContractsPackage.props). The repository's settings come first. -->
+  <!-- Pledges.Contracts is a package of its own (see src/ContractsPackage.props). The repository's settings come first. -->
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
   <PropertyGroup>
@@ -8,5 +8,5 @@
     <Description>What the Pledges module tells the others and accepts from them: pledges, funding decisions, charge requests, the cancel of a campaign's funding.</Description>
   </PropertyGroup>
 
-  <Import Project="$(MSBuildThisFileDirectory)../../ContractsPackage.props" />
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('ContractsPackage.props', '$(MSBuildThisFileDirectory)../'))" />
 </Project>

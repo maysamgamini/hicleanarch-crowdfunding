@@ -19,7 +19,8 @@
 # refs that touched it names, in its subject, a ticket or lesson of an entry that lists it. So an
 # entry covers the work it was written for, not a later commit to the same file.
 #
-# Watched: src/Modules/*/*.Domain/** and src/Modules/*/*.Application/**. Notifications is one
+# Watched: */*.Domain/** and */*.Application/** under src/Modules and src/Services (a service's own
+# folder since s5-l05). Renames are detected: a pure move counts as no change. Notifications is one
 # project with no layers (poly-pattern-tiers), so all of it is watched except its adapters and
 # wiring: Migrations/, Properties/, *DbContext.cs, *Module.cs, Ses*.cs and *.json.
 #
@@ -36,8 +37,8 @@
 #       reason: Notifications keeps who backs a campaign per pledge.
 #       change: any                 # added | modified | deleted | any (the default)
 #       paths:                      # or a single "path: ..."
-#         - src/Modules/Notifications/Notifier.cs
-#         - src/Modules/Notifications/Handlers.cs
+#         - src/Services/Notifications/Notifications/Notifier.cs
+#         - src/Services/Notifications/Notifications/Handlers.cs
 # A path is exact or a shell pattern, in which * also matches "/". Keep entries narrow.
 set -euo pipefail
 
@@ -69,6 +70,8 @@ git rev-parse --verify --quiet "$to^{commit}" >/dev/null || { echo "split-diff: 
 watched=(
   ':(glob)src/Modules/*/*.Domain/**'
   ':(glob)src/Modules/*/*.Application/**'
+  ':(glob)src/Services/*/*.Domain/**'
+  ':(glob)src/Services/*/*.Application/**'
   ':(glob)src/Modules/Notifications/**'
   ':(exclude,glob)src/Modules/Notifications/Migrations/**'
   ':(exclude,glob)src/Modules/Notifications/Properties/**'
@@ -76,6 +79,13 @@ watched=(
   ':(exclude,glob)src/Modules/Notifications/**/*Module.cs'
   ':(exclude,glob)src/Modules/Notifications/**/Ses*.cs'
   ':(exclude,glob)src/Modules/Notifications/**/*.json'
+  ':(glob)src/Services/Notifications/Notifications/**'
+  ':(exclude,glob)src/Services/Notifications/Notifications/Migrations/**'
+  ':(exclude,glob)src/Services/Notifications/Notifications/Properties/**'
+  ':(exclude,glob)src/Services/Notifications/Notifications/**/*DbContext.cs'
+  ':(exclude,glob)src/Services/Notifications/Notifications/**/*Module.cs'
+  ':(exclude,glob)src/Services/Notifications/Notifications/**/Ses*.cs'
+  ':(exclude,glob)src/Services/Notifications/Notifications/**/*.json'
   ':(exclude,glob)**/bin/**'
   ':(exclude,glob)**/obj/**'
 )
@@ -142,8 +152,22 @@ entries=$(awk -v file="$allow" -v q="'" '
   END { if (failed) exit 2; flush() }
 ' "$allow") || exit 2
 
-changes=$(git diff --no-renames --name-status "$from" "$to" -- "${watched[@]}")
-numstat=$(git diff --no-renames --numstat "$from" "$to" -- "${watched[@]}")
+# Renames are detected (-M): a file a service's move only renamed (R100) changed nothing and is not
+# counted; a renamed file that also changed is judged at its new path, and an entry may name either path.
+changes=$(git diff -M --name-status "$from" "$to" -- "${watched[@]}")
+numstat=$(git diff -M --numstat "$from" "$to" -- "${watched[@]}")
+
+# The commits between the refs that changed the file (at its new or old path), leaving out a commit
+# that only moved it: a service's move is renames only and changes nothing in the file.
+changing_commits() {
+  local sha subject
+  git log --no-merges --format='%h%x09%s' "$from..$to" -- "$1" "$2" |
+    while IFS=$'\t' read -r sha subject; do
+      if git diff-tree --no-commit-id -M -r --name-status "$sha" -- "$1" "$2" | grep -qv '^R100'; then
+        printf '%s\t%s\n' "$sha" "$subject"
+      fi
+    done
+}
 
 annotate=0
 [ "${GITHUB_ACTIONS:-}" = "true" ] && annotate=1
@@ -155,21 +179,28 @@ forbidden=0
 used=" "
 stubs=""
 report=""
-while IFS=$'\t' read -r status path; do
+while IFS=$'\t' read -r status path renamed; do
   [ -n "${path:-}" ] || continue
+  old=$path
   case $status in
+    R100) continue ;;
+    R*) path=$renamed; change=modified ;;
     A) change=added ;;
     D) change=deleted ;;
     *) change=modified ;;
   esac
-  lines=$(printf '%s\n' "$numstat" | awk -F'\t' -v p="$path" '$3 == p { print "+" $1 " -" $2; exit }')
+  if [ "$old" != "$path" ]; then
+    lines=$(git diff --numstat "$from:$old" "$to:$path" | awk -F'\t' '{ print "+" $1 " -" $2; exit }')
+  else
+    lines=$(printf '%s\n' "$numstat" | awk -F'\t' -v p="$path" '$3 == p { print "+" $1 " -" $2; exit }')
+  fi
 
   # Every entry that lists this file for this kind of change.
   matched=""
   while IFS=$'\t' read -r e_no e_class e_change e_ids e_reason e_path; do
     [ -n "${e_path:-}" ] || continue
     # shellcheck disable=SC2053 # the entry's path is a pattern on purpose
-    [[ $path == $e_path ]] || continue
+    [[ $path == $e_path || $old == $e_path ]] || continue
     [ "$e_change" = any ] || [ "$e_change" = "$change" ] || continue
     matched="$matched$e_no	$e_class	$e_ids	$e_reason"$'\n'
   done <<< "$entries"
@@ -186,7 +217,7 @@ while IFS=$'\t' read -r status path; do
         why="commit $sha \"$subject\" names none of ${ids//|/, }"
         break
       fi
-    done <<< "$(git log --no-merges --format='%h%x09%s' "$from..$to" -- "$path")"
+    done <<< "$(changing_commits "$path" "$old")"
   fi
 
   if [ -z "$why" ]; then

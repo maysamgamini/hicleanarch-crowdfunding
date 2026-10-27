@@ -1,5 +1,5 @@
-# The Notifications service's image. Build from the repository root:
-#   docker build -f src/Services/Notifications.Host/Dockerfile -t crowdfunding-notifications .
+# The Sample service's image. Build from the repository root:
+#   docker build -f src/Services/Sample/Sample.Host/Dockerfile -t crowdfunding-sample .
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY global.json Directory.Build.props Directory.Packages.props .editorconfig NuGet.config BuildingBlocks.slnx Contracts.slnx ./
@@ -9,7 +9,7 @@ COPY events/ events/
 RUN dotnet pack BuildingBlocks.slnx -c Release -o artifacts/packages
 # And the modules' Contracts, which they build against as packages too.
 RUN dotnet pack Contracts.slnx -c Release -o artifacts/packages
-RUN dotnet publish src/Services/Notifications.Host/Notifications.Host.csproj -c Release -o /app
+RUN dotnet publish src/Services/Sample/Sample.Host/Sample.Host.csproj -c Release -o /app
 # The CA bundle the database's certificates chain to (SSL Mode=VerifyFull), as in the monolith's image.
 ADD https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /rds/global-bundle.pem
 RUN chmod 644 /rds/global-bundle.pem
@@ -20,4 +20,4 @@ COPY --from=build /app .
 COPY --from=build /rds/global-bundle.pem /usr/local/share/rds/global-bundle.pem
 USER $APP_UID
 EXPOSE 8080
-ENTRYPOINT ["dotnet", "CrowdFunding.Notifications.Host.dll"]
+ENTRYPOINT ["dotnet", "CrowdFunding.Sample.Host.dll"]

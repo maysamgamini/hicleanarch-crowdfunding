@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Tests of scripts/split-diff.sh on a throwaway repository: each class (none, permitted,
 # boundary-correction, release-1-fix, forbidden), the commit-subject rule, the change kind, the
-# Notifications exclusions and malformed allow-lists.
+# Notifications exclusions, a service's move (renames) and malformed allow-lists.
 set -euo pipefail
 
 script="$(cd "$(dirname "$0")" && pwd)/split-diff.sh"
@@ -96,6 +96,21 @@ expect 0 '2 changed: 1 permitted, 1 boundary-correction, 0 release-1-fix, 0 forb
 expect 0 'the split forced a domain change: 1' -- --allow boundary.yaml leak boundary
 expect 0 's5-l05, CQA-1770: the LIVE cancel moves' -- --allow boundary.yaml leak boundary
 expect 0 'does not use' -- --allow boundary.yaml leak boundary
+
+# A service's move into src/Services/<Name>/ is renames only: nothing changed. A file the move renamed
+# and a fix changed is judged at its new path, by an entry that names its old one, and the move's own
+# commit need not name the entry's ticket. (Files of some lines, so that git sees the renames.)
+write src/Modules/Pledges/Pledges.Domain/Pledge.cs "$(printf 'class Pledge\n{\n    int y;\n    int leak;\n    int a;\n    int b;\n    int c;\n    int d;\n}')"
+commit 'fix: CQA-210: the backer list per pledge, in full' prep
+mkdir -p src/Services/Notifications
+git mv src/Modules/Pledges src/Services/Pledges
+git mv src/Modules/Notifications src/Services/Notifications/Notifications
+commit 'refactor: Pledges and Notifications move into src/Services' move
+expect 0 'none: no Domain or Application file changed' -- prep move
+write src/Services/Pledges/Pledges.Domain/Pledge.cs "$(printf 'class Pledge\n{\n    int y;\n    int leak;\n    int a;\n    int b;\n    int c;\n    int d;\n    int e;\n}')"
+commit 'fix: CQA-210: the backer list per pledge, again' movedfix
+expect 0 'release-1-fix *modified .*src/Services/Pledges/Pledges.Domain/Pledge.cs' -- --allow allowed.yaml prep movedfix
+expect 1 'FORBIDDEN .*modified .*src/Services/Pledges/Pledges.Domain/Pledge.cs' -- prep movedfix
 
 # Malformed allow-lists are refused.
 bad() { printf 'allowed:\n  - class: %s\n    id: %s\n    reason: r\n    path: x\n' "$1" "$2" > bad.yaml; }

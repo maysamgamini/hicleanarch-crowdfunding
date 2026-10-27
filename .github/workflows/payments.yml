@@ -3,26 +3,24 @@ name: payments
 # The Payments service's pipeline: contract tests, then Payments built and tested alone from its
 # solution filter, then (on main) its image pushed with its own deploy role and, if a sandbox is up,
 # Payments deployed into it. The paths are what the Payments image is built from, and the tests that
-# run both services (System.slnf). Since s4-l10 src/Modules/Payments runs this pipeline only, but for
-# Payments.Client, which is the monolith's; Contracts, BuildingBlocks, the subscriptions file and the
-# build settings run both.
+# run both services (System.slnf). Since s4-l10 Payments runs this pipeline only; all of it lives in
+# src/Services/Payments (since s5-l05), and Payments.Client, the monolith's, in src/Modules. Contracts,
+# BuildingBlocks, the subscriptions file and the build settings run both.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:
   push:
     branches: [main]
     tags: ["s*-l*"]
     paths:
-      - "src/Services/Payments.Host/**"
       - "infra/services/payments/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/payments-network.tf"
       - "infra/env/messaging.tf"
-      - "src/Modules/Payments/**"
-      - "!src/Modules/Payments/Payments.Client/**"
+      - "src/Services/Payments/**"
       - "src/Modules/*/*.Contracts/**"
+      - "src/Services/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
-      - "tests/Payments.UnitTests/**"
       - "tests/Directory.Build.props"
       - "Payments.slnf"
       - "System.slnf"
@@ -52,17 +50,15 @@ on:
       - "scripts/pack-contracts.sh"
   pull_request:
     paths:
-      - "src/Services/Payments.Host/**"
       - "infra/services/payments/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/payments-network.tf"
       - "infra/env/messaging.tf"
-      - "src/Modules/Payments/**"
-      - "!src/Modules/Payments/Payments.Client/**"
+      - "src/Services/Payments/**"
       - "src/Modules/*/*.Contracts/**"
+      - "src/Services/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
-      - "tests/Payments.UnitTests/**"
       - "tests/Directory.Build.props"
       - "Payments.slnf"
       - "System.slnf"
@@ -146,9 +142,9 @@ jobs:
       - name: Every model change has its migration
         run: |
           dotnet tool restore
-          dotnet ef migrations has-pending-model-changes --project src/Modules/Payments/Payments.Infrastructure --no-build
+          dotnet ef migrations has-pending-model-changes --project src/Services/Payments/Payments.Infrastructure --no-build
       - name: The image builds
-        run: docker build -q -f src/Services/Payments.Host/Dockerfile -t crowdfunding-payments:ci .
+        run: docker build -q -f src/Services/Payments/Payments.Host/Dockerfile -t crowdfunding-payments:ci .
 
   release:
     needs: build
@@ -174,7 +170,7 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           repository="$REGISTRY/hicleanarch/crowdfunding-payments"
-          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Payments.Host/Dockerfile
+          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Payments/Payments.Host/Dockerfile
           echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
       # The sandbox is up while its outputs document exists (infra/env/shared-outputs.tf).
       - name: Is a sandbox up?

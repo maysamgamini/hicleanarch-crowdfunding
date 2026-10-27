@@ -12,7 +12,7 @@ public class RemoteClientRulesTests
     [Fact]
     public void The_payments_client_references_only_the_payments_contracts_and_the_remote_call_pipeline()
     {
-        var project = XDocument.Load(Path.Combine(Root(), "src", "Modules", "Payments", "Payments.Client", "Payments.Client.csproj"));
+        var project = XDocument.Load(Path.Combine(Root(), "src", "Modules", "Payments.Client", "Payments.Client.csproj"));
         string[] Of(string item, Func<string, string> name) =>
             [.. project.Descendants(item).Select(r => name((string)r.Attribute("Include")!)).Order(StringComparer.Ordinal)];
 

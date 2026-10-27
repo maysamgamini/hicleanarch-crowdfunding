@@ -31,8 +31,8 @@ public class MonolithRulesTests
     {
         var graph = ProjectClosure("src/Host/Host.csproj");
 
-        Assert.All(graph.Where(p => p.StartsWith("src/Modules/Payments/", StringComparison.Ordinal)),
-            project => Assert.Equal("src/Modules/Payments/Payments.Client/Payments.Client.csproj", project));
+        Assert.All(graph.Where(p => p.StartsWith("src/Modules/Payments", StringComparison.Ordinal)),
+            project => Assert.Equal("src/Modules/Payments.Client/Payments.Client.csproj", project));
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal));
     }
 
@@ -53,7 +53,7 @@ public class MonolithRulesTests
         var loaded = Closure(Assembly.Load("CrowdFunding.Host"));
 
         Assert.Contains("Pledges.Infrastructure", loaded); // the check sees the modules it does compose
-        Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Notifications/", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/Notifications/", StringComparison.Ordinal));
         Assert.DoesNotContain(loaded, name => name.StartsWith("Notifications", StringComparison.Ordinal));
     }
 

@@ -112,7 +112,7 @@ services:
     profiles: [stack]
     build: &payments-image
       context: .
-      dockerfile: src/Services/Payments.Host/Dockerfile
+      dockerfile: src/Services/Payments/Payments.Host/Dockerfile
     command: ["migrate"]
     environment:
       <<: [*aws-local, *local-auth]
@@ -168,7 +168,7 @@ services:
     profiles: [stack]
     build: &notifications-image
       context: .
-      dockerfile: src/Services/Notifications.Host/Dockerfile
+      dockerfile: src/Services/Notifications/Notifications.Host/Dockerfile
     command: ["hand-over"]
     environment:
       <<: [*aws-local, *local-auth]

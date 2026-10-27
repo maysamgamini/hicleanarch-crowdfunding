@@ -9,16 +9,16 @@
   <!-- One module, and nothing of the others: they reach it through events and its contracts. -->
   <ItemGroup>
 <!--#if (single) -->
-    <ProjectReference Include="..\..\Modules\Sample\Sample.csproj" />
+    <ProjectReference Include="..\Sample\Sample.csproj" />
 <!--#else -->
-    <ProjectReference Include="..\..\Modules\Sample\Sample.Infrastructure\Sample.Infrastructure.csproj" />
+    <ProjectReference Include="..\Sample.Infrastructure\Sample.Infrastructure.csproj" />
 <!--#endif -->
-    <ProjectReference Include="..\..\Messaging\Messaging.csproj" />
+    <ProjectReference Include="..\..\..\Messaging\Messaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- The same list of event consumers every host reads. -->
-    <Content Include="..\..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup Label="BuildingBlocks">

@@ -3,23 +3,22 @@ name: notifications
 # The Notifications service's pipeline (lesson s5-l03): contract tests, then Notifications built and
 # tested alone from its solution filter, then (on main) its image pushed with its own deploy role and,
 # if a sandbox is up, Notifications deployed into it. Since s5-l04 the monolith compiles nothing of
-# Notifications, so src/Modules/Notifications runs this pipeline only.
+# Notifications, so its module (src/Services/Notifications since s5-l05) runs this pipeline only.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:
   push:
     branches: [main]
     tags: ["s*-l*"]
     paths:
-      - "src/Services/Notifications.Host/**"
+      - "src/Services/Notifications/**"
       - "infra/services/notifications/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/notifications-network.tf"
       - "infra/env/messaging.tf"
-      - "src/Modules/Notifications/**"
       - "src/Modules/*/*.Contracts/**"
+      - "src/Services/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
-      - "tests/Notifications.Host.Tests/**"
       - "tests/Directory.Build.props"
       - "Notifications.slnf"
       - "System.slnf"
@@ -50,16 +49,15 @@ on:
       - "scripts/pack-contracts.sh"
   pull_request:
     paths:
-      - "src/Services/Notifications.Host/**"
+      - "src/Services/Notifications/**"
       - "infra/services/notifications/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/notifications-network.tf"
       - "infra/env/messaging.tf"
-      - "src/Modules/Notifications/**"
       - "src/Modules/*/*.Contracts/**"
+      - "src/Services/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
-      - "tests/Notifications.Host.Tests/**"
       - "tests/Directory.Build.props"
       - "Notifications.slnf"
       - "System.slnf"
@@ -144,9 +142,9 @@ jobs:
       - name: Every model change has its migration
         run: |
           dotnet tool restore
-          dotnet ef migrations has-pending-model-changes --project src/Modules/Notifications --no-build
+          dotnet ef migrations has-pending-model-changes --project src/Services/Notifications/Notifications --no-build
       - name: The image builds
-        run: docker build -q -f src/Services/Notifications.Host/Dockerfile -t crowdfunding-notifications:ci .
+        run: docker build -q -f src/Services/Notifications/Notifications.Host/Dockerfile -t crowdfunding-notifications:ci .
 
   release:
     needs: build
@@ -172,7 +170,7 @@ jobs:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
           repository="$REGISTRY/hicleanarch/crowdfunding-notifications"
-          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Notifications.Host/Dockerfile
+          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Notifications/Notifications.Host/Dockerfile
           echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
       # The sandbox is up while its outputs document exists (infra/env/shared-outputs.tf).
       - name: Is a sandbox up?

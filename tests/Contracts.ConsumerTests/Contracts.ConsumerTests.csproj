@@ -5,7 +5,7 @@
        copied from the very versions restored. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\Host\Host.csproj" />
-    <ProjectReference Include="..\..\src\Services\Payments.Host\Payments.Host.csproj" />
+    <ProjectReference Include="..\..\src\Services\Payments\Payments.Host\Payments.Host.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -15,7 +15,7 @@ public class ProjectGraphTests
     /// <summary>The tests that start or load both services (s4-l10); both pipelines run them.</summary>
     private const string SystemFilter = "System.slnf";
 
-    private const string PaymentsClient = "src/Modules/Payments/Payments.Client/Payments.Client.csproj";
+    private const string PaymentsClient = "src/Modules/Payments.Client/Payments.Client.csproj";
 
     /// <summary>This project reads files only; ci.yml runs it on every change.</summary>
     private const string ThisProject = "tests/Delivery.Tests/Delivery.Tests.csproj";
@@ -68,10 +68,9 @@ public class ProjectGraphTests
         var graph = Repository.Closure(Repository.FilterProjects(PaymentsFilter));
 
         var foreign = graph.Where(p => p.StartsWith("src/", StringComparison.Ordinal)
-            && !p.StartsWith("src/Modules/Payments/", StringComparison.Ordinal)
-            && !p.StartsWith("src/Services/Payments.Host/", StringComparison.Ordinal)
+            && !p.StartsWith("src/Services/Payments/", StringComparison.Ordinal)
             && !Platform.Any(shared => p.StartsWith(shared, StringComparison.Ordinal))
-            && !(p.StartsWith("src/Modules/", StringComparison.Ordinal) && p.EndsWith(".Contracts.csproj", StringComparison.Ordinal)));
+            && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal));
         Assert.Empty(foreign);
     }
 
@@ -90,7 +89,7 @@ public class ProjectGraphTests
         var graph = Repository.Closure(Repository.FilterProjects(MonolithFilter));
 
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal));
-        Assert.All(graph.Where(p => p.StartsWith("src/Modules/Payments/", StringComparison.Ordinal)), p => Assert.Equal(PaymentsClient, p));
+        Assert.All(graph.Where(p => p.StartsWith("src/Modules/Payments", StringComparison.Ordinal)), p => Assert.Equal(PaymentsClient, p));
         Assert.DoesNotContain(graph, p => p.StartsWith("tests/Payments.", StringComparison.Ordinal));
     }
 
@@ -100,7 +99,7 @@ public class ProjectGraphTests
         // Since s5-l04: Notifications' module and host are built, tested and deployed by Notifications' pipeline alone.
         var graph = Repository.Closure(Repository.FilterProjects(MonolithFilter));
 
-        Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Notifications/", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/Notifications/", StringComparison.Ordinal));
         Assert.DoesNotContain(graph, p => p.StartsWith("tests/Notifications.", StringComparison.Ordinal));
     }
 

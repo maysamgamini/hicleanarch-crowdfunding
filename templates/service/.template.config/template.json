@@ -5,7 +5,7 @@
   "identity": "CrowdFunding.Service",
   "name": "CrowdFunding service host",
   "shortName": "crowdfunding-service",
-  "description": "A host of its own for one module: src/Services/<Module>.Host and tests/<Module>.Host.Tests, on the platform's service host builder. From the repository root: dotnet new install templates/service; dotnet new crowdfunding-service -n <Module> [--layout single] --port <port> -o . ; then add both projects to CrowdFunding.slnx and the image to CI.",
+  "description": "A host of its own for one module, in the service's own folder: src/Services/<Module>/<Module>.Host and src/Services/<Module>/tests/<Module>.Host.Tests, on the platform's service host builder. From the repository root: dotnet new install templates/service; dotnet new crowdfunding-service -n <Module> [--layout single] --port <port> -o . ; then add both projects to CrowdFunding.slnx and the image to CI.",
   "sourceName": "Sample",
   "preferNameDirectory": false,
   "tags": {
@@ -18,8 +18,8 @@
       "datatype": "choice",
       "description": "How the module is laid out: Domain, Application, Infrastructure and Contracts projects (layered), or one project (single, as Notifications).",
       "choices": [
-        { "choice": "layered", "description": "src/Modules/<Module>/<Module>.Infrastructure" },
-        { "choice": "single", "description": "src/Modules/<Module>/<Module>.csproj" }
+        { "choice": "layered", "description": "src/Services/<Module>/<Module>.Infrastructure" },
+        { "choice": "single", "description": "src/Services/<Module>/<Module>/<Module>.csproj" }
       ],
       "defaultValue": "layered"
     },

@@ -2,9 +2,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Host\Host.csproj" />
-    <ProjectReference Include="..\..\src\Services\Payments.Host\Payments.Host.csproj" />
+    <ProjectReference Include="..\..\src\Services\Payments\Payments.Host\Payments.Host.csproj" />
     <!-- Notifications ships only with its own service from s5-l04; the rules still check it there. -->
-    <ProjectReference Include="..\..\src\Services\Notifications.Host\Notifications.Host.csproj" />
+    <ProjectReference Include="..\..\src\Services\Notifications\Notifications.Host\Notifications.Host.csproj" />
   </ItemGroup>
 
 </Project>

@@ -14,18 +14,18 @@ public class PathFilterTests
     public static TheoryData<string, bool, bool, bool> Changes() => new()
     {
         // changed file, runs payments, runs monolith, runs notifications
-        { "src/Services/Payments.Host/Program.cs", true, false, false },
-        { "src/Services/Payments.Host/Dockerfile", true, false, false },
+        { "src/Services/Payments/Payments.Host/Program.cs", true, false, false },
+        { "src/Services/Payments/Payments.Host/Dockerfile", true, false, false },
         { "infra/services/payments/service.tf", true, false, false },
-        { "tests/Payments.UnitTests/SettlementTests.cs", true, false, false },
+        { "src/Services/Payments/tests/Payments.UnitTests/SettlementTests.cs", true, false, false },
         { "src/Messaging/SqsEventReader.cs", true, true, true },
         { "tests/Contracts.ProducerTests/SnapshotTests.cs", true, true, true },
         { "src/RemoteCalls/RemoteCalls.cs", false, true, false },
         { "Payments.slnf", true, false, false },
-        { "src/Modules/Payments/Payments.Application/StartCardSetup.cs", true, false, false },
-        { "src/Modules/Payments/Payments.Infrastructure/Migrations/Snapshot.cs", true, false, false },
-        { "src/Modules/Payments/Payments.Client/RemoteStartCardSetup.cs", false, true, false },
-        { "src/Modules/Payments/Payments.Contracts/CardSetup.cs", true, true, true },
+        { "src/Services/Payments/Payments.Application/StartCardSetup.cs", true, false, false },
+        { "src/Services/Payments/Payments.Infrastructure/Migrations/Snapshot.cs", true, false, false },
+        { "src/Modules/Payments.Client/RemoteStartCardSetup.cs", false, true, false },
+        { "src/Services/Payments/Payments.Contracts/CardSetup.cs", true, true, true },
         { "System.slnf", true, true, true },
         { "src/Modules/Pledges/Pledges.Contracts/PledgeChargeRequested.cs", true, true, true },
         { "src/Modules/Campaigns/Campaigns.Contracts/CampaignPublished.cs", true, true, true },
@@ -36,15 +36,15 @@ public class PathFilterTests
         { "src/Host/Program.cs", false, true, false },
         { "src/Gateway/Program.cs", false, true, false },
         { "src/Modules/Pledges/Pledges.Application/PlacePledge.cs", false, true, false },
-        { "src/Modules/Notifications/Templates.cs", false, false, true },
+        { "src/Services/Notifications/Notifications/Templates.cs", false, false, true },
         { "infra/env/ecs.tf", false, true, false },
         { "Dockerfile", false, true, false },
         { "tests/IntegrationTests/PledgeTests.cs", true, true, true },
         { "tests/ArchitectureTests/MonolithRulesTests.cs", true, true, true },
-        { "src/Services/Notifications.Host/Program.cs", false, false, true },
+        { "src/Services/Notifications/Notifications.Host/Program.cs", false, false, true },
         { "infra/services/notifications/main.tf", false, false, true },
         { "infra/env/notifications-network.tf", false, true, true },
-        { "tests/Notifications.Host.Tests/NotificationsServiceTests.cs", false, false, true },
+        { "src/Services/Notifications/tests/Notifications.Host.Tests/NotificationsServiceTests.cs", false, false, true },
         { "Notifications.slnf", false, false, true },
         { "docs/cost.md", false, false, false },
         { "infra/bootstrap/main.tf", false, false, false },
@@ -98,6 +98,6 @@ public class PathFilterTests
 
         Assert.Contains("run: dotnet test Contracts.slnf", text, StringComparison.Ordinal);
         Assert.Contains("needs: contracts", text, StringComparison.Ordinal);
-        Assert.True(Workflows.Triggers(Workflows.Paths(workflow, "push"), "src/Modules/Payments/Payments.Contracts/PaymentMethodSaved.cs"));
+        Assert.True(Workflows.Triggers(Workflows.Paths(workflow, "push"), "src/Services/Payments/Payments.Contracts/PaymentMethodSaved.cs"));
     }
 }

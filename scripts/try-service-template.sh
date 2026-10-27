@@ -22,6 +22,6 @@ dotnet new crowdfunding-service -n "$module" --layout "$layout" --port "$port" -
 cd "$scratch/repo"
 [ -f artifacts/packages/local-version.props ] || ./scripts/pack-buildingblocks.sh >/dev/null
 [ -x scripts/pack-contracts.sh ] && ./scripts/pack-contracts.sh >/dev/null
-dotnet build "src/Services/$module.Host" -warnaserror
-dotnet test "tests/$module.Host.Tests"
+dotnet build "src/Services/$module/$module.Host" -warnaserror
+dotnet test "src/Services/$module/tests/$module.Host.Tests"
 echo "$module.Host, made from templates/service, builds and passes its tests."

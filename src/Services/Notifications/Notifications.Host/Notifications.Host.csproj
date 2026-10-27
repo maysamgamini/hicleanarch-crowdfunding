@@ -8,13 +8,13 @@
 
   <!-- One module, and nothing of the others: they reach it through events and its contracts. -->
   <ItemGroup>
-    <ProjectReference Include="..\..\Modules\Notifications\Notifications.csproj" />
-    <ProjectReference Include="..\..\Messaging\Messaging.csproj" />
+    <ProjectReference Include="..\Notifications\Notifications.csproj" />
+    <ProjectReference Include="..\..\..\Messaging\Messaging.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- The same list of event consumers every host reads. -->
-    <Content Include="..\..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\..\..\events\subscriptions.json" Link="events\subscriptions.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup Label="BuildingBlocks">

@@ -65,7 +65,12 @@ public partial class ContractPackagingTests
     public void The_contracts_version_is_semantic(string module) =>
         Assert.Matches(SemVer(), File.ReadAllText(PropsOf(module)));
 
-    private static string PropsOf(string module) => Path.Combine(Root, "src", "Modules", module, $"{module}.Contracts", "Directory.Build.props");
+    private static string PropsOf(string module) => Path.Combine(ContractsOf(module), "Directory.Build.props");
+
+    /// <summary>A module's Contracts: in its service's folder once it has left the monolith (s5-l05), else under src/Modules.</summary>
+    private static string ContractsOf(string module) =>
+        new[] { Path.Combine(Root, "src", "Services", module, $"{module}.Contracts"), Path.Combine(Root, "src", "Modules", module, $"{module}.Contracts") }
+            .First(Directory.Exists);
 
     [GeneratedRegex(@"<Version>\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?</Version>")]
     private static partial Regex SemVer();

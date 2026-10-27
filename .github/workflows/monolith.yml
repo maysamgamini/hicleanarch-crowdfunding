@@ -4,9 +4,9 @@ name: monolith
 # gateway, Valkey, Cognito, topics and queues): contract tests, then the monolith and the gateway built
 # and tested from their solution filter, then (on main) their images pushed with the deploy role and,
 # if a sandbox is up, the shared layer and the monolith deployed into it. Since s4-l10 the monolith
-# compiles nothing of src/Modules/Payments but Payments.Client (and Payments' Contracts, as a package),
-# so a change elsewhere under src/Modules/Payments runs Payments' pipeline only; since s5-l04 it compiles
-# nothing of Notifications, so src/Modules/Notifications runs Notifications' pipeline only.
+# compiles nothing of Payments but Payments.Client (src/Modules/Payments.Client; and Payments' Contracts,
+# as a package), so a change under src/Services/Payments runs Payments' pipeline only; since s5-l04 it compiles
+# nothing of Notifications, so its module (src/Services/Notifications since s5-l05) runs Notifications' pipeline only.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:
   push:
@@ -17,8 +17,9 @@ on:
       - "src/Gateway/**"
       - "src/Modules/Campaigns/**"
       - "src/Modules/Pledges/**"
-      - "src/Modules/Payments/Payments.Client/**"
+      - "src/Modules/Payments.Client/**"
       - "src/Modules/*/*.Contracts/**"
+      - "src/Services/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
       - "infra/env/**"
@@ -61,8 +62,9 @@ on:
       - "src/Gateway/**"
       - "src/Modules/Campaigns/**"
       - "src/Modules/Pledges/**"
-      - "src/Modules/Payments/Payments.Client/**"
+      - "src/Modules/Payments.Client/**"
       - "src/Modules/*/*.Contracts/**"
+      - "src/Services/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
       - "infra/env/**"
@@ -158,8 +160,7 @@ jobs:
         # EF Core 9+ refuses to migrate a model that differs from its last migration; catch it here.
         run: |
           dotnet tool restore
-          for project in src/Modules/Campaigns/Campaigns.Infrastructure src/Modules/Pledges/Pledges.Infrastructure \
-                         src/Modules/Notifications; do
+          for project in src/Modules/Campaigns/Campaigns.Infrastructure src/Modules/Pledges/Pledges.Infrastructure; do
             dotnet ef migrations has-pending-model-changes --project "$project" --no-build
           done
       - name: The image builds

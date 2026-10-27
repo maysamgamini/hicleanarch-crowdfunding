@@ -10,9 +10,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Host\Host.csproj" />
-    <ProjectReference Include="..\..\src\Services\Payments.Host\Payments.Host.csproj" />
+    <ProjectReference Include="..\..\src\Services\Payments\Payments.Host\Payments.Host.csproj" />
     <!-- Its Program is the global one too: an alias tells it from the monolith's. -->
-    <ProjectReference Include="..\..\src\Services\Notifications.Host\Notifications.Host.csproj" Aliases="NotificationsService" />
+    <ProjectReference Include="..\..\src\Services\Notifications\Notifications.Host\Notifications.Host.csproj" Aliases="NotificationsService" />
   </ItemGroup>
 
   <ItemGroup>

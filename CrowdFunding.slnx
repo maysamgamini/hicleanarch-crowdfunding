@@ -1,33 +1,39 @@
 <Solution>
-  <Folder Name="/src/Services/">
-    <Project Path="src/Services/Notifications.Host/Notifications.Host.csproj" />
-    <Project Path="src/Services/Payments.Host/Payments.Host.csproj" />
-  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Gateway/Gateway.csproj" />
     <Project Path="src/Host/Host.csproj" />
     <Project Path="src/Messaging/Messaging.csproj" />
     <Project Path="src/RemoteCalls/RemoteCalls.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/">
+    <Project Path="src/Modules/Payments.Client/Payments.Client.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Campaigns/">
     <Project Path="src/Modules/Campaigns/Campaigns.Application/Campaigns.Application.csproj" />
     <Project Path="src/Modules/Campaigns/Campaigns.Domain/Campaigns.Domain.csproj" />
     <Project Path="src/Modules/Campaigns/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/Notifications/">
-    <Project Path="src/Modules/Notifications/Notifications.csproj" />
-  </Folder>
-  <Folder Name="/src/Modules/Payments/">
-    <Project Path="src/Modules/Payments/Payments.Application/Payments.Application.csproj" />
-    <Project Path="src/Modules/Payments/Payments.Client/Payments.Client.csproj" />
-    <Project Path="src/Modules/Payments/Payments.Domain/Payments.Domain.csproj" />
-    <Project Path="src/Modules/Payments/Payments.Infrastructure/Payments.Infrastructure.csproj" />
-  </Folder>
   <Folder Name="/src/Modules/Pledges/">
     <Project Path="src/Modules/Pledges/Pledges.Application/Pledges.Application.csproj" />
     <Project Path="src/Modules/Pledges/Pledges.Domain/Pledges.Domain.csproj" />
     <Project Path="src/Modules/Pledges/Pledges.Infrastructure/Pledges.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/" />
+  <Folder Name="/src/Services/Notifications/">
+    <Project Path="src/Services/Notifications/Notifications/Notifications.csproj" />
+    <Project Path="src/Services/Notifications/Notifications.Host/Notifications.Host.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Notifications/tests/">
+    <Project Path="src/Services/Notifications/tests/Notifications.Host.Tests/Notifications.Host.Tests.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Payments/">
+    <Project Path="src/Services/Payments/Payments.Application/Payments.Application.csproj" />
+    <Project Path="src/Services/Payments/Payments.Domain/Payments.Domain.csproj" />
+    <Project Path="src/Services/Payments/Payments.Host/Payments.Host.csproj" />
+    <Project Path="src/Services/Payments/Payments.Infrastructure/Payments.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/Payments/tests/">
+    <Project Path="src/Services/Payments/tests/Payments.UnitTests/Payments.UnitTests.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ArchitectureTests/ArchitectureTests.csproj" />
@@ -38,8 +44,6 @@
     <Project Path="tests/Gateway.Tests/Gateway.Tests.csproj" />
     <Project Path="tests/IntegrationTests/IntegrationTests.csproj" />
     <Project Path="tests/Messaging.Tests/Messaging.Tests.csproj" />
-    <Project Path="tests/Notifications.Host.Tests/Notifications.Host.Tests.csproj" />
-    <Project Path="tests/Payments.UnitTests/Payments.UnitTests.csproj" />
     <Project Path="tests/RemoteCalls.Tests/RemoteCalls.Tests.csproj" />
   </Folder>
 </Solution>

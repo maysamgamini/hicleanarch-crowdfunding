@@ -3,9 +3,9 @@
     "path": "CrowdFunding.slnx",
     "projects": [
       "src\\Messaging\\Messaging.csproj",
-      "src\\Modules\\Notifications\\Notifications.csproj",
-      "src\\Services\\Notifications.Host\\Notifications.Host.csproj",
-      "tests\\Notifications.Host.Tests\\Notifications.Host.Tests.csproj"
+      "src\\Services\\Notifications\\Notifications\\Notifications.csproj",
+      "src\\Services\\Notifications\\Notifications.Host\\Notifications.Host.csproj",
+      "src\\Services\\Notifications\\tests\\Notifications.Host.Tests\\Notifications.Host.Tests.csproj"
     ]
   }
 }

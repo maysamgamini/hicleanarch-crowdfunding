@@ -13,7 +13,7 @@
     <ProjectReference Include="..\Modules\Campaigns\Campaigns.Infrastructure\Campaigns.Infrastructure.csproj" />
     <ProjectReference Include="..\Modules\Pledges\Pledges.Infrastructure\Pledges.Infrastructure.csproj" />
     <!-- Of Payments, only its client: StartCardSetup over HTTP, on the Payments.Contracts package (s4-l10). -->
-    <ProjectReference Include="..\Modules\Payments\Payments.Client\Payments.Client.csproj" />
+    <ProjectReference Include="..\Modules\Payments.Client\Payments.Client.csproj" />
     <ProjectReference Include="..\Messaging\Messaging.csproj" />
   </ItemGroup>
 

@@ -15,6 +15,9 @@ public partial class PackagingTests
     public static TheoryData<string> ConsumerProjects() =>
         [.. Directory.GetFiles(Path.Combine(Root, "src", "Host"), "*.csproj")
             .Concat(Directory.GetFiles(Path.Combine(Root, "src", "Modules"), "*.csproj", SearchOption.AllDirectories))
+            // A service's modules, moved into its own folder (s5-l05); its host and tests as before are not consumers here.
+            .Concat(Directory.GetFiles(Path.Combine(Root, "src", "Services"), "*.csproj", SearchOption.AllDirectories)
+                .Where(p => !p.EndsWith(".Host.csproj", StringComparison.Ordinal) && !p.Contains($"{Path.DirectorySeparatorChar}tests{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
             .Select(p => Path.GetRelativePath(Root, p))];
 
     [Theory]

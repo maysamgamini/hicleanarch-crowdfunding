@@ -9,12 +9,14 @@ on:
     branches: [main]
     paths:
       - "src/Modules/**"
+      - "src/Services/**"
       - "split-allowed.yaml"
       - "scripts/split-diff*.sh"
       - ".github/workflows/split-diff.yml"
   pull_request:
     paths:
       - "src/Modules/**"
+      - "src/Services/**"
       - "split-allowed.yaml"
       - "scripts/split-diff*.sh"
       - ".github/workflows/split-diff.yml"

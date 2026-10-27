@@ -1,24 +1,24 @@
 using System.Xml.Linq;
 
-namespace Notifications.Host.Tests;
+namespace Sample.Host.Tests;
 
 /// <summary>
-/// The Notifications service composes its own module and nothing of the others: another module reaches it
+/// The Sample service composes its own module and nothing of the others: another module reaches it
 /// only through events and that module's Contracts. Checked on the project file, where the dependency
 /// is declared, and on what the build puts beside the host.
 /// </summary>
 public class BoundaryTests
 {
-    private static readonly string[] OtherModules = [.. new[] { "Campaigns", "Pledges", "Payments", "Notifications" }.Where(m => m != "Notifications")];
+    private static readonly string[] OtherModules = [.. new[] { "Campaigns", "Pledges", "Payments", "Notifications" }.Where(m => m != "Sample")];
 
     [Fact]
     public void The_host_references_only_its_own_module()
     {
-        var references = ProjectReferences("src/Services/Notifications.Host/Notifications.Host.csproj");
+        var references = ProjectReferences("src/Services/Sample/Sample.Host/Sample.Host.csproj");
 
         Assert.NotEmpty(references);
         // Its own module, and the platform's broker transport (Messaging), which knows no module.
-        Assert.All(references, r => Assert.True(r == "Notifications" || r.StartsWith("Notifications.", StringComparison.Ordinal) || r == "Messaging",
+        Assert.All(references, r => Assert.True(r == "Sample" || r.StartsWith("Sample.", StringComparison.Ordinal) || r == "Messaging",
             $"The host references {r}"));
     }
 

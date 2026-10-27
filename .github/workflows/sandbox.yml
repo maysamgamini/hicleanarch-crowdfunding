@@ -74,7 +74,7 @@ jobs:
           REGISTRY: ${{ steps.ecr-payments.outputs.registry }}
         run: |
           repository="$REGISTRY/hicleanarch/crowdfunding-payments"
-          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Payments.Host/Dockerfile
+          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Payments/Payments.Host/Dockerfile
           echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       # The database must be migrated before any task runs the new image, without a targeted apply:

@@ -6,7 +6,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Services\Notifications.Host\Notifications.Host.csproj" />
+    <ProjectReference Include="..\..\Sample.Host\Sample.Host.csproj" />
   </ItemGroup>
 
 </Project>

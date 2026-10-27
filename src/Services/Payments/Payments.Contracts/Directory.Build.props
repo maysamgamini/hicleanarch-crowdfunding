@@ -1,5 +1,5 @@
 <Project>
-  <!-- Payments.Contracts is a package of its own (see ../../ContractsPackage.props). The repository's settings come first. -->
+  <!-- Payments.Contracts is a package of its own (see src/ContractsPackage.props). The repository's settings come first. -->
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
   <PropertyGroup>
@@ -8,5 +8,5 @@
     <Description>What the Payments module tells the others and accepts from them: saved cards, charge results, settlement, and the card-setup command over HTTP.</Description>
   </PropertyGroup>
 
-  <Import Project="$(MSBuildThisFileDirectory)../../ContractsPackage.props" />
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('ContractsPackage.props', '$(MSBuildThisFileDirectory)../'))" />
 </Project>

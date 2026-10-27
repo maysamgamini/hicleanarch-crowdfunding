@@ -8,7 +8,7 @@
       "src\\Modules\\Campaigns\\Campaigns.Application\\Campaigns.Application.csproj",
       "src\\Modules\\Campaigns\\Campaigns.Domain\\Campaigns.Domain.csproj",
       "src\\Modules\\Campaigns\\Campaigns.Infrastructure\\Campaigns.Infrastructure.csproj",
-      "src\\Modules\\Payments\\Payments.Client\\Payments.Client.csproj",
+      "src\\Modules\\Payments.Client\\Payments.Client.csproj",
       "src\\Modules\\Pledges\\Pledges.Application\\Pledges.Application.csproj",
       "src\\Modules\\Pledges\\Pledges.Domain\\Pledges.Domain.csproj",
       "src\\Modules\\Pledges\\Pledges.Infrastructure\\Pledges.Infrastructure.csproj",

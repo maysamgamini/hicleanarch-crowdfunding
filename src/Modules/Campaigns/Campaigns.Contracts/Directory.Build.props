@@ -1,5 +1,5 @@
 <Project>
-  <!-- Campaigns.Contracts is a package of its own (see ../../ContractsPackage.props). The repository's settings come first. -->
+  <!-- Campaigns.Contracts is a package of its own (see src/ContractsPackage.props). The repository's settings come first. -->
   <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
 
   <PropertyGroup>
@@ -8,5 +8,5 @@
     <Description>What the Campaigns module tells the others: a campaign was published or cancelled, and (until s5-l11) a LIVE campaign's creator.</Description>
   </PropertyGroup>
 
-  <Import Project="$(MSBuildThisFileDirectory)../../ContractsPackage.props" />
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('ContractsPackage.props', '$(MSBuildThisFileDirectory)../'))" />
 </Project>

@@ -1,0 +1,4 @@
+<Project>
+  <!-- A service's own test projects live with the service; they share the repository's test settings. -->
+  <Import Project="$(MSBuildThisFileDirectory)../../../../tests/Directory.Build.props" />
+</Project>

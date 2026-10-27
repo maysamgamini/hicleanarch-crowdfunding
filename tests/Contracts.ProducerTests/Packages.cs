@@ -24,7 +24,10 @@ internal static class Packages
     /// <summary>Set to 1 to accept a contract change on purpose: the snapshot is rewritten if the version allows it.</summary>
     public static bool Updating => Environment.GetEnvironmentVariable("UPDATE_CONTRACT_SNAPSHOTS") == "1";
 
-    public static string ContractDirectory(string module) => Path.Combine(Root, "src", "Modules", module, $"{module}.Contracts", "contract");
+    public static string ContractDirectory(string module) => Path.Combine(
+        new[] { Path.Combine(Root, "src", "Services", module, $"{module}.Contracts"), Path.Combine(Root, "src", "Modules", module, $"{module}.Contracts") }
+            .First(Directory.Exists),
+        "contract");
 
     public static string SnapshotPath(string module) => Path.Combine(ContractDirectory(module), "contract.json");
 
