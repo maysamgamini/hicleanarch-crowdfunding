@@ -3,7 +3,8 @@
 # it empty: Payments' own migrate task (infra/services/payments) creates Payments' schema and login on it,
 # as the cluster's master. What the move left on the shared cluster (Payments' old schema and its fenced
 # login) was dropped a week after the fence by the monolith's drop-moved-payments (CQA-2102); since s5-l10
-# the sandbox is rebuilt without the monolith, so nothing is left to drop. No service's role reads the
+# the sandbox is rebuilt without the monolith, so nothing is left to drop. An environment kept up since
+# s4-l07 runs it once in Pledges' hand-over task: scripts/hand-over.sh pledges drop-moved-payments (CQA-2117). No service's role reads the
 # secrets below but Payments'.
 
 # CQA-2101: an environment that still runs Payments on the shared cluster must not get here. At s4-l09

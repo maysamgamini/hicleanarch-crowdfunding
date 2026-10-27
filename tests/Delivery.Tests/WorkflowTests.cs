@@ -116,6 +116,33 @@ public partial class WorkflowTests
 
         Assert.Contains("tf output -raw \"$switch\"", deploy, StringComparison.Ordinal);
     }
+
+    /// <summary>
+    /// CQA-2117: <c>drop-moved-payments</c> needs the shared cluster's owner. Since s5-l10 Pledges' migrate step
+    /// never has the owner's secret, so no deploy runs it; it runs, by hand, in Pledges' hand-over task, the one
+    /// task with that secret and Pledges' image, through hand-over.sh, which overrides that task's container.
+    /// </summary>
+    [Fact]
+    public void Drop_moved_payments_runs_in_pledges_hand_over_task_and_in_no_deploy()
+    {
+        var handover = Repository.Read("infra/env/pledges-network.tf");
+        Assert.Contains("name      = \"hand-over\"", handover, StringComparison.Ordinal);
+        Assert.Contains("{ name = \"ConnectionStrings__Owner\"", handover, StringComparison.Ordinal);
+        Assert.DoesNotContain("ConnectionStrings__Owner", Repository.Read("infra/services/pledges/main.tf"), StringComparison.Ordinal);
+
+        var script = Repository.Read("scripts/hand-over.sh");
+        Assert.Contains("hand-over.sh pledges drop-moved-payments", script, StringComparison.Ordinal);
+        Assert.Contains("CONTAINER=hand-over \"$(dirname \"$0\")/run-migration.sh\" infra/env \"$task\" \"$@\"", script, StringComparison.Ordinal);
+        Assert.Contains("\\\"name\\\":\\\"${CONTAINER:-migrate}\\\"", Repository.Read("scripts/run-migration.sh"), StringComparison.Ordinal);
+
+        // No script that deploys claims to run it.
+        foreach (var deploy in Directory.GetFiles(Path.Combine(Repository.Root, "scripts"), "deploy-*.sh"))
+        {
+            Assert.DoesNotContain("drop-moved-payments", File.ReadAllText(deploy), StringComparison.Ordinal);
+        }
+
+        Assert.DoesNotContain("after every deploy's migrate", Repository.Read("src/Services/Pledges/Pledges.Host/Program.cs"), StringComparison.Ordinal);
+    }
     [Fact]
     public void Ci_checks_every_root_with_both_Terraform_and_OpenTofu()
     {

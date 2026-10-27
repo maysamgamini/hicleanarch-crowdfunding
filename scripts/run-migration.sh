@@ -2,8 +2,9 @@
 # Runs an OpenTofu root's migration task once and fails unless it exits 0. The root's outputs name the
 # cluster, the task definition, the subnets and the security group (infra/env, infra/services/*). A
 # second argument runs that task definition instead (scripts/hand-over.sh; empty for the root's own),
-# and any further arguments replace the migrate container's command (deploy-monolith.sh's open-sinks).
-# Usage: run-migration.sh <root dir> [task definition] [command...]
+# and any further arguments replace the container's command: the container named by CONTAINER, migrate
+# unless set (scripts/hand-over.sh sets hand-over, the hand-over task's).
+# Usage: [CONTAINER=<name>] run-migration.sh <root dir> [task definition] [command...]
 set -euo pipefail
 dir="${1:?usage: run-migration.sh <root dir> [task definition] [command...]}"
 definition="${2:-}"
@@ -12,7 +13,7 @@ out() { "${IAC:-tofu}" -chdir="$dir" output -raw "$1"; }
 overrides=()
 if (( $# > 0 )); then
   command=$(printf '"%s",' "$@")
-  overrides=(--overrides "{\"containerOverrides\":[{\"name\":\"migrate\",\"command\":[${command%,}]}]}")
+  overrides=(--overrides "{\"containerOverrides\":[{\"name\":\"${CONTAINER:-migrate}\",\"command\":[${command%,}]}]}")
 fi
 
 cluster=$(out cluster)

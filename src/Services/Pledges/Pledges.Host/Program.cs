@@ -49,7 +49,9 @@ builder.Services.AddServiceCommand(new ServiceCommand("open-sinks", (services, r
 builder.Services.AddOpenSinksCheck("Notifications");
 
 // What s4-l07's move left of Payments on the shared cluster leaves a week after the fence (CQA-2102):
-// `drop-moved-payments` runs, as the shared cluster's owner, after every deploy's migrate.
+// `drop-moved-payments`, as the shared cluster's owner. No deploy runs it since s5-l10 (CQA-2117): Pledges'
+// migrate step never has the owner's secret, and a sandbox rebuilt since then has nothing of the move. An
+// environment kept up since s4-l07 runs it once, in Pledges' hand-over task: hand-over.sh pledges drop-moved-payments.
 builder.Services.AddServiceCommand(new ServiceCommand(MovedPayments.Command, (services, _, ct) =>
     MovedPayments.Run(services.GetRequiredService<IConfiguration>().GetConnectionString("Owner")
         ?? throw new InvalidOperationException("ConnectionStrings:Owner is not set."), Console.Out, DateTimeOffset.UtcNow, ct)));

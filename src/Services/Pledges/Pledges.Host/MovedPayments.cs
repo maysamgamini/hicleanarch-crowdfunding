@@ -8,8 +8,12 @@ namespace CrowdFunding.Pledges.Host;
 /// <c>drop-moved-payments</c> (CQA-2102): what s4-l07's move left of Payments on the shared cluster, its
 /// old schema and its fenced login, leave it a week after the fence. Until s4-l10 the move task's
 /// <c>drop-old</c> step did this; s4-l10 removed that task, and no other task with the shared owner's
-/// rights runs Payments' image. So the monolith's migrate task, which runs as the shared cluster's owner,
-/// runs this after <c>migrate</c> on every deploy (scripts/deploy-monolith.sh).
+/// rights runs Payments' image. From s4-l10 to s5-l09 the monolith's migrate task, which ran as the shared
+/// cluster's owner, ran this after <c>migrate</c> on every deploy (scripts/deploy-monolith.sh). Since s5-l10
+/// no deploy runs it (CQA-2117): Pledges' migrate step logs in as pledges_migrator, never as the owner, and
+/// a sandbox rebuilt since then has nothing of the move. An environment kept up since s4-l07 runs it once,
+/// a week or more after the fence, in Pledges' hand-over task, the one task with the owner's secret and this
+/// image: <c>scripts/hand-over.sh pledges drop-moved-payments</c>.
 /// <para>
 /// It drops only what the fence marked: a role that cannot log in and carries the fence's note. A role
 /// that can log in is in use (on a laptop and in the tests, Payments shares the monolith's database), and
