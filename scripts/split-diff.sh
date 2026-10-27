@@ -155,6 +155,33 @@ entries=$(awk -v file="$allow" -v q="'" '
 # Renames are detected (-M): a file a service's move only renamed (R100) changed nothing and is not
 # counted; a renamed file that also changed is judged at its new path, and an entry may name either path.
 changes=$(git diff -M --name-status "$from" "$to" -- "${watched[@]}")
+# Across a long range a file a move renamed may also have changed so much that git no longer pairs its
+# old and new paths. Each move is its own commit of renames, where git always pairs them: a file
+# deleted at its old path and added at the path such commits moved it to is the same file, renamed.
+moves=$(git log -M --diff-filter=R --name-status --format= "$from..$to" -- "${watched[@]}" | awk -F'\t' 'NF == 3 { print $2 "\t" $3 }')
+changes=$(awk -F'\t' '
+  FNR == NR { if (NF == 2) { to[$1] = $2; back[$2] = $1 } next }
+  { k++; line[k] = $0; status[k] = $1; path[k] = $2; if ($1 == "A") added[$2] = k }
+  END {
+    for (i = 1; i <= k; i++) {
+      if (status[i] != "D") continue
+      dest = path[i]; hops = 0
+      while ((dest in to) && hops++ < 20) dest = to[dest]
+      if (dest != path[i] && (dest in added)) { paired[i] = dest; gone[added[dest]] = 1 }
+    }
+    for (i = 1; i <= k; i++) {
+      if (i in paired) { printf "R000\t%s\t%s\n", path[i], paired[i]; continue }
+      if (i in gone) continue
+      # A file added in the range and then moved: an entry may name the path it was added at.
+      if (status[i] == "A" && (path[i] in back)) {
+        orig = path[i]; hops = 0
+        while ((orig in back) && hops++ < 20) orig = back[orig]
+        printf "A\t%s\t%s\n", path[i], orig
+        continue
+      }
+      print line[i]
+    }
+  }' <(printf '%s\n' "$moves") <(printf '%s\n' "$changes"))
 numstat=$(git diff -M --numstat "$from" "$to" -- "${watched[@]}")
 
 # The commits between the refs that changed the file (at its new or old path), leaving out a commit
@@ -185,11 +212,11 @@ while IFS=$'\t' read -r status path renamed; do
   case $status in
     R100) continue ;;
     R*) path=$renamed; change=modified ;;
-    A) change=added ;;
+    A) change=added; old=${renamed:-$path} ;;
     D) change=deleted ;;
     *) change=modified ;;
   esac
-  if [ "$old" != "$path" ]; then
+  if [ "$change" = modified ] && [ "$old" != "$path" ]; then
     lines=$(git diff --numstat "$from:$old" "$to:$path" | awk -F'\t' '{ print "+" $1 " -" $2; exit }')
   else
     lines=$(printf '%s\n' "$numstat" | awk -F'\t' -v p="$path" '$3 == p { print "+" $1 " -" $2; exit }')

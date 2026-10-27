@@ -101,6 +101,7 @@ expect 0 'does not use' -- --allow boundary.yaml leak boundary
 # and a fix changed is judged at its new path, by an entry that names its old one, and the move's own
 # commit need not name the entry's ticket. (Files of some lines, so that git sees the renames.)
 write src/Modules/Pledges/Pledges.Domain/Pledge.cs "$(printf 'class Pledge\n{\n    int y;\n    int leak;\n    int a;\n    int b;\n    int c;\n    int d;\n}')"
+write src/Modules/Pledges/Pledges.Domain/Backers.cs "$(printf 'class Backers\n{\n    int a;\n    int b;\n    int c;\n    int d;\n}')"
 commit 'fix: CQA-210: the backer list per pledge, in full' prep
 mkdir -p src/Services/Notifications
 git mv src/Modules/Pledges src/Services/Pledges
@@ -111,6 +112,9 @@ write src/Services/Pledges/Pledges.Domain/Pledge.cs "$(printf 'class Pledge\n{\n
 commit 'fix: CQA-210: the backer list per pledge, again' movedfix
 expect 0 'release-1-fix *modified .*src/Services/Pledges/Pledges.Domain/Pledge.cs' -- --allow allowed.yaml prep movedfix
 expect 1 'FORBIDDEN .*modified .*src/Services/Pledges/Pledges.Domain/Pledge.cs' -- prep movedfix
+# A file a fix added and a move then moved is judged by the entry that names where it was added.
+printf 'allowed:\n  - class: release-1-fix\n    id: CQA-210\n    change: added\n    reason: r\n    path: src/Modules/Pledges/Pledges.Domain/Backers.cs\n' > added-then-moved.yaml
+expect 1 'release-1-fix *added .*src/Services/Pledges/Pledges.Domain/Backers.cs' -- --allow added-then-moved.yaml boundary movedfix
 
 # Malformed allow-lists are refused.
 bad() { printf 'allowed:\n  - class: %s\n    id: %s\n    reason: r\n    path: x\n' "$1" "$2" > bad.yaml; }
