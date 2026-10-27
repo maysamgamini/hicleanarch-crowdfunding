@@ -205,6 +205,50 @@ run "the_monolith_holds_nothing_of_payments" {
     error_message = "The monolith's task role must name neither the Payments topic nor the payments queue."
   }
 
+  # CQA-2104: the roles, not two named documents. Every policy on the monolith's execution and task roles
+  # (the gateway shares the execution role) is one of these five; a sixth anywhere in this layer fails.
+  # Each reference to either role's name or id is counted, so a policy written another way fails too.
+  assert {
+    condition = sort(flatten([for f in fileset(path.module, "*.tf") : [
+      for m in regexall("resource \"(aws_iam_[a-z_]+)\" \"([a-z0-9_]+)\" \\{\\s*roles?\\s*=\\s*\\[?\\s*aws_iam_role\\.(?:task|execution)\\.", file("${path.module}/${f}")) :
+      "${m[0]}.${m[1]}"]])) == sort([
+      "aws_iam_role_policy.execution_secrets", "aws_iam_role_policy.execution_service_identity",
+      "aws_iam_role_policy.task_events", "aws_iam_role_policy.task_telemetry", "aws_iam_role_policy_attachment.execution",
+    ])
+    error_message = "The monolith's roles carry exactly these five policies, which this test reads; add any new one here and check it."
+  }
+
+  assert {
+    condition = length(flatten([for f in fileset(path.module, "*.tf") :
+    regexall("aws_iam_role\\.(?:task|execution)\\.(?:name|id)\\b", file("${path.module}/${f}"))])) == 5
+    error_message = "Something else names the monolith's roles by name or id: a policy this test does not read."
+  }
+
+  assert {
+    condition = (aws_iam_role_policy.execution_secrets.policy == data.aws_iam_policy_document.read_connection_strings.json
+      && aws_iam_role_policy.execution_service_identity.policy == data.aws_iam_policy_document.read_service_identity.json
+      && aws_iam_role_policy.task_events.policy == data.aws_iam_policy_document.events.json
+      && aws_iam_role_policy.task_telemetry.policy == data.aws_iam_policy_document.telemetry.json
+    && aws_iam_role_policy_attachment.execution.policy_arn == "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy")
+    error_message = "Each of the five policies is the document this test reads, and the managed one is ECS's execution policy."
+  }
+
+  # No statement of those documents that grants an SNS, SQS or Secrets Manager action names, or matches
+  # with a wildcard, a Payments topic, queue or secret. "*" in an ARN is any run of characters, "?" one.
+  assert {
+    condition = alltrue(flatten([for s in concat(
+      data.aws_iam_policy_document.read_connection_strings.statement, data.aws_iam_policy_document.read_service_identity.statement,
+      data.aws_iam_policy_document.events.statement, data.aws_iam_policy_document.telemetry.statement,
+      ) : [for r in s.resources : [for arn in [
+        aws_sns_topic.events["payments"].arn, "${aws_sns_topic.events["payments"].arn}:0123abcd-subscription",
+        aws_sqs_queue.events["payments"].arn, aws_secretsmanager_secret.payments_own["owner"].arn,
+        aws_secretsmanager_secret.payments_own["payments"].arn, aws_secretsmanager_secret.webhook.arn,
+        aws_secretsmanager_secret.valkey["payments"].arn,
+        ] : !can(regex("^${replace(replace(replace(r, ".", "\\."), "?", "."), "*", ".*")}$", arn))
+    ] if length([for a in s.actions : a if can(regex("^(sns|sqs|secretsmanager|\\*)", a))]) > 0]]))
+    error_message = "A policy on the monolith's roles reaches a Payments topic, queue or secret, by name or by wildcard."
+  }
+
   assert {
     condition     = toset(data.aws_iam_policy_document.events.statement[2].resources) == toset([aws_sqs_queue.events["monolith"].arn, aws_sqs_queue.events["campaigns"].arn])
     error_message = "The monolith's task role reads its own queue and Campaigns' (s5-l07) and no other: not Payments' (s4-l10), not Notifications' (s5-l04)."
