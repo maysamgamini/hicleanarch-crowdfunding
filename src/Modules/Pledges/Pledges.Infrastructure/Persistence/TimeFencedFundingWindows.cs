@@ -11,13 +11,26 @@ namespace Pledges.Infrastructure.Persistence;
 /// by time instead: the request path's role is capped by transaction_timeout, and the close waits
 /// past that cap before it sums. Everything else is Round 1's adapter, unchanged.
 /// </summary>
-internal sealed class TimeFencedFundingWindows(PledgesDbContext db, EfFundingWindows rowLocked) : IFundingWindows
+internal sealed class TimeFencedFundingWindows(PledgesDbContext db, EfFundingWindows rowLocked, TimeFence fence) : IFundingWindows
 {
-    public async Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken) =>
-        await db.Database.SqlQuery<bool>($"""
+    // The role's transaction_timeout is only the default a session starts with: PostgreSQL lets any
+    // session SET it, even to 0 (context "user"). So the read that lets a pledge in also reads the
+    // limit in force, in the same statement, and refuses to go on without one the fence can rely on.
+    public async Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken)
+    {
+        var read = await db.Database.SqlQuery<FenceRead>($"""
             SELECT EXISTS (SELECT 1 FROM pledges.funding_windows
-                           WHERE campaign_id = {campaignId} AND status = 'LIVE' AND now() < deadline) AS "Value"
+                           WHERE campaign_id = {campaignId} AND status = 'LIVE' AND now() < deadline) AS is_open,
+                   current_setting('transaction_timeout')::interval AS time_limit
             """).SingleAsync(cancellationToken);
+        if (read.TimeLimit <= TimeSpan.Zero || read.TimeLimit > fence.TransactionLimit)
+        {
+            throw new InvalidOperationException(
+                $"This transaction's transaction_timeout is {read.TimeLimit}, not at most {fence.TransactionLimit}: the close's time fence would not hold, so no pledge is accepted.");
+        }
+
+        return read.IsOpen;
+    }
 
     public Task<bool> TryOpen(FundingWindow window, IReadOnlyList<TierCounter> tiers, CancellationToken cancellationToken) =>
         rowLocked.TryOpen(window, tiers, cancellationToken);
@@ -35,3 +48,6 @@ internal sealed class TimeFencedFundingWindows(PledgesDbContext db, EfFundingWin
     // in the ledger, which the aggregator and the checks sum, and a decided campaign shows its final sum.
     public Task TakeOutDropped(Guid campaignId, long amountMinor, CancellationToken cancellationToken) => Task.CompletedTask;
 }
+
+/// <summary>Whether pledging is open, and the transaction time limit in force while it was read.</summary>
+internal sealed record FenceRead(bool IsOpen, TimeSpan TimeLimit);

@@ -49,6 +49,34 @@ public sealed class HotCampaignRowTests(Database database) : IDisposable
         await jobsTransaction.CommitAsync(Ct);
     }
 
+    [Theory]
+    [InlineData("SET LOCAL transaction_timeout = 0")]
+    [InlineData("SET transaction_timeout = 0")]
+    [InlineData("SET LOCAL transaction_timeout = '1min'")]
+    public async Task A_pledge_transaction_without_the_two_second_limit_is_not_let_in(string lowering)
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+        await using var scope = _host.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PledgesDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync(Ct);
+        await db.Database.ExecuteSqlRawAsync(lowering, Ct);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => scope.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, 6_000, 1, Ct));
+    }
+
+    [Fact]
+    public async Task A_pledge_transaction_with_the_two_second_limit_is_let_in()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+        await using var scope = _host.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<PledgesDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync(Ct);
+
+        Assert.True(await scope.ServiceProvider.GetRequiredService<IFundingWindows>().TryAccept(campaign.CampaignId, 6_000, 1, Ct));
+    }
+
     [Fact]
     public async Task A_pledge_does_not_write_the_funding_window()
     {
