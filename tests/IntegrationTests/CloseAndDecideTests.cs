@@ -57,6 +57,23 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         await Scenario.Eventually(async () => await Shown(campaign) == "FUNDED");
     }
 
+    /// <summary>All or nothing: funded at or above the goal, so a sum equal to the goal is funded.</summary>
+    [Fact]
+    public async Task A_campaign_that_raised_exactly_its_goal_is_funded_and_every_pledge_is_asked_to_be_charged()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish(10_000);
+        await Pledge(given, campaign, 6_000);
+        await Pledge(given, campaign, 4_000);
+        await PassDeadline(given, campaign);
+
+        await ClosePass(campaign);
+
+        Assert.Equal("FUNDED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(10_000L, await given.Scalar<long>("SELECT final_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(2L, await given.Scalar<long>("SELECT count(*) FROM pledges.outbox WHERE type = 'PledgeChargeRequested' AND payload::jsonb ->> 'campaignId' = @id::text", campaign.CampaignId));
+    }
+
     [Fact]
     public async Task A_campaign_short_of_its_goal_is_unsuccessful_releases_its_pledges_and_charges_nobody()
     {
