@@ -17,6 +17,12 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
 
     public DbSet<WebhookMessage> WebhookInbox => Set<WebhookMessage>();
 
+    public DbSet<Charge> Charges => Set<Charge>();
+
+    public DbSet<ChargeAttempt> ChargeAttempts => Set<ChargeAttempt>();
+
+    public DbSet<SettlementJob> SettlementJobs => Set<SettlementJob>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
@@ -46,6 +52,48 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             setup.Property(s => s.CreatedAt).HasDefaultValueSql("now()");
         });
 
+        modelBuilder.Entity<Charge>(charge =>
+        {
+            charge.ToTable("charges", t => t.HasCheckConstraint("charges_amount_positive", "amount_minor > 0"));
+            charge.HasKey(c => c.PledgeId);
+            charge.Property(c => c.PledgeId).ValueGeneratedNever();
+            charge.Property(c => c.Currency).HasMaxLength(3).IsFixedLength();
+            charge.Property(c => c.PaymentMethodRef).HasMaxLength(200);
+            charge.Property(c => c.PspPaymentId).HasMaxLength(100);
+            charge.Property(c => c.Status).HasConversion(s => Names.Of(s), s => Names.Parse<ChargeStatus>(s)).HasMaxLength(20);
+            charge.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
+            charge.HasIndex(c => c.CampaignId).HasFilter("status IN ('TO_CHARGE', 'CHARGING')").HasDatabaseName("charges_open");
+        });
+
+        modelBuilder.Entity<ChargeAttempt>(attempt =>
+        {
+            attempt.ToTable("charge_attempts", t =>
+            {
+                t.HasCheckConstraint("charge_attempts_no", "attempt_no BETWEEN 1 AND 3");
+                t.HasCheckConstraint("charge_attempts_status", "status IN ('IN_FLIGHT', 'SUCCEEDED', 'FAILED')");
+            });
+            attempt.HasKey(a => new { a.PledgeId, a.AttemptNo });
+            attempt.Property(a => a.IdempotencyKey).HasMaxLength(200);
+            attempt.HasIndex(a => a.IdempotencyKey).IsUnique();
+            attempt.Property(a => a.Status).HasConversion(s => Names.Of(s), s => Names.Parse<AttemptStatus>(s)).HasMaxLength(20);
+            attempt.Property(a => a.PspPaymentId).HasMaxLength(100);
+            attempt.Property(a => a.DeclineCode).HasMaxLength(100);
+            attempt.Property(a => a.CreatedAt).HasDefaultValueSql("now()");
+            // Lesson 8: at most one successful attempt per pledge, whatever any worker does.
+            attempt.HasIndex(a => a.PledgeId).IsUnique().HasFilter("status = 'SUCCEEDED'").HasDatabaseName("one_success_per_pledge");
+        });
+
+        modelBuilder.Entity<SettlementJob>(job =>
+        {
+            job.ToTable("settlement_jobs");
+            job.HasKey(j => j.CampaignId);
+            job.Property(j => j.CampaignId).ValueGeneratedNever();
+            job.Property(j => j.Status).HasConversion(s => Names.Of(s), s => Names.Parse<SettlementStatus>(s)).HasMaxLength(20);
+            job.Property(j => j.LeaseOwner).HasMaxLength(100);
+            job.Property(j => j.CreatedAt).HasDefaultValueSql("now()");
+            job.HasIndex(j => j.CreatedAt).HasFilter("status <> 'DONE'").HasDatabaseName("settlement_jobs_open");
+        });
+
         modelBuilder.Entity<WebhookMessage>(message =>
         {
             message.ToTable("webhook_inbox");
@@ -62,4 +110,16 @@ internal sealed class WebhookMessage
     public required string MessageId { get; init; }
 
     public DateTimeOffset ReceivedAt { get; init; }
+}
+
+/// <summary>Statuses as the database spells them: <c>ToCharge</c> is <c>TO_CHARGE</c>.</summary>
+internal static class Names
+{
+    public static string Of<TEnum>(TEnum value)
+        where TEnum : struct, Enum =>
+        string.Concat(value.ToString().Select((c, i) => i > 0 && char.IsUpper(c) ? "_" + c : c.ToString())).ToUpperInvariant();
+
+    public static TEnum Parse<TEnum>(string text)
+        where TEnum : struct, Enum =>
+        Enum.Parse<TEnum>(text.Replace("_", "", StringComparison.Ordinal), ignoreCase: true);
 }

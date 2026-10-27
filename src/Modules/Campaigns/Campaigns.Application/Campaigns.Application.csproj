@@ -5,6 +5,7 @@
     <ProjectReference Include="..\Campaigns.Contracts\Campaigns.Contracts.csproj" />
     <ProjectReference Include="..\Campaigns.Domain\Campaigns.Domain.csproj" />
     <ProjectReference Include="..\..\Pledges\Pledges.Contracts\Pledges.Contracts.csproj" />
+    <ProjectReference Include="..\..\Payments\Payments.Contracts\Payments.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

@@ -18,6 +18,8 @@ using Payments.Contracts;
 using Payments.Infrastructure.Persistence;
 using Payments.Infrastructure.Psp;
 
+using Pledges.Contracts;
+
 namespace Payments.Infrastructure;
 
 /// <summary>
@@ -35,6 +37,14 @@ public static class PaymentsModule
             .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor<PaymentsDbContext>>()));
         services.AddModuleEvents<PaymentsDbContext>(PaymentsModuleName.Value);
         services.AddPublishedEvent<PaymentMethodSaved>();
+        services.AddPublishedEvent<PledgeChargeSucceeded>();
+        services.AddPublishedEvent<PledgeChargeFailed>();
+        services.AddPublishedEvent<CampaignSettled>();
+        services.AddEventHandler<PledgeChargeRequested, CreateCharge>(PaymentsModuleName.Value);
+        services.AddEventHandler<CampaignFundingDecided, CreateSettlementJob>(PaymentsModuleName.Value);
+        services.AddOptions<SettlementOptions>().Bind(configuration.GetSection("Payments:Settlement"));
+        services.AddSingleton(sp => sp.GetRequiredService<IOptions<SettlementOptions>>().Value);
+        services.AddHostedService<SettlementWorker>();
         services.AddSingleton<IModuleMigrator, PaymentsMigrator>();
         services.AddSingleton(new ModuleDatabase(PaymentsModuleName.Value, PaymentsDbContext.Schema, connectionString));
         services.AddOptions<PaymentsOptions>().Bind(configuration.GetSection("Payments"))
@@ -50,6 +60,7 @@ public static class PaymentsModule
             .AddScoped<IPspCustomers>(sp => sp.GetRequiredService<EfPayments>())
             .AddScoped<ICardSetups>(sp => sp.GetRequiredService<EfPayments>())
             .AddScoped<IWebhookInbox>(sp => sp.GetRequiredService<EfPayments>())
+            .AddScoped<ISettlements, EfSettlements>()
             .AddScoped<ModuleTransaction<PaymentsDbContext>>()
             .AddKeyedScoped<ITransactionScope>(PaymentsModuleName.Value, (sp, _) => sp.GetRequiredService<ModuleTransaction<PaymentsDbContext>>());
     }

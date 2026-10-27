@@ -17,6 +17,8 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
 
     public Guid CreatorId { get; } = Guid.NewGuid();
 
+    public string OwnerConnection => database.Owner;
+
     public HttpClient Creator() => Database.Client(host, Database.Token(CreatorId, Roles.Creator));
 
     public HttpClient Backer(Guid backerId) => Database.Client(host, Database.Token(backerId, Roles.Backer));

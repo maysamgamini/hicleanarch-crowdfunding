@@ -144,6 +144,133 @@ namespace Payments.Infrastructure.Persistence.Migrations
                     b.ToTable("card_setups", "payments");
                 });
 
+            modelBuilder.Entity("Payments.Domain.Charge", b =>
+                {
+                    b.Property<Guid>("PledgeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pledge_id");
+
+                    b.Property<long>("AmountMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("amount_minor");
+
+                    b.Property<int>("AttemptNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_no");
+
+                    b.Property<Guid>("BackerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("backer_id");
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .HasColumnName("currency")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset?>("NextAttemptAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("next_attempt_at");
+
+                    b.Property<string>("PaymentMethodRef")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("payment_method_ref");
+
+                    b.Property<string>("PspPaymentId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("psp_payment_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("PledgeId")
+                        .HasName("pk_charges");
+
+                    b.HasIndex("CampaignId")
+                        .HasDatabaseName("charges_open")
+                        .HasFilter("status IN ('TO_CHARGE', 'CHARGING')");
+
+                    b.ToTable("charges", "payments", t =>
+                        {
+                            t.HasCheckConstraint("charges_amount_positive", "amount_minor > 0");
+                        });
+                });
+
+            modelBuilder.Entity("Payments.Domain.ChargeAttempt", b =>
+                {
+                    b.Property<Guid>("PledgeId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("pledge_id");
+
+                    b.Property<int>("AttemptNo")
+                        .HasColumnType("integer")
+                        .HasColumnName("attempt_no");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("DeclineCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("decline_code");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<string>("PspPaymentId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("psp_payment_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("PledgeId", "AttemptNo")
+                        .HasName("pk_charge_attempts");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ix_charge_attempts_idempotency_key");
+
+                    b.HasIndex("PledgeId")
+                        .IsUnique()
+                        .HasDatabaseName("one_success_per_pledge")
+                        .HasFilter("status = 'SUCCEEDED'");
+
+                    b.ToTable("charge_attempts", "payments", t =>
+                        {
+                            t.HasCheckConstraint("charge_attempts_no", "attempt_no BETWEEN 1 AND 3");
+
+                            t.HasCheckConstraint("charge_attempts_status", "status IN ('IN_FLIGHT', 'SUCCEEDED', 'FAILED')");
+                        });
+                });
+
             modelBuilder.Entity("Payments.Domain.PspCustomer", b =>
                 {
                     b.Property<Guid>("BackerId")
@@ -163,6 +290,47 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("ix_psp_customers_psp_customer_id");
 
                     b.ToTable("psp_customers", "payments");
+                });
+
+            modelBuilder.Entity("Payments.Domain.SettlementJob", b =>
+                {
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<int>("ExpectedCharges")
+                        .HasColumnType("integer")
+                        .HasColumnName("expected_charges");
+
+                    b.Property<string>("LeaseOwner")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("lease_owner");
+
+                    b.Property<DateTimeOffset?>("LeaseUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lease_until");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("CampaignId")
+                        .HasName("pk_settlement_jobs");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("settlement_jobs_open")
+                        .HasFilter("status <> 'DONE'");
+
+                    b.ToTable("settlement_jobs", "payments");
                 });
 
             modelBuilder.Entity("Payments.Infrastructure.Persistence.WebhookMessage", b =>

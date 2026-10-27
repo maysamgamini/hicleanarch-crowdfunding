@@ -42,6 +42,7 @@ public static class CampaignsModule
         services.AddPublishedEvent<CampaignCancelled>();
         services.AddEventHandler<FundingCancelled, RecordFundingCancelled>(CampaignsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, FollowFundingDecision>(CampaignsModuleName.Value);
+        services.AddEventHandler<Payments.Contracts.CampaignSettled, FollowSettlement>(CampaignsModuleName.Value);
         services.AddSingleton<IModuleMigrator, CampaignsMigrator>();
         services.AddSingleton(new ModuleDatabase("Campaigns", CampaignsDbContext.Schema, connectionString));
         return services

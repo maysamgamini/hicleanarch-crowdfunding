@@ -42,6 +42,8 @@ public static class PledgesModule
         services.AddModuleEvents<PledgesDbContext>(PledgesModuleName.Value);
         services.AddEventHandler<CampaignPublished, OpenFundingWindow>(PledgesModuleName.Value);
         services.AddEventHandler<PaymentMethodSaved, ActivatePledge>(PledgesModuleName.Value);
+        services.AddEventHandler<PledgeChargeSucceeded, FollowCharges>(PledgesModuleName.Value);
+        services.AddEventHandler<PledgeChargeFailed, FollowCharges>(PledgesModuleName.Value);
         services.AddHostedService<HoldSweeper>();
         services.AddHostedService<CloseJob>();
         services.AddPublishedEvent<PledgeActivated>();
