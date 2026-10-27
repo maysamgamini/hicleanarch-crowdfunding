@@ -12,6 +12,16 @@ public sealed record StartCardSetup(Guid PledgeId, Guid BackerId) : ICommand<Car
 public sealed record CardSetupStarted(Guid CardSetupId, string ClientSecret);
 
 /// <summary>
+/// Payments' endpoints for other services (from s4-l03), on its internal port, which no load balancer
+/// forwards. Each takes a command of this contract as its body and answers with its result.
+/// </summary>
+public static class PaymentsInternalEndpoints
+{
+    /// <summary><see cref="StartCardSetup"/>, answered with <see cref="CardSetupStarted"/>.</summary>
+    public const string StartCardSetup = "/internal/payments/card-setups";
+}
+
+/// <summary>
 /// The PSP says a card was saved for a pledge. <see cref="PspMessageId"/> is the id of the PSP's
 /// message that said so; Pledges names it as the cause of the pledge's ledger entry.
 /// </summary>

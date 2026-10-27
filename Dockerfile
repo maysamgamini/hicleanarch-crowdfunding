@@ -18,5 +18,6 @@ WORKDIR /app
 COPY --from=build /app .
 COPY --from=build /rds/global-bundle.pem /usr/local/share/rds/global-bundle.pem
 USER $APP_UID
-EXPOSE 8080
+# 8080 for the API; 8081 for the endpoints of other services, which no load balancer forwards (s4-l03).
+EXPOSE 8080 8081
 ENTRYPOINT ["dotnet", "CrowdFunding.Host.dll"]

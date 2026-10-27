@@ -112,14 +112,18 @@ public static class PaymentsModule
             .Validate(o => o.PspDeadline > TimeSpan.Zero, "Payments:CardSetup:PspDeadline must be positive.")
             .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<CardSetupOptions>>().Value);
+        services.AddOptions<InternalEndpointOptions>().Bind(configuration.GetSection("Payments:Internal"));
 
         services.AddScoped<EfPayments>();
         services.AddScoped<EfMoney>();
         return services
             .AddPaymentsApplication()
             .AddScoped<StartCardSetupHandler>()
-            .AddScoped<ICommandHandler<StartCardSetup, CardSetupStarted>>(sp => new CardSetupDeadline(
+            // Payments' own handler, keyed: the internal endpoint always runs it, even in a program whose
+            // dispatcher sends StartCardSetup over HTTP (s4-l03), or it would call itself.
+            .AddKeyedScoped<ICommandHandler<StartCardSetup, CardSetupStarted>>(PaymentsModuleName.Value, (sp, _) => new CardSetupDeadline(
                 sp.GetRequiredService<StartCardSetupHandler>(), sp.GetRequiredService<CardSetupOptions>(), sp.GetRequiredService<TimeProvider>()))
+            .AddScoped(sp => sp.GetRequiredKeyedService<ICommandHandler<StartCardSetup, CardSetupStarted>>(PaymentsModuleName.Value))
             .AddScoped<IPspCustomers>(sp => sp.GetRequiredService<EfPayments>())
             .AddScoped<ICardSetups>(sp => sp.GetRequiredService<EfPayments>())
             .AddScoped<IWebhookInbox>(sp => sp.GetRequiredService<EfPayments>())
@@ -191,6 +195,14 @@ public static class PaymentsModule
             return progress.IsSuccess ? Results.Ok(progress.Value) : progress.Errors.ToProblem();
         }).RequireAuthorization(Policies.Creator).WithTags("Payments");
 
+        // For other services (s4-l03): on the internal port only, which no load balancer forwards.
+        app.MapPost(PaymentsInternalEndpoints.StartCardSetup, async (StartCardSetup command,
+            [FromKeyedServices(PaymentsModuleName.Value)] ICommandHandler<StartCardSetup, CardSetupStarted> handler, CancellationToken ct) =>
+        {
+            var started = await handler.Handle(command, ct);
+            return started.IsSuccess ? Results.Ok(started.Value) : started.Errors.ToProblem();
+        }).AddEndpointFilter<InternalPortOnly>().AllowAnonymous().ExcludeFromDescription();
+
         // On a laptop there is no PSP to finish the card form: this plays the backer and the PSP.
         if (app.ServiceProvider.GetRequiredService<IHostEnvironment>().IsDevelopment())
         {
@@ -233,6 +245,20 @@ public static class PaymentsModule
             .Run(c => dispatcher.Send<HandlePspWebhook, WebhookHandled>(command, c), ct);
         return Results.Ok(new { received = handled.Value.ToString().ToLowerInvariant() });
     }
+}
+
+/// <summary>Configuration section <c>Payments:Internal</c>.</summary>
+public sealed class InternalEndpointOptions
+{
+    /// <summary>The port of the endpoints for other services (Kestrel listens on it beside 8080; the load balancers never forward to it).</summary>
+    public int Port { get; set; } = 8081;
+}
+
+/// <summary>An internal endpoint answers only on the internal port; on any other it does not exist (404).</summary>
+internal sealed class InternalPortOnly(IOptions<InternalEndpointOptions> options) : IEndpointFilter
+{
+    public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next) =>
+        context.HttpContext.Connection.LocalPort == options.Value.Port ? next(context) : ValueTask.FromResult<object?>(Results.NotFound());
 }
 
 /// <summary>The JSON body of a new card for a charge in its recovery window: the PSP's reference to a saved card.</summary>

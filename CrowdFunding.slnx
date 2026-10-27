@@ -6,6 +6,7 @@
     <Project Path="src/Gateway/Gateway.csproj" />
     <Project Path="src/Host/Host.csproj" />
     <Project Path="src/Messaging/Messaging.csproj" />
+    <Project Path="src/RemoteCalls/RemoteCalls.csproj" />
   </Folder>
   <Folder Name="/src/Modules/" />
   <Folder Name="/src/Modules/Campaigns/">
@@ -19,6 +20,7 @@
   </Folder>
   <Folder Name="/src/Modules/Payments/">
     <Project Path="src/Modules/Payments/Payments.Application/Payments.Application.csproj" />
+    <Project Path="src/Modules/Payments/Payments.Client/Payments.Client.csproj" />
     <Project Path="src/Modules/Payments/Payments.Contracts/Payments.Contracts.csproj" />
     <Project Path="src/Modules/Payments/Payments.Domain/Payments.Domain.csproj" />
     <Project Path="src/Modules/Payments/Payments.Infrastructure/Payments.Infrastructure.csproj" />
@@ -36,5 +38,6 @@
     <Project Path="tests/IntegrationTests/IntegrationTests.csproj" />
     <Project Path="tests/Messaging.Tests/Messaging.Tests.csproj" />
     <Project Path="tests/Payments.UnitTests/Payments.UnitTests.csproj" />
+    <Project Path="tests/RemoteCalls.Tests/RemoteCalls.Tests.csproj" />
   </Folder>
 </Solution>

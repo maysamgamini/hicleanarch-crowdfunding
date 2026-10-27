@@ -17,6 +17,13 @@ public sealed record Error(ErrorKind Kind, string Code, string Message)
     /// <summary>Not now: a shared budget has no room, and <paramref name="retryAfter"/> says when it will.</summary>
     public static Error TooManyRequests(string code, string message, TimeSpan retryAfter) =>
         new(ErrorKind.TooManyRequests, code, message) { RetryAfter = retryAfter };
+
+    /// <summary>
+    /// Another service did not answer in time, or is known to be down: nothing was decided, and
+    /// <paramref name="retryAfter"/> says when to ask again.
+    /// </summary>
+    public static Error Unavailable(string code, string message, TimeSpan retryAfter) =>
+        new(ErrorKind.Unavailable, code, message) { RetryAfter = retryAfter };
 }
 
 public enum ErrorKind
@@ -26,4 +33,5 @@ public enum ErrorKind
     Conflict,
     Forbidden,
     TooManyRequests,
+    Unavailable,
 }

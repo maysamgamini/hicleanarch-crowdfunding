@@ -53,6 +53,11 @@ locals {
       { name = "Notifications__FromAddress", value = var.notifications_from },
       { name = "Notifications__UserPoolId", value = aws_cognito_user_pool.users.id },
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
+      # 8081 serves the endpoints for other services; no target group or rule forwards to it (s4-l03).
+      { name = "ASPNETCORE_HTTP_PORTS", value = "8080;8081" },
+      # StartCardSetup goes over HTTP to Payments' internal port, still this task's own (s4-l03).
+      { name = "Modules__Payments__Calls", value = "Http" },
+      { name = "Modules__Payments__BaseAddress", value = "http://localhost:8081" },
     ], local.broker_environment)
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30

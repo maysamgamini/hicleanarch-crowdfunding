@@ -4,9 +4,12 @@ using CrowdFunding.Messaging;
 using CrowdFunding.Testing;
 
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+
+using Payments.Client;
 
 using Testcontainers.PostgreSql;
 
@@ -168,8 +171,17 @@ public sealed class Database : IAsyncLifetime
 
     private WebApplicationFactory<Program> Configure(WebApplicationFactory<Program> factory, Action<IServiceCollection>? services) =>
         factory.WithWebHostBuilder(web => web
-            .ConfigureTestServices(s => services?.Invoke(s))
+            .ConfigureTestServices(s =>
+            {
+                // StartCardSetup goes over HTTP (s4-l03), to this host's own in-memory server, as the
+                // monolith calls its own internal port. A test may replace the handler after this.
+                s.AddHttpClient<RemoteStartCardSetup>().ConfigurePrimaryHttpMessageHandler(sp => ((TestServer)sp.GetRequiredService<IServer>()).CreateHandler());
+                services?.Invoke(s);
+            })
             .UseEnvironment("Testing")
+            .UseSetting("Modules:Payments:Calls", "Http")
+            // The in-memory server has no ports: its connections' local port is 0.
+            .UseSetting("Payments:Internal:Port", "0")
             // UseSetting, not ConfigureAppConfiguration: the host reads connection strings while it is built.
             .UseSetting("ConnectionStrings:Owner", Owner)
             .UseSetting("ConnectionStrings:Campaigns", Campaigns)

@@ -14,6 +14,7 @@ using CrowdFunding.Messaging;
 
 using Notifications;
 
+using Payments.Client;
 using Payments.Infrastructure;
 
 using Pledges.Infrastructure;
@@ -61,6 +62,8 @@ builder.Services.AddCampaignsModule(builder.Configuration);
 builder.Services.AddPledgesModule(builder.Configuration);
 builder.Services.AddPaymentsModule(builder.Configuration);
 builder.Services.AddNotificationsModule(builder.Configuration);
+// With Modules:Payments:Calls = Http, the commands to Payments go over HTTP to its internal port (s4-l03).
+builder.Services.AddPaymentsClient(builder.Configuration);
 
 // With an Events:Broker section, the events whose consumers are routed to the broker go through SNS and SQS.
 if (builder.Configuration.GetSection("Events:Broker").Exists())

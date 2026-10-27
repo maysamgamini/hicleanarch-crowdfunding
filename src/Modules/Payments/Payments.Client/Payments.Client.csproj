@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Payments.Contracts\Payments.Contracts.csproj" />
+    <ProjectReference Include="..\..\..\RemoteCalls\RemoteCalls.csproj" />
+  </ItemGroup>
+
+</Project>

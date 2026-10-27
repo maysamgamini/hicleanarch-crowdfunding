@@ -141,7 +141,9 @@ public sealed class CardSetupIdempotencyTests(Database database) : IDisposable
         const string Name = "card-setup-resume-test";
         await using var host = database.StartHost().WithWebHostBuilder(web => web
             .UseSetting("ConnectionStrings:Pledges", new NpgsqlConnectionStringBuilder(database.Pledges) { ApplicationName = Name }.ConnectionString)
-            .UseSetting("Payments:CardSetup:PspDeadline", "00:00:10"));
+            .UseSetting("Payments:CardSetup:PspDeadline", "00:00:10")
+            // In process: over HTTP the client's 2 s attempt would answer first (s4-l03).
+            .UseSetting("Modules:Payments:Calls", "InProcess"));
         var given = new Scenario(database, host);
         var psp = host.Services.GetRequiredService<FakePaymentProvider>();
         var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));

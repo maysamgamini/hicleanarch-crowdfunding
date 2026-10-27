@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Http;
 namespace BuildingBlocks.Infrastructure;
 
 /// <summary>
-/// Turns refusals into HTTP problem details: 422 for bad input, 403, 404, 409, 429, each with a
+/// Turns refusals into HTTP problem details: 422 for bad input, 403, 404, 409, 429, 503, each with a
 /// reason. A refusal that carries <see cref="Error.RetryAfter"/> also sends <c>Retry-After</c> in seconds.
 /// </summary>
 public static class ErrorResults
@@ -19,6 +19,7 @@ public static class ErrorResults
             ErrorKind.Conflict => StatusCodes.Status409Conflict,
             ErrorKind.Forbidden => StatusCodes.Status403Forbidden,
             ErrorKind.TooManyRequests => StatusCodes.Status429TooManyRequests,
+            ErrorKind.Unavailable => StatusCodes.Status503ServiceUnavailable,
             _ => StatusCodes.Status422UnprocessableEntity,
         };
         var problem = Results.Problem(

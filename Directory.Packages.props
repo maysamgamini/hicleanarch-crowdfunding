@@ -17,6 +17,7 @@
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.13" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.13" />
     <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.13" />
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.10.0" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
     <PackageVersion Include="StackExchange.Redis" Version="3.4.5" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.2" />
@@ -36,7 +37,7 @@
   <Import Project="$(MSBuildThisFileDirectory)artifacts/packages/local-version.props"
           Condition="Exists('$(MSBuildThisFileDirectory)artifacts/packages/local-version.props')" />
   <PropertyGroup>
-    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">4.0.0</BuildingBlocksVersion>
+    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">4.1.0</BuildingBlocksVersion>
   </PropertyGroup>
   <ItemGroup Label="BuildingBlocks">
     <PackageVersion Include="CrowdFunding.BuildingBlocks.Application" Version="$(BuildingBlocksVersion)" />
