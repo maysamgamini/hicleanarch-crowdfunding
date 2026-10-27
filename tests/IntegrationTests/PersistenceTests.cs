@@ -12,9 +12,10 @@ public sealed class PersistenceTests(Database database)
     {
         var ct = TestContext.Current.CancellationToken;
         string id;
+        var creator = Database.Token(BuildingBlocks.Infrastructure.Identity.Roles.Creator);
         await using (var first = database.StartHost())
         {
-            var client = Database.Client(first, Database.Token(BuildingBlocks.Infrastructure.Identity.Roles.Creator));
+            var client = Database.Client(first, creator);
             var created = await client.PostAsJsonAsync("/v1/campaigns", new
             {
                 title = "Harbor Lights",
@@ -28,7 +29,7 @@ public sealed class PersistenceTests(Database database)
         }
 
         await using var second = database.StartHost();
-        var read = await second.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", ct);
+        var read = await Database.Client(second, creator).GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", ct);
 
         Assert.Equal("Harbor Lights", read.GetProperty("title").GetString());
         Assert.Equal("Early Bird", read.GetProperty("tiers")[0].GetProperty("title").GetString());

@@ -126,14 +126,16 @@ public static class CampaignsModule
         }).RequireAuthorization(Policies.Creator);
 
         // Anyone may read a campaign, signed in or not.
-        campaigns.MapGet("/{id}", async (string id, IDispatcher dispatcher, CancellationToken ct) =>
+        // Anyone may read a published campaign; a draft only its creator, signed in.
+        campaigns.MapGet("/{id}", async (string id, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
         {
             if (!CampaignId.TryParse(id, out var campaignId))
             {
                 return new[] { CampaignErrors.NotFound }.ToProblem();
             }
 
-            var result = await dispatcher.Query<GetCampaign, CampaignView>(new GetCampaign(campaignId), ct);
+            var caller = user.Identity?.IsAuthenticated == true ? user.UserId() : (Guid?)null;
+            var result = await dispatcher.Query<GetCampaign, CampaignView>(new GetCampaign(campaignId, caller), ct);
             return result.IsSuccess ? Results.Ok(result.Value) : result.Errors.ToProblem();
         }).AllowAnonymous();
 

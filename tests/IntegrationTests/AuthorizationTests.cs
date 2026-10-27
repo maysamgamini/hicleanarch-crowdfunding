@@ -70,9 +70,37 @@ public sealed class AuthorizationTests(Database database) : IDisposable
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken)).GetProperty("campaign_id").GetString();
 
-        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
+        var campaignId = Guid.ParseExact(id!["cmp_".Length..], "N");
 
-        Assert.Equal(creator, read.GetProperty("creator_id").GetGuid());
+        Assert.Equal(creator, await new Scenario(database, _host).Scalar<Guid>("SELECT creator_id FROM campaigns.campaigns WHERE id = @id", campaignId));
+    }
+
+    /// <summary>A draft is not public before it is published: anyone but its creator is told there is no such campaign.</summary>
+    [Fact]
+    public async Task A_draft_is_shown_only_to_its_creator()
+    {
+        var creator = Guid.NewGuid();
+        var created = await CreateDraft(Database.Token(creator, Roles.Creator));
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>(TestContext.Current.CancellationToken)).GetProperty("campaign_id").GetString();
+
+        var own = await Database.Client(_host, Database.Token(creator, Roles.Creator)).GetAsync($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
+        var anonymous = await _host.CreateClient().GetAsync($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
+        var anotherCreator = await Database.Client(_host, Database.Token(Roles.Creator)).GetAsync($"/v1/campaigns/{id}", TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.OK, own.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, anonymous.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, anotherCreator.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_published_campaign_is_public_and_does_not_name_its_creators_user_id()
+    {
+        var campaign = await new Scenario(database, _host).Publish();
+
+        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", TestContext.Current.CancellationToken);
+
+        Assert.Equal("LIVE", read.GetProperty("status").GetString());
+        Assert.False(read.TryGetProperty("creator_id", out _));
     }
 
     /// <summary>The endpoints anyone may call, signed in or not. Every other endpoint names its requirement.</summary>
