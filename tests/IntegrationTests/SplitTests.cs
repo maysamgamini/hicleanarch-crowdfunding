@@ -209,4 +209,30 @@ public sealed class SplitLaneTests(Database database) : IDisposable
         Assert.True(form.Headers.RetryAfter?.Delta >= TimeSpan.FromSeconds(1));
         Assert.Equal("card_setup_lane_full", (await form.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
     }
+
+    /// <summary>
+    /// After the split, Payments is routed Broker only in the monolith, where it does not run, and runs only
+    /// in Payments.Host, where it is InProcess. The producer's host checks the subscriptions its Broker
+    /// routes need, so a subscription dropped from the payments queue is still found (CQA-1515).
+    /// </summary>
+    [Fact]
+    public async Task A_subscription_dropped_from_the_payments_queue_is_found_by_the_producers_host()
+    {
+        using var sns = database.Broker.Sns();
+        var broker = _hosts.Monolith.Services.GetRequiredService<CrowdFunding.Messaging.BrokerOptions>();
+        var payments = broker.Queues["payments"].Arn;
+        static async Task<IReadOnlyList<string>> Problems(IServiceProvider services) =>
+            await services.GetServices<Microsoft.Extensions.Hosting.IHostedService>().OfType<CrowdFunding.Messaging.SubscriptionCheck>().Single().Problems(Ct);
+        Assert.Empty(await Problems(_hosts.Monolith.Services));
+        Assert.Empty(await Problems(_hosts.Payments.Services));
+
+        var pledges = broker.Topics["Pledges"];
+        foreach (var subscription in (await sns.ListSubscriptionsByTopicAsync(pledges, Ct)).Subscriptions.Where(s => s.Endpoint == payments))
+        {
+            await sns.UnsubscribeAsync(subscription.SubscriptionArn, Ct);
+        }
+
+        Assert.Contains(await Problems(_hosts.Monolith.Services),
+            p => p.Contains("The Pledges topic has no raw-delivery subscription to the payments queue", StringComparison.Ordinal));
+    }
 }
