@@ -119,6 +119,25 @@ public sealed class ChangeAndCancelTests(Database database) : IDisposable
     }
 
     [Fact]
+    public async Task Another_backer_can_neither_change_nor_cancel_my_pledge()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+        var pledge = await Place(given.Backer(Guid.NewGuid()), campaign, 6_000);
+        var someoneElse = given.Backer(Guid.NewGuid());
+
+        var changed = await Change(someoneElse, pledge, 9_000);
+        var cancelled = await someoneElse.DeleteAsync(pledge, Ct);
+
+        Assert.Equal(HttpStatusCode.NotFound, changed.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, cancelled.StatusCode);
+        var pledgeId = Guid.ParseExact(pledge["/v1/pledges/plg_".Length..], "N");
+        Assert.Equal("ACTIVE", await given.Scalar<string>("SELECT status FROM pledges.pledges WHERE id = @id", pledgeId));
+        Assert.Equal(6_000L, await given.Scalar<long>("SELECT amount_minor FROM pledges.pledges WHERE id = @id", pledgeId));
+        Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledge_ledger WHERE pledge_id = @id", pledgeId));
+    }
+
+    [Fact]
     public async Task A_cancelled_pledge_cannot_be_changed_or_cancelled_again()
     {
         var given = new Scenario(database, _host);
