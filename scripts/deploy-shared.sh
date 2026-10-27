@@ -12,6 +12,17 @@ tf() { "${IAC:-tofu}" -chdir=infra/env "$@"; }
 export TF_VAR_gateway_image="$gateway"
 tf init -input=false -backend-config="bucket=$bucket" >/dev/null
 
+# CQA-2116: a route switch this deploy does not set keeps the value the last apply gave it. Otherwise a
+# release of the gateway alone (shared.yml) would turn both off, and Campaigns' paths and the preference
+# route would go back to the catch-all, the Pledges service, which answers them 404.
+for switch in campaigns_serves_routes notifications_serves_preferences; do
+  var="TF_VAR_$switch"
+  if [ -z "${!var:-}" ]; then
+    current=$(tf output -raw "$switch" 2>/dev/null || true)
+    if [ "$current" = "true" ] || [ "$current" = "false" ]; then export "$var=$current"; fi
+  fi
+done
+
 # CQA-2101: Payments' data must already be on its own cluster. payments-database.tf refuses an
 # environment whose last env/shared.json says otherwise; one deployed only before s4-l09 has no such
 # document, but its state has the shared cluster and no Payments cluster.

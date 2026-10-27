@@ -29,3 +29,14 @@ output "database_reader_endpoint" {
   description = "Where queries read; a moment behind the writer."
   value       = aws_rds_cluster.main.reader_endpoint
 }
+
+# The route switches the last apply set: scripts/deploy-shared.sh keeps them when a deploy does not set
+# them, so a gateway release (shared.yml) never sends Campaigns' or Notifications' paths back to the
+# catch-all, which answers 404 (CQA-2116).
+output "campaigns_serves_routes" {
+  value = var.campaigns_serves_routes
+}
+
+output "notifications_serves_preferences" {
+  value = var.notifications_serves_preferences
+}

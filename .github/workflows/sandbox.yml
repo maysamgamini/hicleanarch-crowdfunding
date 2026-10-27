@@ -1,11 +1,15 @@
 name: sandbox
 
 # Apply the sandbox environment, deploy the current main, smoke-test it, destroy it.
-# Since s5-l10 no monolith is left: the shared layer and the gateway (deploy role) and Pledges' one-time
-# hand-over, then Payments (Payments' role), then Pledges (Pledges' role), then the smoke test through the
-# gateway. Destroy goes the other way: the services first, the shared layer last. Notifications and
-# Campaigns deploy from their own pipelines. Needs the repository variables AWS_DEPLOY_ROLE_ARN,
-# AWS_PAYMENTS_DEPLOY_ROLE_ARN, AWS_PLEDGES_DEPLOY_ROLE_ARN and TF_STATE_BUCKET (outputs of infra/bootstrap).
+# Since s5-l10 no monolith is left, and every run builds the environment from nothing, so it deploys all
+# four services (CQA-2116): the shared layer and the gateway (deploy role) with the three one-time
+# hand-overs (Pledges, Notifications, Campaigns), then Payments, Pledges, Notifications and Campaigns, each
+# as its own deploy role, then the shared layer again with the two route switches on, now that the
+# services they point at run (campaigns_serves_routes, notifications_serves_preferences), then the smoke
+# test through the gateway. Destroy goes the other way: the services first, the shared layer last.
+# Needs the repository variables AWS_DEPLOY_ROLE_ARN, AWS_PAYMENTS_DEPLOY_ROLE_ARN,
+# AWS_PLEDGES_DEPLOY_ROLE_ARN, AWS_NOTIFICATIONS_DEPLOY_ROLE_ARN, AWS_CAMPAIGNS_DEPLOY_ROLE_ARN and
+# TF_STATE_BUCKET (outputs of infra/bootstrap).
 on:
   workflow_dispatch:
     inputs:
@@ -89,26 +93,63 @@ jobs:
           ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Payments/Payments.Host/Dockerfile
           echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_NOTIFICATIONS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr-notifications
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - name: Push Notifications' image, as Notifications' deploy role
+        id: notifications-image
+        env:
+          REGISTRY: ${{ steps.ecr-notifications.outputs.registry }}
+        run: |
+          repository="$REGISTRY/hicleanarch/crowdfunding-notifications"
+          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Notifications/Notifications.Host/Dockerfile
+          echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_CAMPAIGNS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr-campaigns
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - name: Push Campaigns' image, as Campaigns' deploy role
+        id: campaigns-image
+        env:
+          REGISTRY: ${{ steps.ecr-campaigns.outputs.registry }}
+        run: |
+          repository="$REGISTRY/hicleanarch/crowdfunding-campaigns"
+          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Campaigns/Campaigns.Host/Dockerfile
+          echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
       # Since s5-l10 no monolith is left: the shared layer and the gateway first, then each service, Payments
-      # before Pledges, which calls it. Pledges' schema is handed to its migration role once, by the shared
-      # layer's hand-over task (the only one that reads the owner's secret).
+      # before Pledges, which calls it. Each module's schema is handed to its migration role once, by the
+      # shared layer's hand-over task (the only one that reads the owner's secret), one at a time, in the
+      # local stack's order (compose.yaml). The route switches stay off until their services run.
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - name: Apply the shared layer, and hand Pledges' schema over
+      - name: Apply the shared layer, and hand the services' schemas over
         env:
           GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
-          PLEDGES_IMAGE: ${{ steps.pledges-image.outputs.image }}
+          TF_VAR_pledges_image: ${{ steps.pledges-image.outputs.image }}
+          TF_VAR_notifications_image: ${{ steps.notifications-image.outputs.image }}
+          TF_VAR_campaigns_image: ${{ steps.campaigns-image.outputs.image }}
+          TF_VAR_campaigns_serves_routes: "false"
+          TF_VAR_notifications_serves_preferences: "false"
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
           LOAD_SCALE: ${{ inputs.load_scale || '0' }}
         run: |
           start=$(date +%s)
           edge_limit=20
           if [ "$LOAD_SCALE" != "0" ]; then edge_limit=100000; fi
-          TF_VAR_edge_limit_per_second="$edge_limit" TF_VAR_pledges_image="$PLEDGES_IMAGE" ./scripts/deploy-shared.sh "$GATEWAY_IMAGE"
+          TF_VAR_edge_limit_per_second="$edge_limit" ./scripts/deploy-shared.sh "$GATEWAY_IMAGE"
           ./scripts/hand-over.sh pledges
-          echo "The shared layer and Pledges' hand-over took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+          ./scripts/hand-over.sh notifications
+          ./scripts/hand-over.sh campaigns
+          echo "The shared layer and the three hand-overs took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
@@ -138,8 +179,50 @@ jobs:
 
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
+          role-to-assume: ${{ vars.AWS_NOTIFICATIONS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy Notifications, as Notifications' deploy role
+        env:
+          IMAGE: ${{ steps.notifications-image.outputs.image }}
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          start=$(date +%s)
+          ./scripts/deploy-service.sh notifications "$IMAGE"
+          echo "Notifications' applies, migration and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_CAMPAIGNS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy Campaigns, as Campaigns' deploy role
+        env:
+          IMAGE: ${{ steps.campaigns-image.outputs.image }}
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          start=$(date +%s)
+          ./scripts/deploy-service.sh campaigns "$IMAGE"
+          echo "Campaigns' applies, migration and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+
+      # Every service runs: the gateway may now send Campaigns' paths and the preference route to theirs.
+      # Without this, POST /v1/campaigns goes to the catch-all, the Pledges service, which answers 404.
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+      - name: Send Campaigns' and Notifications' paths to their services
+        env:
+          GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
+          TF_VAR_pledges_image: ${{ steps.pledges-image.outputs.image }}
+          TF_VAR_notifications_image: ${{ steps.notifications-image.outputs.image }}
+          TF_VAR_campaigns_image: ${{ steps.campaigns-image.outputs.image }}
+          TF_VAR_campaigns_serves_routes: "true"
+          TF_VAR_notifications_serves_preferences: "true"
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          LOAD_SCALE: ${{ inputs.load_scale || '0' }}
+        run: |
+          edge_limit=20
+          if [ "$LOAD_SCALE" != "0" ]; then edge_limit=100000; fi
+          TF_VAR_edge_limit_per_second="$edge_limit" ./scripts/deploy-shared.sh "$GATEWAY_IMAGE"
 
       - name: Sign in a test creator
         id: creator
@@ -187,7 +270,29 @@ jobs:
           case "$KEEP_MINUTES" in (*[!0-9]*|'') echo "keep_minutes must be a whole number" >&2; exit 1;; esac
           sleep $(( KEEP_MINUTES * 60 ))
 
-      # Payments first: it runs in the shared layer's network and reads its outputs.
+      # The services first: they run in the shared layer's network and read its outputs.
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        if: always()
+        with:
+          role-to-assume: ${{ vars.AWS_CAMPAIGNS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Destroy Campaigns
+        if: always()
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: ./scripts/destroy-service.sh campaigns
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        if: always()
+        with:
+          role-to-assume: ${{ vars.AWS_NOTIFICATIONS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Destroy Notifications
+        if: always()
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: ./scripts/destroy-service.sh notifications
+
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         if: always()
         with:
@@ -238,6 +343,22 @@ jobs:
         with:
           tofu_version_file: .opentofu-version
           tofu_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_CAMPAIGNS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Destroy Campaigns if it is left up
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: ./scripts/destroy-service.sh campaigns
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_NOTIFICATIONS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Destroy Notifications if it is left up
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: ./scripts/destroy-service.sh notifications
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_PLEDGES_DEPLOY_ROLE_ARN }}

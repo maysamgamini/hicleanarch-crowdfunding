@@ -46,6 +46,76 @@ public partial class WorkflowTests
         Assert.True(At("destroy-payments.sh") < At("tofu -chdir=infra/env destroy"));
     }
 
+    private static readonly string[] ServiceNames = [.. Directory.GetDirectories(Path.Combine(Repository.Root, "src", "Services"))
+        .Select(d => Path.GetFileName(d).ToLowerInvariant()).Order(StringComparer.Ordinal)];
+
+    public static TheoryData<string> Services() => [.. ServiceNames];
+
+    /// <summary>
+    /// CQA-2116: since s5-l10 every sandbox run builds the environment from nothing, so it must deploy every
+    /// service, after the shared layer and its hand-over, before the smoke test; and destroy it, in the run
+    /// and in the nightly sweep, before the shared layer. Until then the run deployed only Payments and Pledges,
+    /// and the smoke test's first POST /v1/campaigns reached the catch-all, which answers 404.
+    /// </summary>
+    [Theory]
+    [MemberData(nameof(Services))]
+    public void The_sandbox_deploys_and_destroys_every_service(string service)
+    {
+        var sandbox = Repository.Read(".github/workflows/sandbox.yml");
+        int At(string text) => sandbox.IndexOf(text, StringComparison.Ordinal) is var i and >= 0 ? i : throw new InvalidOperationException($"'{text}' is not in sandbox.yml.");
+        var (deploy, destroy) = service == "payments"
+            ? ("./scripts/deploy-payments.sh", "./scripts/destroy-payments.sh")
+            : ($"./scripts/deploy-service.sh {service} ", $"./scripts/destroy-service.sh {service}");
+
+        Assert.True(At("deploy-shared.sh") < At(deploy));
+        Assert.True(At(deploy) < At("smoke.sh"));
+        if (service != "payments")
+        {
+            // Payments' cluster is its own: its migrate step runs as that cluster's owner, with no hand-over.
+            Assert.True(At($"hand-over.sh {service}") < At(deploy));
+        }
+
+        // Once in the run, once in the nightly sweep, each before the shared layer's destroy that follows it.
+        var destroys = Regex.Matches(sandbox, Regex.Escape(destroy)).Select(m => m.Index).ToList();
+        var shared = Regex.Matches(sandbox, Regex.Escape("tofu -chdir=infra/env destroy")).Select(m => m.Index).ToList();
+        Assert.Equal(2, destroys.Count);
+        Assert.Equal(2, shared.Count);
+        Assert.True(destroys[0] < shared[0] && shared[0] < destroys[1] && destroys[1] < shared[1]);
+    }
+
+    [Fact]
+    public void The_sandbox_turns_the_route_switches_on_only_after_every_service_runs_and_before_the_smoke_test()
+    {
+        var sandbox = Repository.Read(".github/workflows/sandbox.yml");
+        int At(string text) => sandbox.IndexOf(text, StringComparison.Ordinal) is var i and >= 0 ? i : throw new InvalidOperationException($"'{text}' is not in sandbox.yml.");
+        var lastDeploy = ServiceNames.Max(s => At(s == "payments" ? "./scripts/deploy-payments.sh" : $"./scripts/deploy-service.sh {s} "));
+
+        foreach (var flag in new[] { "TF_VAR_campaigns_serves_routes", "TF_VAR_notifications_serves_preferences" })
+        {
+            Assert.True(At($"{flag}: \"false\"") < lastDeploy);
+            var on = At($"{flag}: \"true\"");
+            Assert.True(lastDeploy < on && on < At("smoke.sh"), $"{flag} is set before every service runs, or after the smoke test.");
+        }
+
+        // The second apply of the shared layer, with the switches on, comes after the last deploy too.
+        Assert.True(sandbox.LastIndexOf("./scripts/deploy-shared.sh", StringComparison.Ordinal) > lastDeploy);
+    }
+
+    [Fact]
+    public void A_shared_layer_deploy_that_sets_no_route_switch_keeps_the_last_ones()
+    {
+        // shared.yml deploys the gateway without the switches: they must not fall back to false (CQA-2116).
+        var deploy = Repository.Read("scripts/deploy-shared.sh");
+        var outputs = Repository.Read("infra/env/outputs.tf");
+        foreach (var flag in new[] { "campaigns_serves_routes", "notifications_serves_preferences" })
+        {
+            Assert.Contains(flag, deploy, StringComparison.Ordinal);
+            Assert.Contains($"output \"{flag}\"", outputs, StringComparison.Ordinal);
+            Assert.DoesNotContain($"TF_VAR_{flag}", Repository.Read(Workflows.Shared), StringComparison.Ordinal);
+        }
+
+        Assert.Contains("tf output -raw \"$switch\"", deploy, StringComparison.Ordinal);
+    }
     [Fact]
     public void Ci_checks_every_root_with_both_Terraform_and_OpenTofu()
     {
