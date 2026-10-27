@@ -64,6 +64,21 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         Assert.Equal("CANCELLED", read.GetProperty("status").GetString());
     }
 
+    /// <summary>Only the creator may cancel: another creator is refused before Pledges is asked, so funding stays open.</summary>
+    [Fact]
+    public async Task Another_creators_cancel_is_403_and_the_funding_window_stays_live()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+        var someoneElse = Database.Client(_host, Database.Token(BuildingBlocks.Infrastructure.Identity.Roles.Creator));
+
+        var refused = await someoneElse.PostAsync($"/v1/campaigns/{campaign.Id}/cancel", null, Ct);
+
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.Equal("LIVE", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(0L, await given.Scalar<long>("SELECT count(*) FROM pledges.outbox WHERE type = 'FundingCancelled' AND payload::jsonb ->> 'campaignId' = @id::text", campaign.CampaignId));
+    }
+
     /// <summary>
     /// Pledges accepted the cancel, but the request failed before Campaigns recorded it. Pledges'
     /// FundingCancelled event reaches Campaigns anyway, and the catalog follows.
