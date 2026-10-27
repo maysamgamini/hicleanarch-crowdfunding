@@ -8,6 +8,10 @@
 locals {
   delivered_services = toset(["notifications", "campaigns", "pledges"])
 
+  # The services whose own root scales its ECS service with Application Auto Scaling
+  # (infra/services/pledges/autoscaling.tf, s5-l10).
+  autoscaled_services = toset(["pledges"])
+
   service_access = {
     for name in local.delivered_services : name => {
       roles      = "arn:aws:iam::${local.account_id}:role/${var.project}-sandbox-${name}-*"
@@ -174,6 +178,66 @@ data "aws_iam_policy_document" "deploy_service" {
     sid       = "ReadAlarms"
     actions   = ["cloudwatch:DescribeAlarms"]
     resources = ["*"]
+  }
+
+  # Its scaling (s5-l10), when its root has one. Application Auto Scaling's targets, policies and scheduled
+  # actions have no ARN to scope by service name, so the scope is the condition on the ECS service they
+  # scale; the target tracking policy's own alarms are named after that service.
+  dynamic "statement" {
+    for_each = contains(local.autoscaled_services, each.key) ? [each.key] : []
+    content {
+      sid = "ScaleItsService"
+      actions = [
+        "application-autoscaling:RegisterScalableTarget", "application-autoscaling:DeregisterScalableTarget",
+        "application-autoscaling:PutScalingPolicy", "application-autoscaling:DeleteScalingPolicy",
+        "application-autoscaling:PutScheduledAction", "application-autoscaling:DeleteScheduledAction",
+        "application-autoscaling:TagResource", "application-autoscaling:UntagResource",
+      ]
+      resources = ["*"]
+      condition {
+        test     = "StringEquals"
+        variable = "application-autoscaling:service-namespace"
+        values   = ["ecs"]
+      }
+      condition {
+        test     = "StringEquals"
+        variable = "application-autoscaling:scalable-dimension"
+        values   = ["ecs:service:DesiredCount"]
+      }
+    }
+  }
+  dynamic "statement" {
+    for_each = contains(local.autoscaled_services, each.key) ? [each.key] : []
+    content {
+      sid = "ReadScaling"
+      actions = [
+        "application-autoscaling:DescribeScalableTargets", "application-autoscaling:DescribeScalingPolicies",
+        "application-autoscaling:DescribeScheduledActions", "application-autoscaling:ListTagsForResource",
+      ]
+      resources = ["*"]
+    }
+  }
+  dynamic "statement" {
+    for_each = contains(local.autoscaled_services, each.key) ? [each.key] : []
+    content {
+      sid       = "ItsScalingAlarms"
+      actions   = ["cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms"]
+      resources = ["arn:aws:cloudwatch:${var.region}:${local.account_id}:alarm:TargetTracking-service/${var.project}-sandbox/${each.key}-*"]
+    }
+  }
+  # The first scalable target in an account creates Application Auto Scaling's role for ECS.
+  dynamic "statement" {
+    for_each = contains(local.autoscaled_services, each.key) ? [each.key] : []
+    content {
+      sid       = "ScalingServiceLinkedRole"
+      actions   = ["iam:CreateServiceLinkedRole"]
+      resources = ["arn:aws:iam::${local.account_id}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"]
+      condition {
+        test     = "StringEquals"
+        variable = "iam:AWSServiceName"
+        values   = ["ecs.application-autoscaling.amazonaws.com"]
+      }
+    }
   }
 
   statement {

@@ -45,7 +45,7 @@ run "service_deploy_roles" {
         || r == "arn:aws:ecs:${var.region}:${local.account_id}:task/${var.project}-sandbox/*"
         || strcontains(r, "/${name}") || strcontains(r, "-${name}") || strcontains(r, "crowdfunding-${name}")
         || r == aws_ecr_repository.service[name].arn
-      ] if st.effect != "Deny" && st.sid != "ReadTheOtherServices"
+      ] if st.effect != "Deny" && !contains(["ReadTheOtherServices", "ScalingServiceLinkedRole"], st.sid)
     ]]))
     error_message = "A service's deploy role may only allow its own service's names (or account-wide reads, the state bucket's listing, the shared outputs and the cluster's tasks)."
   }
@@ -114,5 +114,27 @@ run "each_service_owns_its_signals" {
       contains(one([for st in data.aws_iam_policy_document.deploy_shared.statement : st.resources if st.sid == "NotPaymentsSignals"]), r)
     ])
     error_message = "Payments' deploy role owns its alarms and dashboard; the shared deploy role is denied them."
+  }
+
+  assert {
+    condition = alltrue([for name, doc in data.aws_iam_policy_document.deploy_service :
+      anytrue([for st in doc.statement : st.sid == "ScaleItsService"]) == contains(local.autoscaled_services, name)
+    ])
+    error_message = "A service whose root scales its ECS service (Pledges) may register its scalable target, policies and scheduled actions; the others may not."
+  }
+
+  assert {
+    condition = alltrue([for st in data.aws_iam_policy_document.deploy_service["pledges"].statement :
+      toset([for c in st.condition : c.variable]) == toset(["application-autoscaling:service-namespace", "application-autoscaling:scalable-dimension"])
+      if st.sid == "ScaleItsService"
+    ])
+    error_message = "Pledges' scaling rights hold only for an ECS service's desired count."
+  }
+
+  assert {
+    condition = alltrue([for st in data.aws_iam_policy_document.deploy_service["pledges"].statement :
+      alltrue([for c in st.condition : toset(c.values) == toset(["ecs.application-autoscaling.amazonaws.com"])]) if st.sid == "ScalingServiceLinkedRole"
+    ])
+    error_message = "The deploy role may create only Application Auto Scaling's role for ECS."
   }
 }
