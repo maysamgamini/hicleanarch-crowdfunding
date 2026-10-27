@@ -139,11 +139,8 @@ public sealed class CloseDueCampaignsHandler(
             {
                 var pledges = await closing.MarkNextBatch(campaignId, marking.MarkBatchSize, ct);
                 var now = clock.GetUtcNow();
-                foreach (var pledge in pledges)
-                {
-                    await outbox.Add(new PledgeChargeRequested(
-                        Guid.CreateVersion7(), now, pledge.PledgeId, campaignId, pledge.BackerId, pledge.AmountMinor, pledge.Currency, pledge.PaymentMethodRef), ct);
-                }
+                await outbox.AddRange([.. pledges.Select(pledge => new PledgeChargeRequested(
+                    Guid.CreateVersion7(), now, pledge.PledgeId, campaignId, pledge.BackerId, pledge.AmountMinor, pledge.Currency, pledge.PaymentMethodRef))], ct);
 
                 return Result.Success(pledges.Count);
             }, cancellationToken);

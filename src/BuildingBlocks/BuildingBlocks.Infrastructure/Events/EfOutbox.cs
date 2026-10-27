@@ -18,17 +18,20 @@ public sealed class PendingEvents<TContext>
 internal sealed class EfOutbox<TContext>(TContext db, PendingEvents<TContext> pending, string module) : IOutbox
     where TContext : DbContext
 {
-    public async Task Add(IntegrationEvent integrationEvent, CancellationToken cancellationToken)
+    public Task Add(IntegrationEvent integrationEvent, CancellationToken cancellationToken) =>
+        AddRange([integrationEvent], cancellationToken);
+
+    public async Task AddRange(IReadOnlyCollection<IntegrationEvent> integrationEvents, CancellationToken cancellationToken)
     {
         if (db.Database.CurrentTransaction is null)
         {
             throw new InvalidOperationException("An event is written in the transaction of the change it reports; start one first.");
         }
 
-        var message = EventBus.ToMessage(integrationEvent);
-        db.Add(message);
-        await db.SaveChangesAsync(cancellationToken);
-        pending.Records.Add(new OutboxRecord(module, message.Id, message.Type, message.Payload, message.TraceParent));
+        var messages = integrationEvents.Select(EventBus.ToMessage).ToList();
+        db.AddRange(messages);
+        await db.SaveChangesAsync(cancellationToken); // one SaveChanges: EF Core sends the rows in batched commands
+        pending.Records.AddRange(messages.Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload, m.TraceParent)));
     }
 }
 

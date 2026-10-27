@@ -22,6 +22,8 @@ var builder = WebApplication.CreateBuilder(args);
 // The API speaks snake_case JSON: goal_minor, campaign_id.
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 builder.Services.AddProblemDetails();
+// A database that cannot be reached is a 503 the client may retry, not a 500.
+builder.Services.AddExceptionHandler<DatabaseUnavailableHandler>();
 builder.Services.AddDispatcher();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<DatabaseMigrator>();

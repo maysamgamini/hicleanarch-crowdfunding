@@ -5,6 +5,7 @@ using System.Text.Json;
 using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Persistence;
 
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace IntegrationTests;
@@ -43,6 +44,23 @@ public sealed class HostingTests(Database database)
         var names = ready.GetProperty("checks").EnumerateArray().Select(c => c.GetProperty("name").GetString()).ToList();
         Assert.Contains("database:Campaigns", names);
         Assert.Contains("database:Pledges", names);
+    }
+
+    [Fact]
+    public async Task A_request_that_needs_a_database_it_cannot_reach_is_a_503_with_retry_after()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        const string Unreachable = "Host=127.0.0.1;Port=1;Database=x;Username=x;Password=x;Timeout=1";
+        await using var host = database.StartHost().WithWebHostBuilder(web => web
+            .UseSetting("ConnectionStrings:Campaigns", Unreachable)
+            .UseSetting("ConnectionStrings:CampaignsRead", Unreachable));
+
+        var response = await host.CreateClient().GetAsync($"/v1/campaigns/cmp_{Guid.NewGuid():N}", ct);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+        Assert.Equal(TimeSpan.FromSeconds(DatabaseUnavailableHandler.RetryAfterSeconds), response.Headers.RetryAfter?.Delta);
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+        Assert.Equal("database_unavailable", problem.GetProperty("reason").GetString());
     }
 
     [Fact]

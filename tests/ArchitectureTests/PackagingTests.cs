@@ -46,7 +46,7 @@ public partial class PackagingTests
     [Fact]
     public void The_version_the_tests_run_against_is_the_building_blocks_version()
     {
-        // A local pack is 1.0.0-local.<time>, CI's is 1.0.0: both are the version the BuildingBlocks declare.
+        // A local pack is <version>-local.<time>, CI's is <version>: both are the version the BuildingBlocks declare.
         var declared = Version.Parse(Regex.Match(
             File.ReadAllText(Path.Combine(Root, "src", "BuildingBlocks", "Directory.Build.props")), @"<Version>(\d+\.\d+\.\d+)").Groups[1].Value);
         var loaded = typeof(BuildingBlocks.Domain.Error).Assembly.GetName().Version!;

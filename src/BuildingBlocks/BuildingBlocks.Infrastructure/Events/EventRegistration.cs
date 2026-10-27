@@ -1,4 +1,5 @@
 using BuildingBlocks.Application;
+using BuildingBlocks.Infrastructure.Hosting;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -14,7 +15,12 @@ public static class EventRegistration
         services.TryAddSingleton<EventBus>();
         services.TryAddSingleton<OutboxDispatcher>();
         services.AddHostedService(sp => sp.GetRequiredService<OutboxDispatcher>());
-        services.AddOptions<OutboxOptions>();
+        services.AddSingleton<IStopParticipant>(sp => sp.GetRequiredService<OutboxDispatcher>());
+        services.AddOptions<OutboxOptions>()
+            .Validate(o => o.MaxConcurrentDeliveries > 0 && o.SweepBatch > 0, "Outbox: MaxConcurrentDeliveries and SweepBatch must be positive.")
+            .Validate(o => o.SweepEvery > TimeSpan.Zero && o.RedeliverAfter > o.RetryDelays.Aggregate(TimeSpan.Zero, (a, d) => a + d),
+                "Outbox: SweepEvery must be positive, and RedeliverAfter longer than every retry together.")
+            .ValidateOnStart();
         return services;
     }
 

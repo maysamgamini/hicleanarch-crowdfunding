@@ -19,6 +19,9 @@ public abstract record IntegrationEvent(Guid EventId, DateTimeOffset OccurredAt)
 public interface IOutbox
 {
     Task Add(IntegrationEvent integrationEvent, CancellationToken cancellationToken);
+
+    /// <summary>Many events of one change, written in one round trip: a batch of thousands, for example.</summary>
+    Task AddRange(IReadOnlyCollection<IntegrationEvent> integrationEvents, CancellationToken cancellationToken);
 }
 
 /// <summary>

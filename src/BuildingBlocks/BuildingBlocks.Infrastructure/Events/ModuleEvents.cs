@@ -8,7 +8,8 @@ public interface IModuleEvents
 {
     string Module { get; }
 
-    Task<IReadOnlyList<OutboxRecord>> Undelivered(CancellationToken cancellationToken);
+    /// <summary>The oldest undelivered events, at most <paramref name="limit"/>; with <paramref name="occurredBefore"/>, only those older.</summary>
+    Task<IReadOnlyList<OutboxRecord>> Undelivered(DateTimeOffset? occurredBefore, int limit, CancellationToken cancellationToken);
 
     Task<TimeSpan?> OldestUndeliveredAge(CancellationToken cancellationToken);
 
@@ -28,13 +29,15 @@ internal sealed class ModuleEvents<TContext>(string module, IServiceScopeFactory
 {
     public string Module => module;
 
-    public async Task<IReadOnlyList<OutboxRecord>> Undelivered(CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<OutboxRecord>> Undelivered(DateTimeOffset? occurredBefore, int limit, CancellationToken cancellationToken)
     {
         await using var scope = scopes.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<TContext>();
+        var before = occurredBefore ?? DateTimeOffset.MaxValue;
         return await db.Set<OutboxMessage>().AsNoTracking()
-            .Where(m => m.DeliveredAt == null)
+            .Where(m => m.DeliveredAt == null && m.OccurredAt < before)
             .OrderBy(m => m.OccurredAt)
+            .Take(limit)
             .Select(m => new OutboxRecord(module, m.Id, m.Type, m.Payload, m.TraceParent))
             .ToListAsync(cancellationToken);
     }

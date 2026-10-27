@@ -48,7 +48,7 @@ public sealed class DispatcherFaultTests(Database database)
     {
         public string Module => inner.Module;
 
-        public Task<IReadOnlyList<OutboxRecord>> Undelivered(CancellationToken ct) => inner.Undelivered(ct);
+        public Task<IReadOnlyList<OutboxRecord>> Undelivered(DateTimeOffset? occurredBefore, int limit, CancellationToken ct) => inner.Undelivered(occurredBefore, limit, ct);
 
         public Task<TimeSpan?> OldestUndeliveredAge(CancellationToken ct) => inner.OldestUndeliveredAge(ct);
 
