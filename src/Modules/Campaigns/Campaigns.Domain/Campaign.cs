@@ -40,6 +40,12 @@ public sealed record TierDraft(string Title, long MinPledgeMinor, int? Limit);
 /// <summary>A creator's campaign: a draft until it is published.</summary>
 public sealed class Campaign
 {
+    /// <summary>
+    /// The longest a campaign may take pledges, from its publishing to its deadline. A draft may wait
+    /// longer than this, so the rule binds when the clock starts: at publish.
+    /// </summary>
+    public static readonly TimeSpan MaxCampaignLength = TimeSpan.FromDays(60);
+
     private readonly List<Tier> _tiers = [];
 
     // For the persistence layer, which sets the properties itself.
@@ -113,7 +119,8 @@ public sealed class Campaign
 
     /// <summary>
     /// Opens the campaign to pledges. Only a draft is published, and only with a deadline still in
-    /// the future and at least one tier. The database makes the same move conditional on DRAFT.
+    /// the future, at most <see cref="MaxCampaignLength"/> away, and at least one tier. The database
+    /// makes the same move conditional on DRAFT.
     /// </summary>
     public Result<CampaignStatus> Publish(DateTimeOffset now)
     {
@@ -126,6 +133,10 @@ public sealed class Campaign
         if (Deadline <= now)
         {
             errors.Add(CampaignErrors.DeadlineNotInFuture);
+        }
+        else if (Deadline > now + MaxCampaignLength)
+        {
+            errors.Add(CampaignErrors.DeadlineTooFar);
         }
 
         if (_tiers.Count == 0)

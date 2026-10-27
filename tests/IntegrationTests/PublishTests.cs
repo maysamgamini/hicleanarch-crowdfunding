@@ -20,12 +20,12 @@ public sealed class PublishTests(Database database) : IDisposable
 
     private HttpClient Creator() => Database.Client(_host, Database.Token(_creator, Roles.Creator));
 
-    private static object Draft(string title = "Harbor Lights", string deadline = "2030-01-01T00:00:00Z") => new
+    private static object Draft(string title = "Harbor Lights", DateTimeOffset? deadline = null) => new
     {
         title,
         goal_minor = 5_000_000,
         currency = "USD",
-        deadline,
+        deadline = deadline ?? Scenario.Deadline,
         tiers = new[] { new { title = "Early Bird", min_pledge_minor = 4_900, limit = 500 } },
     };
 
@@ -70,11 +70,24 @@ public sealed class PublishTests(Database database) : IDisposable
     [Fact]
     public async Task A_campaign_whose_deadline_has_passed_cannot_be_published()
     {
-        var id = await CreateDraft(Draft(deadline: "2020-01-01T00:00:00Z"));
+        var id = await CreateDraft(Draft(deadline: new DateTimeOffset(2020, 1, 1, 0, 0, 0, TimeSpan.Zero)));
 
         var refused = await Creator().PostAsync($"/v1/campaigns/{id}/publish", null, Ct);
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_deadline_more_than_60_days_away_is_a_draft_but_is_not_published()
+    {
+        var id = await CreateDraft(Draft(deadline: DateTimeOffset.UtcNow.AddDays(61)));
+
+        var refused = await Creator().PostAsync($"/v1/campaigns/{id}/publish", null, Ct);
+
+        Assert.Equal(HttpStatusCode.UnprocessableEntity, refused.StatusCode);
+        Assert.Equal("deadline_too_far", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
+        var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{id}", Ct);
+        Assert.Equal("DRAFT", read.GetProperty("status").GetString());
     }
 
     [Fact]

@@ -11,8 +11,7 @@ public sealed class TotalsTests(Database database)
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    /// <summary>The deadline every Scenario campaign has.</summary>
-    private static readonly DateTimeOffset Deadline = new(2030, 1, 1, 0, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset Deadline = Scenario.Deadline;
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
     {

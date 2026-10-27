@@ -15,6 +15,7 @@ public static class CampaignErrors
     public static readonly Error NotYours = Error.Forbidden("not_your_campaign", "Only the campaign's creator may do this.");
     public static readonly Error NotADraft = Error.Conflict("not_a_draft", "Only a draft can be published.");
     public static readonly Error DeadlineNotInFuture = Error.Validation("deadline_not_in_future", "The deadline must be in the future to publish.");
+    public static readonly Error DeadlineTooFar = Error.Validation("deadline_too_far", "The deadline must be at most 60 days after publishing.");
     public static readonly Error NotCancellable = Error.Conflict("not_cancellable", "Only a draft or a live campaign can be cancelled.");
     public static readonly Error NoTiers = Error.Validation("no_tiers", "A campaign needs at least one tier to publish.");
 }
