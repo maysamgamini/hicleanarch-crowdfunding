@@ -110,7 +110,7 @@ public class ProjectGraphTests
         // Since s5-l09: Campaigns' module and host are built, tested and deployed by Campaigns' pipeline alone.
         var graph = Repository.Closure(Repository.FilterProjects(MonolithFilter));
 
-        Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Campaigns/", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Campaigns", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal));
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/Campaigns/", StringComparison.Ordinal));
         Assert.DoesNotContain(graph, p => p.StartsWith("tests/Campaigns.", StringComparison.Ordinal));
     }

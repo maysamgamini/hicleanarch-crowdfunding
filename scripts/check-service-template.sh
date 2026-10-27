@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 # <module> <layout> <port> [<moduleIn>], as each host was created.
 services=(
   "Notifications single 5181"
-  "Campaigns layered 5182 modules"
+  "Campaigns layered 5182"
 )
 
 scratch=$(mktemp -d)

@@ -4,9 +4,9 @@
     "projects": [
       "src\\Host\\Host.csproj",
       "src\\Messaging\\Messaging.csproj",
-      "src\\Modules\\Campaigns\\Campaigns.Application\\Campaigns.Application.csproj",
-      "src\\Modules\\Campaigns\\Campaigns.Domain\\Campaigns.Domain.csproj",
-      "src\\Modules\\Campaigns\\Campaigns.Infrastructure\\Campaigns.Infrastructure.csproj",
+      "src\\Services\\Campaigns\\Campaigns.Application\\Campaigns.Application.csproj",
+      "src\\Services\\Campaigns\\Campaigns.Domain\\Campaigns.Domain.csproj",
+      "src\\Services\\Campaigns\\Campaigns.Infrastructure\\Campaigns.Infrastructure.csproj",
       "src\\Services\\Notifications\\Notifications\\Notifications.csproj",
       "src\\Services\\Payments\\Payments.Application\\Payments.Application.csproj",
       "src\\Modules\\Payments.Client\\Payments.Client.csproj",

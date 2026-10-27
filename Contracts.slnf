@@ -2,7 +2,7 @@
   "solution": {
     "path": "Contracts.slnx",
     "projects": [
-      "src\\Modules\\Campaigns\\Campaigns.Contracts\\Campaigns.Contracts.csproj",
+      "src\\Services\\Campaigns\\Campaigns.Contracts\\Campaigns.Contracts.csproj",
       "src\\Services\\Payments\\Payments.Contracts\\Payments.Contracts.csproj",
       "src\\Modules\\Pledges\\Pledges.Contracts\\Pledges.Contracts.csproj"
     ]

@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Campaigns.Domain\Campaigns.Domain.csproj" />
+  </ItemGroup>
+
+</Project>

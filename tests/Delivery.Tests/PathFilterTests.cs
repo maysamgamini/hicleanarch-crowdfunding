@@ -28,7 +28,7 @@ public class PathFilterTests
         { "src/Services/Payments/Payments.Contracts/CardSetup.cs", true, true, true, true },
         { "System.slnf", true, true, true, true },
         { "src/Modules/Pledges/Pledges.Contracts/PledgeChargeRequested.cs", true, true, true, true },
-        { "src/Modules/Campaigns/Campaigns.Contracts/CampaignPublished.cs", true, true, true, true },
+        { "src/Services/Campaigns/Campaigns.Contracts/CampaignPublished.cs", true, true, true, true },
         { "src/BuildingBlocks/BuildingBlocks.Application/Dispatcher.cs", true, true, true, true },
         { "events/subscriptions.json", true, true, true, true },
         { "Directory.Packages.props", true, true, true, true },
@@ -51,7 +51,7 @@ public class PathFilterTests
         { "src/Services/Campaigns/Campaigns.Host/Program.cs", false, false, false, true },
         { "infra/services/campaigns/main.tf", false, false, false, true },
         { "Campaigns.slnf", false, false, false, true },
-        { "src/Modules/Campaigns/Campaigns.Application/GetCampaign.cs", false, false, false, true },
+        { "src/Services/Campaigns/Campaigns.Application/GetCampaign.cs", false, false, false, true },
     };
 
     public static TheoryData<string> Pipelines() => [Workflows.Payments, Workflows.Monolith, Workflows.Notifications, Workflows.Campaigns];

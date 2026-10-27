@@ -12,8 +12,6 @@ on:
     tags: ["s*-l*"]
     paths:
       - "src/Services/Campaigns/**"
-      - "src/Modules/Campaigns/**"
-      - "tests/Campaigns.UnitTests/**"
       - "infra/services/campaigns/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/campaigns-network.tf"
@@ -53,8 +51,6 @@ on:
   pull_request:
     paths:
       - "src/Services/Campaigns/**"
-      - "src/Modules/Campaigns/**"
-      - "tests/Campaigns.UnitTests/**"
       - "infra/services/campaigns/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/campaigns-network.tf"
@@ -147,7 +143,7 @@ jobs:
       - name: Every model change has its migration
         run: |
           dotnet tool restore
-          dotnet ef migrations has-pending-model-changes --project src/Modules/Campaigns/Campaigns.Infrastructure --no-build
+          dotnet ef migrations has-pending-model-changes --project src/Services/Campaigns/Campaigns.Infrastructure --no-build
       - name: The image builds
         run: docker build -q -f src/Services/Campaigns/Campaigns.Host/Dockerfile -t crowdfunding-campaigns:ci .
 

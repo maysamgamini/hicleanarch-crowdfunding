@@ -66,7 +66,7 @@ public class MonolithRulesTests
         var loaded = Closure(Assembly.Load("CrowdFunding.Host"));
 
         Assert.Contains("Campaigns.Contracts", loaded); // the check sees Campaigns at all
-        Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Campaigns/", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Campaigns", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal));
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/Campaigns/", StringComparison.Ordinal));
         Assert.All(loaded.Where(n => n.StartsWith("Campaigns.", StringComparison.Ordinal)), name => Assert.Equal("Campaigns.Contracts", name));
     }

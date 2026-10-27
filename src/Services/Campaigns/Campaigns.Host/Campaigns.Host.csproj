@@ -8,7 +8,7 @@
 
   <!-- One module, and nothing of the others: they reach it through events and its contracts. -->
   <ItemGroup>
-    <ProjectReference Include="..\..\..\Modules\Campaigns\Campaigns.Infrastructure\Campaigns.Infrastructure.csproj" />
+    <ProjectReference Include="..\Campaigns.Infrastructure\Campaigns.Infrastructure.csproj" />
     <ProjectReference Include="..\..\..\Messaging\Messaging.csproj" />
   </ItemGroup>
 

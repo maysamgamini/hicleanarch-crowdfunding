@@ -8,11 +8,6 @@
   <Folder Name="/src/Modules/">
     <Project Path="src/Modules/Payments.Client/Payments.Client.csproj" />
   </Folder>
-  <Folder Name="/src/Modules/Campaigns/">
-    <Project Path="src/Modules/Campaigns/Campaigns.Application/Campaigns.Application.csproj" />
-    <Project Path="src/Modules/Campaigns/Campaigns.Domain/Campaigns.Domain.csproj" />
-    <Project Path="src/Modules/Campaigns/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj" />
-  </Folder>
   <Folder Name="/src/Modules/Pledges/">
     <Project Path="src/Modules/Pledges/Pledges.Application/Pledges.Application.csproj" />
     <Project Path="src/Modules/Pledges/Pledges.Domain/Pledges.Domain.csproj" />
@@ -20,9 +15,13 @@
   </Folder>
   <Folder Name="/src/Services/" />
   <Folder Name="/src/Services/Campaigns/">
+    <Project Path="src/Services/Campaigns/Campaigns.Application/Campaigns.Application.csproj" />
+    <Project Path="src/Services/Campaigns/Campaigns.Domain/Campaigns.Domain.csproj" />
+    <Project Path="src/Services/Campaigns/Campaigns.Infrastructure/Campaigns.Infrastructure.csproj" />
     <Project Path="src/Services/Campaigns/Campaigns.Host/Campaigns.Host.csproj" />
   </Folder>
   <Folder Name="/src/Services/Campaigns/tests/">
+    <Project Path="src/Services/Campaigns/tests/Campaigns.UnitTests/Campaigns.UnitTests.csproj" />
     <Project Path="src/Services/Campaigns/tests/Campaigns.Host.Tests/Campaigns.Host.Tests.csproj" />
   </Folder>
   <Folder Name="/src/Services/Notifications/">
@@ -43,7 +42,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ArchitectureTests/ArchitectureTests.csproj" />
-    <Project Path="tests/Campaigns.UnitTests/Campaigns.UnitTests.csproj" />
     <Project Path="tests/Contracts.ConsumerTests/Contracts.ConsumerTests.csproj" />
     <Project Path="tests/Contracts.ProducerTests/Contracts.ProducerTests.csproj" />
     <Project Path="tests/Delivery.Tests/Delivery.Tests.csproj" />
