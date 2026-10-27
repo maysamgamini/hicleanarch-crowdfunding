@@ -25,7 +25,9 @@ module "service" {
 
   image         = var.image
   service_image = var.service_image
-  desired_count = local.shared.pledges_desired_count
+  # CQA-2103: the first apply of a deploy keeps the task definition the service runs.
+  service_task_definition = var.service_task_definition
+  desired_count           = local.shared.pledges_desired_count
   # The old monolith's size (CQA-2106): its pools, its jobs and the Service Connect proxy.
   cpu    = 1024
   memory = 2048

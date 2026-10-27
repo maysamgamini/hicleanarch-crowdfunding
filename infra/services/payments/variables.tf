@@ -27,3 +27,9 @@ variable "desired_count" {
   type        = number
   default     = 1
 }
+
+variable "service_task_definition" {
+  description = "The task definition the service keeps while the release is migrated (CQA-2103): the deploy script's first apply passes the one it runs. Empty: this release's."
+  type        = string
+  default     = ""
+}

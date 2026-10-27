@@ -25,7 +25,9 @@ module "service" {
 
   image         = var.image
   service_image = var.service_image
-  desired_count = var.desired_count
+  # CQA-2103: the first apply of a deploy keeps the task definition the service runs.
+  service_task_definition = var.service_task_definition
+  desired_count           = var.desired_count
   # 0.5 vCPU and 1 GB for Payments, and room for its Service Connect proxy, which AWS recommends 256
   # CPU units and at least 64 MiB for: Fargate's next size above 768 units is 1 vCPU (CQA-2106).
   cpu    = 1024

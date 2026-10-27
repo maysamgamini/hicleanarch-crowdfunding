@@ -32,3 +32,8 @@ output "signals" {
     burn_windows = module.service.burn_windows
   }
 }
+
+output "service_task_definition" {
+  description = "The task definition the service runs; the next deploy's first apply keeps it (CQA-2103)."
+  value       = module.service.service_task_definition
+}

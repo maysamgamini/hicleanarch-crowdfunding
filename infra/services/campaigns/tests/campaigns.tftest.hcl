@@ -105,3 +105,58 @@ run "first_apply_of_a_deploy_creates_no_service" {
     error_message = "The first deploy registers the task definitions and runs the migration before any service exists."
   }
 }
+
+# Lesson s5-l14: a deployment rolls back on either detector. The circuit breaker for tasks that never
+# become healthy; the deployment alarms for tasks that are healthy but answer 5xx or fail their events.
+run "a_release_rolls_back_on_either_detector" {
+  command = plan
+
+  assert {
+    condition = (module.service.ecs_service.deployment_circuit_breaker[0].rollback
+      && module.service.ecs_service.alarms[0].enable && module.service.ecs_service.alarms[0].rollback
+    && module.service.ecs_service.alarms[0].alarm_names == toset(["hicleanarch-sandbox-campaigns-deployment-5xx", "hicleanarch-sandbox-campaigns-deployment-handler-failures"]))
+    error_message = "ECS watches the 5xx share and, for a consumer, the handler failures, and rolls back on either."
+  }
+
+  assert {
+    condition     = [for e in module.service.container.environment : e.value if e.name == "SERVICE_VERSION"] == ["abc"]
+    error_message = "GET /version answers the image tag the service runs."
+  }
+}
+
+# CQA-2103: the first apply of a deploy keeps the service on the task definition it runs, so the old
+# image never starts with the release's settings; the second apply passes none, and the service takes
+# the release's.
+run "the_first_apply_keeps_the_running_task_definition" {
+  command = plan
+
+  variables {
+    image                   = "123456789012.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-campaigns:new"
+    service_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-campaigns:abc"
+    service_task_definition = "arn:aws:ecs:us-east-1:123456789012:task-definition/hicleanarch-campaigns:41"
+  }
+
+  assert {
+    condition     = module.service.ecs_service.task_definition == "arn:aws:ecs:us-east-1:123456789012:task-definition/hicleanarch-campaigns:41"
+    error_message = "The first apply must keep the service on the task definition it runs."
+  }
+}
+
+run "the_second_apply_moves_to_the_release" {
+  command = apply
+
+  variables {
+    image         = "123456789012.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-campaigns:new"
+    service_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-campaigns:new"
+  }
+
+  assert {
+    condition     = output.service_task_definition != "arn:aws:ecs:us-east-1:123456789012:task-definition/hicleanarch-campaigns:41" && output.service_task_definition != null
+    error_message = "With no task definition to keep, the service takes the release's, and the next deploy reads it from the output."
+  }
+
+  assert {
+    condition     = [for e in module.service.container.environment : e.value if e.name == "SERVICE_VERSION"] == ["new"]
+    error_message = "The release's task definition reports the release's tag."
+  }
+}

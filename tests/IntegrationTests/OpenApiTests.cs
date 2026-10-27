@@ -13,9 +13,9 @@ public sealed class OpenApiTests(Database database)
     {
         await using var host = database.StartHost();
         var mapped = MappedEndpoints.Of(host).Select(e => e.Name)
-            // Not the API: the load balancer's checks, the document itself, and the endpoints for other
-            // services on the internal port (their contract is Payments.Contracts, not this document).
-            .Where(name => !name.Contains(" /health", StringComparison.Ordinal) && !name.Contains(" /openapi/", StringComparison.Ordinal)
+            // Not the API: the load balancer's checks, the release the task runs (s5-l14), the document itself,
+            // and the endpoints for other services on the internal port (their contract is Payments.Contracts).
+            .Where(name => !name.Contains(" /health", StringComparison.Ordinal) && name != "GET /version" && !name.Contains(" /openapi/", StringComparison.Ordinal)
                 && !name.Contains(" /internal/", StringComparison.Ordinal))
             // A group's own route, POST /v1/campaigns/, is listed without its trailing slash.
             .Select(name => name.TrimEnd('/'));

@@ -106,3 +106,13 @@ run "first_apply_of_a_deploy_creates_no_service" {
     error_message = "The first deploy registers the task definitions and runs the migration before any service exists."
   }
 }
+
+# Lesson s5-l14: both detectors; Notifications reads a queue, so its handler failures count too.
+run "a_release_rolls_back_on_either_detector" {
+  command = plan
+
+  assert {
+    condition     = module.service.ecs_service.alarms[0].rollback && length(module.service.deployment_alarm_names) == 2 && module.service.ecs_service.deployment_circuit_breaker[0].rollback
+    error_message = "ECS watches the 5xx share and the handler failures, and rolls back on either."
+  }
+}

@@ -77,3 +77,13 @@ output "burn_windows" {
   description = "Every window alarm's parameters; the roots' tests evaluate synthetic traffic against them."
   value       = module.signals.burn_windows
 }
+
+output "service_task_definition" {
+  description = "The task definition the service runs; the next deploy's first apply keeps it (CQA-2103)."
+  value       = one(aws_ecs_service.service[*].task_definition)
+}
+
+output "deployment_alarm_names" {
+  description = "The alarms ECS watches during a deployment and rolls back on (lesson s5-l14)."
+  value       = local.deployment_alarm_names
+}

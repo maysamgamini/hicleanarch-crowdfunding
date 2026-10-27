@@ -13,6 +13,9 @@ on:
     tags: ["s*-l*"]
     paths:
       - "infra/services/payments/**"
+      # The service module and its signals (s5-l13, s5-l14): every service deploys on them.
+      - "infra/modules/service/**"
+      - "infra/modules/service-signals/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/payments-network.tf"
       - "infra/env/messaging.tf"
@@ -44,6 +47,7 @@ on:
       - ".editorconfig"
       - ".dockerignore"
       - "scripts/deploy-payments.sh"
+      - "scripts/deployment-landed.sh"
       - "scripts/run-migration.sh"
       - "scripts/push-image.sh"
       - ".github/workflows/payments.yml"
@@ -56,6 +60,9 @@ on:
   pull_request:
     paths:
       - "infra/services/payments/**"
+      # The service module and its signals (s5-l13, s5-l14): every service deploys on them.
+      - "infra/modules/service/**"
+      - "infra/modules/service-signals/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/payments-network.tf"
       - "infra/env/messaging.tf"
@@ -87,6 +94,7 @@ on:
       - ".editorconfig"
       - ".dockerignore"
       - "scripts/deploy-payments.sh"
+      - "scripts/deployment-landed.sh"
       - "scripts/run-migration.sh"
       - "scripts/push-image.sh"
       - ".github/workflows/payments.yml"

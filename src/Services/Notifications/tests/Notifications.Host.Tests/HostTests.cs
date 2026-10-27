@@ -40,6 +40,10 @@ public sealed class HostTests(TestHost service)
         Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
         Assert.Equal("ready", JsonDocument.Parse(await ready.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("status").GetString());
 
+        // GET /version (lesson s5-l14): the release the task runs, which nothing set here.
+        var version = JsonDocument.Parse(await client.GetStringAsync("/version", ct)).RootElement;
+        Assert.Equal("dev", version.GetProperty("version").GetString());
+
         // The ready check covers the databases the composed modules registered: this module's alone.
         Assert.Equal("Notifications", Assert.Single(host.Services.GetServices<ModuleDatabase>()).Module);
     }

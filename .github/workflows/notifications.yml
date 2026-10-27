@@ -12,6 +12,9 @@ on:
     paths:
       - "src/Services/Notifications/**"
       - "infra/services/notifications/**"
+      # The service module and its signals (s5-l13, s5-l14): every service deploys on them.
+      - "infra/modules/service/**"
+      - "infra/modules/service-signals/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/notifications-network.tf"
       - "infra/env/messaging.tf"
@@ -42,6 +45,7 @@ on:
       - ".editorconfig"
       - ".dockerignore"
       - "scripts/deploy-service.sh"
+      - "scripts/deployment-landed.sh"
       - "scripts/run-migration.sh"
       - "templates/service/**"
       - "scripts/push-image.sh"
@@ -56,6 +60,9 @@ on:
     paths:
       - "src/Services/Notifications/**"
       - "infra/services/notifications/**"
+      # The service module and its signals (s5-l13, s5-l14): every service deploys on them.
+      - "infra/modules/service/**"
+      - "infra/modules/service-signals/**"
       - "infra/env/shared-outputs.tf"
       - "infra/env/notifications-network.tf"
       - "infra/env/messaging.tf"
@@ -86,6 +93,7 @@ on:
       - ".editorconfig"
       - ".dockerignore"
       - "scripts/deploy-service.sh"
+      - "scripts/deployment-landed.sh"
       - "scripts/run-migration.sh"
       - "templates/service/**"
       - "scripts/push-image.sh"

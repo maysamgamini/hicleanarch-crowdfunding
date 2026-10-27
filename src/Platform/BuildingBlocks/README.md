@@ -24,6 +24,9 @@ the `package` workflow packs and publishes to AWS CodeArtifact.
 
 ## Versions
 
+- **6.3.0**: `ServiceVersion` (lesson s5-l14): `UseServiceDefaults` maps `GET /version`, which answers
+  the service's name and the release it runs (`SERVICE_VERSION`, set by the service module to the
+  image tag; `dev` when unset).
 - **6.2.0**: `JourneyLog` (lesson s5-l13): one structured line per journey step, with `campaign.id` and
   `pledge.id`, written by `OutboxCommitInterceptor` for each committed event and by `OutboxDispatcher`
   for each handler it runs (handled or failed). `OutboxCommitInterceptor` gains a constructor that

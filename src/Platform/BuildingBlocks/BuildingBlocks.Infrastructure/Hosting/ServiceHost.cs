@@ -84,7 +84,7 @@ public static class ServiceHost
     public static IServiceCollection AddServiceCommand(this IServiceCollection services, ServiceCommand command) =>
         services.AddSingleton(command);
 
-    /// <summary>The shared request pipeline and the health endpoints; the host maps its module's endpoints after it.</summary>
+    /// <summary>The shared request pipeline, the health endpoints and <c>/version</c>; the host maps its module's endpoints after it.</summary>
     public static WebApplication UseServiceDefaults(this WebApplication app)
     {
         ArgumentNullException.ThrowIfNull(app);
@@ -95,6 +95,7 @@ public static class ServiceHost
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapHealth();
+        app.MapVersion();
         return app;
     }
 

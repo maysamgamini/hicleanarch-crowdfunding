@@ -110,6 +110,7 @@ public sealed class AuthorizationTests(Database database) : IDisposable
         "* /health/live",
         "* /health/ready",
         "GET /openapi/{documentName}.json",
+        "GET /version",
         "GET /v1/campaigns/{id}",
         "GET /v1/campaigns/{id}/totals",
         "POST /v1/webhooks/psp",

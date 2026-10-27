@@ -142,6 +142,10 @@ resource "aws_cloudwatch_log_group" "service" {
 }
 
 locals {
+  # The image the service runs, and its tag (<repository>:<tag>).
+  service_runs    = coalesce(var.service_image, var.image)
+  service_version = reverse(split(":", local.service_runs))[0]
+
   logs = {
     logDriver = "awslogs"
     options = {
@@ -165,6 +169,8 @@ locals {
     environment = concat([
       { name = "OTEL_EXPORTER_OTLP_ENDPOINT", value = "http://localhost:4317" },
       { name = "OTEL_SERVICE_NAME", value = "crowdfunding-${var.name}" },
+      # What GET /version answers (lesson s5-l14): the release's image tag, the commit it was built from.
+      { name = "SERVICE_VERSION", value = local.service_version },
       { name = "Auth__Authority", value = var.shared.cognito_issuer },
       { name = "Auth__ClientId", value = var.shared.user_pool_client_id },
       { name = "ForwardedHeaders__KnownNetwork", value = var.shared.vpc_cidr },
@@ -206,7 +212,7 @@ resource "aws_ecs_task_definition" "service" {
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
   skip_destroy             = true
-  container_definitions    = jsonencode([merge(local.container, { image = coalesce(var.service_image, var.image) }), local.collector])
+  container_definitions    = jsonencode([merge(local.container, { image = local.service_runs }), local.collector])
 
   runtime_platform {
     operating_system_family = "LINUX"
@@ -240,11 +246,17 @@ resource "aws_ecs_task_definition" "migrate" {
 
 # Two full applies per deploy: the first keeps service_image while the migration runs, the second moves
 # the service to the release. A new environment gets the service on the second.
+#
+# CQA-2103: the first apply keeps the service on the task definition it runs, not only on its image. A
+# release that removes a setting the running image still reads would otherwise pair the old image with
+# the new settings, and every task ECS replaced before the second apply would fail to start. ECS keeps
+# running and replacing tasks of the revision it runs. The roles are not versioned: a release narrows a
+# role only once no image that needs the right still runs.
 resource "aws_ecs_service" "service" {
   count           = var.service_image == "" ? 0 : 1
   name            = var.name
   cluster         = var.shared.cluster_arn
-  task_definition = aws_ecs_task_definition.service.arn
+  task_definition = coalesce(var.service_task_definition, aws_ecs_task_definition.service.arn)
   desired_count   = var.desired_count
   launch_type     = "FARGATE"
   # ECS moves tasks back into a zone that lost them, once it recovers.
@@ -295,10 +307,18 @@ resource "aws_ecs_service" "service" {
     }
   }
 
-  # A release whose tasks fail their health checks stops and rolls back on its own.
+  # Both detectors roll back (lesson s5-l14): the circuit breaker, for tasks that fail to start or fail
+  # their health checks, and the deployment alarms (deployment.tf), for tasks that are healthy but
+  # answer 5xx or fail the events they take.
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+
+  alarms {
+    alarm_names = local.deployment_alarm_names
+    enable      = true
+    rollback    = true
   }
 }
 

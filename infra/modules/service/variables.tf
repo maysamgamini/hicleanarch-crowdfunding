@@ -120,3 +120,9 @@ variable "objectives" {
   })
   default = {}
 }
+
+variable "service_task_definition" {
+  description = "The task definition the service keeps while the release is migrated (CQA-2103): deploy-service.sh's first apply passes the one it runs. Empty: this release's."
+  type        = string
+  default     = ""
+}
