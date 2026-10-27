@@ -8,10 +8,15 @@ public sealed class Valkey : IAsyncLifetime
 {
     private readonly IContainer _container = new ContainerBuilder("valkey/valkey:8")
         .WithPortBinding(6379, true)
-        .WithWaitStrategy(Wait.ForUnixContainer().UntilInternalTcpPortIsAvailable(6379))
+        // Ready when Valkey answers, not merely when its port is open.
+        .WithWaitStrategy(Wait.ForUnixContainer().UntilCommandIsCompleted("valkey-cli", "ping"))
         .Build();
 
-    public string Configuration => $"{_container.Hostname}:{_container.GetMappedPublicPort(6379)}";
+    /// <summary>
+    /// The address, with the options the program itself uses (lesson s3-l03): a connection that fails
+    /// at first keeps retrying instead of throwing, as on a busy machine or a restarting node.
+    /// </summary>
+    public string Configuration => $"{_container.Hostname}:{_container.GetMappedPublicPort(6379)},abortConnect=false";
 
     public async ValueTask InitializeAsync() => await _container.StartAsync();
 

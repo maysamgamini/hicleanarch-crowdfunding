@@ -66,4 +66,10 @@ internal sealed class EfFundingWindows(PledgesDbContext db) : IFundingWindows
             _ => CancelOutcome.Closed,
         };
     }
+
+    public Task TakeOutDropped(Guid campaignId, long amountMinor, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.funding_windows SET pledged_minor = pledged_minor - {amountMinor}, backers = backers - 1
+            WHERE campaign_id = {campaignId}
+            """, cancellationToken);
 }

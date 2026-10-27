@@ -99,6 +99,47 @@ namespace Payments.Infrastructure.Persistence.Migrations
                     b.ToTable("outbox", "payments");
                 });
 
+            modelBuilder.Entity("BuildingBlocks.Infrastructure.Persistence.IdempotencyKey", b =>
+                {
+                    b.Property<Guid>("CallerId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("caller_id");
+
+                    b.Property<string>("Key")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("key");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("ReplyBody")
+                        .HasColumnType("json")
+                        .HasColumnName("reply_body");
+
+                    b.Property<string>("ReplyLocation")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("reply_location");
+
+                    b.Property<int?>("ReplyStatus")
+                        .HasColumnType("integer")
+                        .HasColumnName("reply_status");
+
+                    b.Property<byte[]>("RequestHash")
+                        .IsRequired()
+                        .HasColumnType("bytea")
+                        .HasColumnName("request_hash");
+
+                    b.HasKey("CallerId", "Key")
+                        .HasName("pk_idempotency_keys");
+
+                    b.ToTable("idempotency_keys", "payments");
+                });
+
             modelBuilder.Entity("Payments.Domain.CardSetup", b =>
                 {
                     b.Property<Guid>("Id")
@@ -184,9 +225,18 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnName("currency")
                         .IsFixedLength();
 
+                    b.Property<string>("LastDeclineCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("last_decline_code");
+
                     b.Property<DateTimeOffset?>("NextAttemptAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("next_attempt_at");
+
+                    b.Property<DateTimeOffset?>("PaymentFailedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("payment_failed_at");
 
                     b.Property<string>("PaymentMethodRef")
                         .IsRequired()
@@ -210,7 +260,7 @@ namespace Payments.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("CampaignId")
                         .HasDatabaseName("charges_open")
-                        .HasFilter("status IN ('TO_CHARGE', 'CHARGING')");
+                        .HasFilter("status IN ('TO_CHARGE', 'CHARGING', 'PAYMENT_FAILED')");
 
                     b.ToTable("charges", "payments", t =>
                         {
@@ -245,6 +295,10 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("idempotency_key");
 
+                    b.Property<bool>("OnSession")
+                        .HasColumnType("boolean")
+                        .HasColumnName("on_session");
+
                     b.Property<string>("PspPaymentId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)")
@@ -268,9 +322,13 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasDatabaseName("one_success_per_pledge")
                         .HasFilter("status = 'SUCCEEDED'");
 
+                    b.HasIndex("PspPaymentId")
+                        .HasDatabaseName("charge_attempts_by_payment")
+                        .HasFilter("psp_payment_id IS NOT NULL");
+
                     b.ToTable("charge_attempts", "payments", t =>
                         {
-                            t.HasCheckConstraint("charge_attempts_no", "attempt_no BETWEEN 1 AND 3");
+                            t.HasCheckConstraint("charge_attempts_no", "attempt_no BETWEEN 1 AND 5");
 
                             t.HasCheckConstraint("charge_attempts_status", "status IN ('IN_FLIGHT', 'SUCCEEDED', 'FAILED')");
                         });

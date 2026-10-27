@@ -135,34 +135,18 @@ public sealed class SettlementTests(Database database) : IDisposable
     }
 
     [Fact]
-    public async Task A_declined_card_gets_three_attempts_with_three_keys_then_fails()
-    {
-        var (given, campaign) = await Funded(FakePaymentProvider.CardDeclined);
-
-        for (var attempt = 1; attempt <= 3; attempt++)
-        {
-            await given.Execute("UPDATE payments.charges SET next_attempt_at = NULL WHERE campaign_id = @id", campaign.CampaignId);
-            await Settle(campaign);
-        }
-
-        Assert.Equal(1L, await Count(given, campaign, "FAILED"));
-        Assert.Equal(3L, await given.Scalar<long>("SELECT count(DISTINCT a.idempotency_key) FROM payments.charge_attempts a JOIN payments.charges c USING (pledge_id) WHERE c.campaign_id = @id AND a.status = 'FAILED'", campaign.CampaignId));
-        Assert.Equal("DONE", await given.Scalar<string>("SELECT status FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId));
-        await Scenario.Eventually(async () =>
-            await given.Scalar<long>("SELECT count(*) FROM pledges.pledges WHERE campaign_id = @id AND status = 'FAILED'", campaign.CampaignId) == 1);
-    }
-
-    [Fact]
-    public async Task A_declined_charge_waits_before_its_next_attempt()
+    public async Task A_declined_card_enters_its_recovery_window_and_waits_a_day_for_its_next_attempt()
     {
         var (given, campaign) = await Funded(FakePaymentProvider.CardDeclined);
 
         await Settle(campaign);
         await Settle(campaign);
 
-        Assert.Equal(1L, await Count(given, campaign, "TO_CHARGE"));
+        Assert.Equal(1L, await Count(given, campaign, "PAYMENT_FAILED"));
         Assert.Equal(1, await given.Scalar<int>("SELECT attempt_no FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
-        Assert.True(await given.Scalar<bool>("SELECT next_attempt_at > now() + interval '11 hours' FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.True(await given.Scalar<bool>("SELECT next_attempt_at > now() + interval '23 hours' FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal("insufficient_funds", await given.Scalar<string>("SELECT last_decline_code FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.NotEqual("DONE", await given.Scalar<string>("SELECT status FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId));
     }
 
     [Fact]

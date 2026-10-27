@@ -28,7 +28,7 @@ public sealed class HandlePspWebhookHandler(
     IWebhookInbox inbox,
     ICardSetups setups,
     ISettlements settlements,
-    ChargeResults results,
+    ChargeOutcomes outcomes,
     TimeProvider clock,
     [FromKeyedServices(PaymentsModuleName.Value)] IOutbox outbox) : ICommandHandler<HandlePspWebhook, WebhookHandled>
 {
@@ -63,9 +63,24 @@ public sealed class HandlePspWebhookHandler(
 
             // A charge's result, when its reply was lost or the bank decided later. The same conditional
             // move as the resolver's: whichever hears first records it, the other changes nothing.
-            case "charge_succeeded":
-            case "charge_failed":
+            case "charge_succeeded" or "charge_failed":
                 return Result.Success(await ApplyCharge(command, cancellationToken) ? WebhookHandled.Applied : WebhookHandled.Ignored);
+
+            // The result of a payment the backer confirmed on our page (lesson s3-a04).
+            case "payment_succeeded" or "payment_failed":
+                var paymentId = command.Data.GetProperty("payment_id").GetString()!;
+                var found = await settlements.FindByPayment(paymentId, cancellationToken);
+                if (found is not { } payment)
+                {
+                    return Result.Success(WebhookHandled.Ignored);
+                }
+
+                ChargeOutcome outcome = command.Type == "payment_succeeded"
+                    ? new ChargeOutcome.Succeeded(paymentId)
+                    : new ChargeOutcome.Declined(command.Data.TryGetProperty("decline_code", out var code) && code.GetString() is { } c ? c : "authentication_required", paymentId);
+                return Result.Success(await outcomes.Record(payment.Charge, payment.AttemptNo, outcome, cancellationToken)
+                    ? WebhookHandled.Applied
+                    : WebhookHandled.Ignored);
 
             default:
                 return Result.Success(WebhookHandled.Ignored);
@@ -86,6 +101,6 @@ public sealed class HandlePspWebhookHandler(
         ChargeOutcome outcome = command.Type == "charge_succeeded"
             ? new ChargeOutcome.Succeeded(paymentId)
             : new ChargeOutcome.Declined(data.GetProperty("decline_code").GetString()!, paymentId);
-        return await results.Apply(found.CampaignId, found.Work, n, outcome, ct);
+        return await outcomes.Record(found.Work with { CampaignId = found.CampaignId }, n, outcome, ct);
     }
 }

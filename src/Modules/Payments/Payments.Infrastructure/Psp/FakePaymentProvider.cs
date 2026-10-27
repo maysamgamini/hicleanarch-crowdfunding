@@ -20,10 +20,12 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     public const string CardSucceeds = "pm_card_visa";
     public const string CardDeclined = "pm_card_declined";
     public const string CardNeedsAuthentication = "pm_card_authentication_required";
+    public const string CardExpired = "pm_card_expired";
 
     private readonly ConcurrentDictionary<string, string> _setups = new();
     private readonly ConcurrentDictionary<string, ChargeOutcome> _byKey = new();
     private readonly ConcurrentDictionary<string, (ChargeRequest Request, ChargeOutcome Outcome)> _payments = new();
+    private readonly ConcurrentDictionary<string, ChargeOutcome> _onSession = new();
     private readonly ConcurrentQueue<(string Call, DateTimeOffset At)> _calls = new();
     private int _attempts;
     private int _loseNextReplies;
@@ -76,6 +78,7 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
             ChargeOutcome result = request.PaymentMethodRef switch
             {
                 CardDeclined => new ChargeOutcome.Declined("insufficient_funds", paymentId),
+                CardExpired => new ChargeOutcome.Declined("expired_card", paymentId),
                 CardNeedsAuthentication => new ChargeOutcome.Declined("authentication_required", paymentId),
                 _ => new ChargeOutcome.Succeeded(paymentId),
             };
@@ -102,6 +105,53 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
                 .Select(p => p.Outcome)
                 .FirstOrDefault();
         return Task.FromResult(found ?? new ChargeOutcome.NotFound());
+    }
+
+    public Task<OnSessionPayment> StartOnSessionPayment(ChargeRequest request, string idempotencyKey, CancellationToken ct)
+    {
+        Reach("charge");
+        var outcome = _byKey.GetOrAdd(idempotencyKey, _ =>
+        {
+            var waiting = new ChargeOutcome.Unknown(ChargeOutcome.WaitingForBacker);
+            var paymentId = $"pi_{Guid.NewGuid():N}";
+            _payments[paymentId] = (request, waiting);
+            _onSession[paymentId] = waiting;
+            return new ChargeOutcome.Declined("requires_action", paymentId);
+        });
+        var id = ((ChargeOutcome.Declined)outcome).PspPaymentId!;
+        return Task.FromResult(new OnSessionPayment(id, $"{id}_secret_{Guid.NewGuid():N}"));
+    }
+
+    public Task<ChargeOutcome> Cancel(ChargeReference reference, CancellationToken ct)
+    {
+        Reach("charge");
+        var id = reference.PspPaymentId ?? _payments.Where(p =>
+            p.Value.Request.PspCustomerId == reference.PspCustomerId && p.Value.Request.PledgeId == reference.PledgeId && p.Value.Request.AttemptNo == reference.AttemptNo)
+            .Select(p => p.Key).FirstOrDefault();
+        if (id is null || !_payments.TryGetValue(id, out var payment))
+        {
+            return Task.FromResult<ChargeOutcome>(new ChargeOutcome.NotFound());
+        }
+
+        if (payment.Outcome is ChargeOutcome.Unknown)
+        {
+            payment = (payment.Request, new ChargeOutcome.Declined("authentication_required", id));
+            _payments[id] = payment;
+        }
+
+        return Task.FromResult(payment.Outcome);
+    }
+
+    /// <summary>
+    /// The backer confirmed an on-session payment in the browser, or gave up: the PSP's webhook,
+    /// signed. Once confirmed, a payment stays succeeded.
+    /// </summary>
+    public SignedWebhook FinishOnSessionPayment(string pspPaymentId, bool confirmed = true)
+    {
+        var (request, _) = _payments[pspPaymentId];
+        ChargeOutcome result = confirmed ? new ChargeOutcome.Succeeded(pspPaymentId) : new ChargeOutcome.Declined("authentication_required", pspPaymentId);
+        _payments[pspPaymentId] = (request, result);
+        return Webhook(confirmed ? "payment_succeeded" : "payment_failed", new { payment_id = pspPaymentId, decline_code = confirmed ? null : "authentication_required" });
     }
 
     /// <summary>The backer finished the PSP's card form: the webhook the PSP would send, signed.</summary>

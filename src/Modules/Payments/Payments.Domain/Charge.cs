@@ -5,7 +5,12 @@ public enum ChargeStatus
     ToCharge,
     Charging,
     Charged,
-    Failed,
+
+    /// <summary>Declined, inside its 7-day recovery window (lesson s3-a04).</summary>
+    PaymentFailed,
+
+    /// <summary>The window ended, or the attempts ran out: never charged, and the campaign stays funded.</summary>
+    Dropped,
 }
 
 public enum AttemptStatus
@@ -47,6 +52,12 @@ public sealed class Charge
     /// <summary>A failed charge is tried again no earlier than this.</summary>
     public DateTimeOffset? NextAttemptAt { get; private set; }
 
+    /// <summary>The first decline: the recovery window runs from here.</summary>
+    public DateTimeOffset? PaymentFailedAt { get; private set; }
+
+    /// <summary>Why the latest attempt was declined, which decides what the backer is asked to do.</summary>
+    public string? LastDeclineCode { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static Charge For(Guid pledgeId, Guid campaignId, Guid backerId, long amountMinor, string currency, string paymentMethodRef) => new()
@@ -84,6 +95,9 @@ public sealed class ChargeAttempt
     public string? PspPaymentId { get; private set; }
 
     public string? DeclineCode { get; private set; }
+
+    /// <summary>Confirmed by the backer on our page, with the bank's check, not charged off-session.</summary>
+    public bool OnSession { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 }

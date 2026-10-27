@@ -12,7 +12,9 @@ public enum PledgeStatus
     Released,
     ToCharge,
     Charged,
-    Failed,
+
+    /// <summary>Its charge was dropped after the 7-day recovery window (lesson s3-a04): it never paid, and it no longer counts.</summary>
+    Dropped,
 }
 
 /// <summary>A backer's promise to pay an amount, optionally for a tier, if the campaign is funded.</summary>
@@ -163,6 +165,9 @@ public enum LedgerKind
     Activate,
     Change,
     Cancel,
+
+    /// <summary>A pledge whose charge was dropped leaves the total; the decision stands (lesson s3-a04).</summary>
+    Drop,
 }
 
 /// <summary>
@@ -218,5 +223,15 @@ public sealed class LedgerEntry
         CauseId = causeId,
         DeltaMinor = -pledge.AmountMinor,
         Kind = LedgerKind.Cancel,
+    };
+
+    /// <summary>A dropped charge's pledge leaves the total: the whole amount, negative, like a cancel.</summary>
+    public static LedgerEntry Drop(Pledge pledge, string causeId) => new()
+    {
+        CampaignId = pledge.CampaignId,
+        PledgeId = pledge.Id,
+        CauseId = causeId,
+        DeltaMinor = -pledge.AmountMinor,
+        Kind = LedgerKind.Drop,
     };
 }

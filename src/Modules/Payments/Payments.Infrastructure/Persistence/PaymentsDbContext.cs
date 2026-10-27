@@ -1,4 +1,5 @@
 using BuildingBlocks.Infrastructure.Events;
+using BuildingBlocks.Infrastructure.Persistence;
 
 using Microsoft.EntityFrameworkCore;
 
@@ -26,6 +27,7 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
+        modelBuilder.MapIdempotencyKeys();
         modelBuilder.MapOutboxAndInbox();
 
         modelBuilder.Entity<PspCustomer>(customer =>
@@ -62,14 +64,16 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             charge.Property(c => c.PspPaymentId).HasMaxLength(100);
             charge.Property(c => c.Status).HasConversion(s => Names.Of(s), s => Names.Parse<ChargeStatus>(s)).HasMaxLength(20);
             charge.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
-            charge.HasIndex(c => c.CampaignId).HasFilter("status IN ('TO_CHARGE', 'CHARGING')").HasDatabaseName("charges_open");
+            charge.Property(c => c.LastDeclineCode).HasMaxLength(100);
+            charge.HasIndex(c => c.CampaignId).HasFilter("status IN ('TO_CHARGE', 'CHARGING', 'PAYMENT_FAILED')").HasDatabaseName("charges_open");
         });
 
         modelBuilder.Entity<ChargeAttempt>(attempt =>
         {
             attempt.ToTable("charge_attempts", t =>
             {
-                t.HasCheckConstraint("charge_attempts_no", "attempt_no BETWEEN 1 AND 3");
+                // The deadline's charge, three retries and a final one (lesson s3-a04).
+                t.HasCheckConstraint("charge_attempts_no", "attempt_no BETWEEN 1 AND 5");
                 t.HasCheckConstraint("charge_attempts_status", "status IN ('IN_FLIGHT', 'SUCCEEDED', 'FAILED')");
             });
             attempt.HasKey(a => new { a.PledgeId, a.AttemptNo });
@@ -81,6 +85,8 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             attempt.Property(a => a.CreatedAt).HasDefaultValueSql("now()");
             // Lesson 8: at most one successful attempt per pledge, whatever any worker does.
             attempt.HasIndex(a => a.PledgeId).IsUnique().HasFilter("status = 'SUCCEEDED'").HasDatabaseName("one_success_per_pledge");
+            // A webhook about a payment the backer confirmed finds its attempt by the PSP's id.
+            attempt.HasIndex(a => a.PspPaymentId).HasFilter("psp_payment_id IS NOT NULL").HasDatabaseName("charge_attempts_by_payment");
         });
 
         modelBuilder.Entity<SettlementJob>(job =>

@@ -101,8 +101,15 @@ internal sealed class CircuitBreakingPaymentProvider(IPaymentProvider psp, Circu
     public Task<ChargeOutcome> LookUp(ChargeReference reference, CancellationToken ct) =>
         Guarded(c => psp.LookUp(reference, c), Answered, ct);
 
-    /// <summary>A decline is the PSP working; a timeout is not.</summary>
-    private static bool Answered(ChargeOutcome outcome) => outcome is not ChargeOutcome.Unknown;
+    public Task<OnSessionPayment> StartOnSessionPayment(ChargeRequest request, string idempotencyKey, CancellationToken ct) =>
+        Guarded(c => psp.StartOnSessionPayment(request, idempotencyKey, c), _ => true, ct);
+
+    public Task<ChargeOutcome> Cancel(ChargeReference reference, CancellationToken ct) =>
+        Guarded(c => psp.Cancel(reference, c), Answered, ct);
+
+    /// <summary>A decline is the PSP working, and so is a payment waiting for its backer; a timeout is not.</summary>
+    private static bool Answered(ChargeOutcome outcome) =>
+        outcome is not ChargeOutcome.Unknown { Reason: not ChargeOutcome.WaitingForBacker };
 
     private async Task<T> Guarded<T>(Func<CancellationToken, Task<T>> send, Func<T, bool> answered, CancellationToken ct)
     {

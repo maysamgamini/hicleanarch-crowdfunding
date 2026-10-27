@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 
 using BuildingBlocks.Application;
@@ -51,6 +52,7 @@ public static class PaymentsModule
         services.AddSharedValkey(configuration);
         services.AddOptions<PspBudget>().Bind(configuration.GetSection("Payments:Budget"));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<PspBudget>>().Value);
+        services.AddSingleton((configuration.GetSection("Payments:Dunning").Get<DunningOptions>() ?? new DunningOptions()).Policy);
         services.AddOptions<SettlementOptions>().Bind(configuration.GetSection("Payments:Settlement"));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SettlementOptions>>().Value);
         services.AddSingleton<SettlementWorker>();
@@ -79,6 +81,10 @@ public static class PaymentsModule
             .AddScoped<ICardSetups>(sp => sp.GetRequiredService<EfPayments>())
             .AddScoped<IWebhookInbox>(sp => sp.GetRequiredService<EfPayments>())
             .AddScoped<ISettlements, EfSettlements>()
+            .AddScoped<IdempotentRequests<PaymentsDbContext>>()
+            .AddSingleton<IdempotencyKeyPurge<PaymentsDbContext>>()
+            .AddSingleton<IIdempotencyKeyPurge>(sp => sp.GetRequiredService<IdempotencyKeyPurge<PaymentsDbContext>>())
+            .AddHostedService(sp => sp.GetRequiredService<IdempotencyKeyPurge<PaymentsDbContext>>())
             .AddScoped<ModuleTransaction<PaymentsDbContext>>()
             .AddKeyedScoped<ITransactionScope>(PaymentsModuleName.Value, (sp, _) => sp.GetRequiredService<ModuleTransaction<PaymentsDbContext>>());
     }
@@ -92,6 +98,35 @@ public static class PaymentsModule
             var body = await reader.ReadToEndAsync(http.RequestAborted);
             return await Receive(services, body, http.Request.Headers[WebhookSignature.Header], http.RequestAborted);
         }).AllowAnonymous().WithTags("Payments");
+
+        // A charge in its recovery window, fixed by its backer (lesson s3-a04): a new card after a hard
+        // decline, or a payment confirmed on our page when the bank wants the cardholder. Both are
+        // changes, so both carry an Idempotency-Key: a retried confirmation gets the same payment back.
+        app.MapPut("/v1/pledges/{id}/payment-method", (string id, NewCardRequest request, ClaimsPrincipal user, HttpContext http,
+            IDispatcher dispatcher, IdempotentRequests<PaymentsDbContext> once) =>
+            once.Run(http, user.UserId(), new { id, request }, async ct =>
+            {
+                if (!PublicId.TryParse("plg", id, out var pledgeId))
+                {
+                    return Result.Failure<Reply>(PaymentErrors.ChargeNotFound);
+                }
+
+                var result = await dispatcher.Send<UseNewCard, ChargeView>(new UseNewCard(pledgeId, user.UserId(), request.PaymentMethodId ?? ""), ct);
+                return result.IsSuccess ? Result.Success(new Reply(StatusCodes.Status200OK, result.Value)) : Result.Failure<Reply>(result.Errors);
+            })).RequireAuthorization(Policies.Backer).WithTags("Payments");
+
+        app.MapPost("/v1/pledges/{id}/confirm-payment", (string id, ClaimsPrincipal user, HttpContext http,
+            IDispatcher dispatcher, IdempotentRequests<PaymentsDbContext> once) =>
+            once.Run(http, user.UserId(), new { id }, async ct =>
+            {
+                if (!PublicId.TryParse("plg", id, out var pledgeId))
+                {
+                    return Result.Failure<Reply>(PaymentErrors.ChargeNotFound);
+                }
+
+                var result = await dispatcher.Send<ConfirmPayment, PaymentToConfirm>(new ConfirmPayment(pledgeId, user.UserId()), ct);
+                return result.IsSuccess ? Result.Success(new Reply(StatusCodes.Status200OK, result.Value)) : Result.Failure<Reply>(result.Errors);
+            })).RequireAuthorization(Policies.Backer).WithTags("Payments");
 
         // How far a funded campaign's settlement has got, with an ETA at the PSP's rate (lesson s3-a04).
         app.MapGet("/v1/campaigns/{id}/settlement", async (string id, IDispatcher dispatcher, CancellationToken ct) =>
@@ -144,3 +179,6 @@ public static class PaymentsModule
         return Results.Ok(new { received = handled.Value.ToString().ToLowerInvariant() });
     }
 }
+
+/// <summary>The JSON body of a new card for a charge in its recovery window: the PSP's reference to a saved card.</summary>
+internal sealed record NewCardRequest(string? PaymentMethodId);

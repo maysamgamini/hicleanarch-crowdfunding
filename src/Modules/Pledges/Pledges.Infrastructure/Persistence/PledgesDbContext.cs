@@ -87,9 +87,9 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
         {
             entry.ToTable("pledge_ledger", t =>
             {
-                t.HasCheckConstraint("pledge_ledger_kind", "kind IN ('ACTIVATE', 'CHANGE', 'CANCEL')");
+                t.HasCheckConstraint("pledge_ledger_kind", "kind IN ('ACTIVATE', 'CHANGE', 'CANCEL', 'DROP')");
                 t.HasCheckConstraint("pledge_ledger_sign",
-                    "(kind = 'ACTIVATE' AND delta_minor > 0) OR (kind = 'CANCEL' AND delta_minor < 0) OR (kind = 'CHANGE' AND delta_minor <> 0)");
+                    "(kind = 'ACTIVATE' AND delta_minor > 0) OR (kind IN ('CANCEL', 'DROP') AND delta_minor < 0) OR (kind = 'CHANGE' AND delta_minor <> 0)");
             });
             entry.HasKey(e => e.EntryId);
             entry.Property(e => e.EntryId).UseIdentityAlwaysColumn();

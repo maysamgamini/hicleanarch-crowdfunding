@@ -30,4 +30,8 @@ internal sealed class TimeFencedFundingWindows(PledgesDbContext db, EfFundingWin
 
     public Task<bool> IsOpen(Guid campaignId, CancellationToken cancellationToken) =>
         rowLocked.IsOpen(campaignId, cancellationToken);
+
+    // Round 2 writes no snapshot, so a dropped pledge has nothing to take out of it: its DROP entry is
+    // in the ledger, which the aggregator and the checks sum, and a decided campaign shows its final sum.
+    public Task TakeOutDropped(Guid campaignId, long amountMinor, CancellationToken cancellationToken) => Task.CompletedTask;
 }

@@ -33,6 +33,12 @@ public interface IFundingWindows
     /// window, and the close waits out the transactions' time limit instead (lesson s3-l05).
     /// </summary>
     Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A dropped pledge leaves the snapshot, in the same transaction as its DROP entry, so the snapshot
+    /// still equals the ledger. The decision and its final sum are not touched.
+    /// </summary>
+    Task TakeOutDropped(Guid campaignId, long amountMinor, CancellationToken cancellationToken);
 }
 
 public enum CancelOutcome

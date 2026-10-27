@@ -279,9 +279,9 @@ namespace Pledges.Infrastructure.Persistence.Migrations
 
                     b.ToTable("pledge_ledger", "pledges", t =>
                         {
-                            t.HasCheckConstraint("pledge_ledger_kind", "kind IN ('ACTIVATE', 'CHANGE', 'CANCEL')");
+                            t.HasCheckConstraint("pledge_ledger_kind", "kind IN ('ACTIVATE', 'CHANGE', 'CANCEL', 'DROP')");
 
-                            t.HasCheckConstraint("pledge_ledger_sign", "(kind = 'ACTIVATE' AND delta_minor > 0) OR (kind = 'CANCEL' AND delta_minor < 0) OR (kind = 'CHANGE' AND delta_minor <> 0)");
+                            t.HasCheckConstraint("pledge_ledger_sign", "(kind = 'ACTIVATE' AND delta_minor > 0) OR (kind IN ('CANCEL', 'DROP') AND delta_minor < 0) OR (kind = 'CHANGE' AND delta_minor <> 0)");
                         });
                 });
 

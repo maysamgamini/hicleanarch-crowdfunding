@@ -47,13 +47,15 @@ internal sealed class EfPledges(PledgesDbContext db, TimeFence fence) : IPledges
             WHERE id = {pledgeId} AND status = 'PENDING_SETUP' AND hold_expires_at > now()
             """, cancellationToken) == 1;
 
-    public async Task<bool> TryRecordCharge(Guid pledgeId, bool charged, CancellationToken cancellationToken)
-    {
-        var status = charged ? "CHARGED" : "FAILED";
-        return await db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE pledges.pledges SET status = {status} WHERE id = {pledgeId} AND status = 'TO_CHARGE'
+    public async Task<bool> TryRecordCharged(Guid pledgeId, CancellationToken cancellationToken) =>
+        await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE pledges.pledges SET status = 'CHARGED' WHERE id = {pledgeId} AND status = 'TO_CHARGE'
             """, cancellationToken) == 1;
-    }
+
+    public async Task<Pledge?> TryDrop(Guid pledgeId, CancellationToken cancellationToken) =>
+        (await db.Pledges.FromSql($"""
+            UPDATE pledges.pledges SET status = 'DROPPED' WHERE id = {pledgeId} AND status = 'TO_CHARGE' RETURNING *
+            """).AsNoTracking().ToListAsync(cancellationToken)).SingleOrDefault();
 
     public async Task<bool> TryExpireActivated(Guid pledgeId, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""

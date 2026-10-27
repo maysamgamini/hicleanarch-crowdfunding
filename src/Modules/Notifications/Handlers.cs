@@ -68,11 +68,14 @@ internal sealed class Handlers(Notifier notifier) :
     public Task Handle(PledgeChargeSucceeded e, CancellationToken ct) =>
         notifier.Tell(e.EventId, e.BackerId, "charge_succeeded", "You were charged", $"Your card was charged {e.AmountMinor.ToString(CultureInfo.InvariantCulture)} (minor units).", ct);
 
+    // Lesson s3-a04: every decline in the recovery window asks the backer to fix the payment; the last one says it was dropped.
     public Task Handle(PledgeChargeFailed e, CancellationToken ct) =>
         e.Final
-            ? notifier.Tell(e.EventId, e.BackerId, "charge_failed", "We could not charge your card",
-                $"{e.AttemptNo.ToString(CultureInfo.InvariantCulture)} attempts were declined, so your pledge was dropped.", ct)
-            : Task.CompletedTask;
+            ? notifier.Tell(e.EventId, e.BackerId, "charge_dropped", "We could not charge your card", "Your card was declined for 7 days, so your pledge was dropped. The campaign goes ahead without it.", ct)
+            : notifier.Tell(e.EventId, e.BackerId, "charge_declined", "Your card was declined",
+                e.DeclineCode == "authentication_required"
+                    ? "Your bank wants you to confirm this payment. Open your pledge to confirm it within 7 days."
+                    : "We will try again. You can also give another card from your pledge within 7 days.", ct);
 
     private static string Money(long minor, string currency) =>
         $"{(minor / 100m).ToString("0.00", CultureInfo.InvariantCulture)} {currency}";

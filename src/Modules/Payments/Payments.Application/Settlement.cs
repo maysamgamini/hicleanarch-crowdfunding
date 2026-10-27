@@ -10,8 +10,23 @@ using Pledges.Contracts;
 
 namespace Payments.Application;
 
-/// <summary>A charge the worker is about to act on, with the backer's customer at the PSP.</summary>
-public sealed record ChargeWork(Guid PledgeId, Guid BackerId, long AmountMinor, string Currency, string PaymentMethodRef, ChargeStatus Status, int AttemptNo, string? PspPaymentId)
+/// <summary>
+/// A charge the worker or a backer is about to act on. <see cref="PaymentFailedAt"/> opened its
+/// recovery window; <see cref="OnSession"/>: its latest attempt waits for the backer, not the PSP.
+/// </summary>
+public sealed record ChargeWork(
+    Guid PledgeId,
+    Guid BackerId,
+    long AmountMinor,
+    string Currency,
+    string PaymentMethodRef,
+    ChargeStatus Status,
+    int AttemptNo,
+    string? PspPaymentId,
+    Guid CampaignId = default,
+    DateTimeOffset? PaymentFailedAt = null,
+    string? LastDeclineCode = null,
+    bool OnSession = false)
 {
     public string PledgePublicId => PublicId.Format("plg", PledgeId);
 }
@@ -74,15 +89,33 @@ public interface ISettlements
     Task<ChargeOfPledge?> FindCharge(Guid pledgeId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// TO_CHARGE to CHARGING with the next attempt number, and the attempt row IN_FLIGHT with its key.
-    /// Committed before the PSP is called. Null: another worker has it.
+    /// TO_CHARGE or PAYMENT_FAILED to CHARGING with the next attempt number, and the attempt row
+    /// IN_FLIGHT with its key. Committed before the PSP is called. Null: another worker, or the backer, has it.
     /// </summary>
-    Task<int?> TryStartAttempt(Guid pledgeId, string pledgePublicId, CancellationToken cancellationToken);
+    Task<int?> TryStartAttempt(Guid pledgeId, string pledgePublicId, bool onSession, CancellationToken cancellationToken);
+
+    /// <summary>The PSP's id for an on-session attempt, kept so its webhook and the resolver find it.</summary>
+    Task RecordPayment(Guid pledgeId, int attemptNo, string pspPaymentId, CancellationToken cancellationToken);
 
     Task<bool> TryRecordSuccess(Guid pledgeId, int attemptNo, string pspPaymentId, CancellationToken cancellationToken);
 
-    /// <summary>Records a decline. With attempts left, the charge goes back to TO_CHARGE for later; otherwise it is FAILED.</summary>
-    Task<bool> TryRecordDecline(Guid pledgeId, int attemptNo, string code, string? pspPaymentId, bool final, DateTimeOffset? nextAttemptAt, CancellationToken cancellationToken);
+    /// <summary>
+    /// Records a decline: PAYMENT_FAILED until <paramref name="nextAttemptAt"/>, the window opening at
+    /// the first decline; or DROPPED.
+    /// </summary>
+    Task<bool> TryRecordDecline(Guid pledgeId, int attemptNo, string code, string? pspPaymentId, bool drop, DateTimeOffset? nextAttemptAt, CancellationToken cancellationToken);
+
+    /// <summary>A backer's own charge. Null: no charge for this pledge and backer.</summary>
+    Task<ChargeWork?> FindForBacker(Guid pledgeId, Guid backerId, CancellationToken cancellationToken);
+
+    /// <summary>The charge an on-session payment belongs to, with that attempt's number. Null: not ours, or not waiting.</summary>
+    Task<(ChargeWork Charge, int AttemptNo)?> FindByPayment(string pspPaymentId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// A new saved card for a charge in its recovery window, tried at once: the charge is due now,
+    /// and so is its settlement job. False: it is not waiting in PAYMENT_FAILED.
+    /// </summary>
+    Task<bool> TryUseNewCard(Guid pledgeId, string paymentMethodRef, CancellationToken cancellationToken);
 
     Task<string> CustomerOf(Guid backerId, CancellationToken cancellationToken);
 }
@@ -100,11 +133,6 @@ public sealed class SettlementOptions
     /// </summary>
     public TimeSpan PspCallTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
-    /// <summary>A declined charge is tried again after this; three attempts span 24 hours.</summary>
-    public TimeSpan RetryAfter { get; set; } = TimeSpan.FromHours(12);
-
-    public int MaxAttempts { get; set; } = 3;
-
     /// <summary>Charges one turn works through before the job goes back for the next campaign's turn.</summary>
     public int BatchSize { get; set; } = 500;
 
@@ -113,6 +141,60 @@ public sealed class SettlementOptions
 
     /// <summary>How long a job waits after the PSP could not be reached, or the circuit was open.</summary>
     public TimeSpan PauseWhenPspFails { get; set; } = TimeSpan.FromSeconds(30);
+}
+
+/// <summary>Configuration section <c>Payments:Dunning</c>: the recovery window of lesson s3-a04.</summary>
+public sealed class DunningOptions
+{
+    public TimeSpan Window { get; set; } = DunningPolicy.Default.Window;
+
+    public TimeSpan[] SoftRetries { get; set; } = [.. DunningPolicy.Default.SoftRetries];
+
+    public int MaxAttempts { get; set; } = DunningPolicy.Default.MaxAttempts;
+
+    public DunningPolicy Policy => new(Window, SoftRetries, MaxAttempts);
+}
+
+/// <summary>
+/// What an attempt's outcome does to its charge, wherever the outcome comes from: the worker's own
+/// call, the resolver's question, or the PSP's webhook. Every move is conditional on the attempt
+/// still being IN_FLIGHT, so the same outcome told twice moves the charge once. Runs inside the
+/// caller's transaction, with its event.
+/// </summary>
+public sealed class ChargeOutcomes(
+    ISettlements settlements,
+    DunningPolicy dunning,
+    TimeProvider clock,
+    [FromKeyedServices(PaymentsModuleName.Value)] IOutbox outbox)
+{
+    public async Task<bool> Record(ChargeWork charge, int n, ChargeOutcome outcome, CancellationToken ct)
+    {
+        var now = clock.GetUtcNow();
+        switch (outcome)
+        {
+            case ChargeOutcome.Succeeded s:
+                if (!await settlements.TryRecordSuccess(charge.PledgeId, n, s.PspPaymentId, ct))
+                {
+                    return false;
+                }
+
+                await outbox.Add(new PledgeChargeSucceeded(Guid.CreateVersion7(), now, charge.PledgeId, charge.CampaignId, n, s.PspPaymentId, charge.AmountMinor, charge.BackerId), ct);
+                return true;
+
+            case ChargeOutcome.Declined d:
+                var (drop, next) = dunning.AfterDecline(n, d.Code, charge.PaymentFailedAt ?? now, now);
+                if (!await settlements.TryRecordDecline(charge.PledgeId, n, d.Code, d.PspPaymentId, drop, next, ct))
+                {
+                    return false;
+                }
+
+                await outbox.Add(new PledgeChargeFailed(Guid.CreateVersion7(), now, charge.PledgeId, charge.CampaignId, n, d.Code, drop, charge.BackerId), ct);
+                return true;
+
+            default:
+                return false; // Unknown: the attempt stays IN_FLIGHT, and the next pass asks about it
+        }
+    }
 }
 
 /// <summary>How far a campaign's settlement has got.</summary>
@@ -173,8 +255,9 @@ public sealed record RunSettlement(string Worker, Guid? CampaignId = null, IRead
 public sealed class RunSettlementHandler(
     ISettlements settlements,
     IPaymentProvider psp,
-    ChargeResults results,
     SettlementOptions options,
+    ChargeOutcomes outcomes,
+    DunningPolicy dunning,
     TimeProvider clock,
     [FromKeyedServices(PaymentsModuleName.Value)] IOutbox outbox,
     [FromKeyedServices(PaymentsModuleName.Value)] ITransactionScope transaction) : ICommandHandler<RunSettlement, bool>
@@ -240,7 +323,7 @@ public sealed class RunSettlementHandler(
 
     private async Task ChargeOnce(Guid campaignId, ChargeWork charge, string customer, CancellationToken ct)
     {
-        var attemptNo = await settlements.TryStartAttempt(charge.PledgeId, charge.PledgePublicId, ct);
+        var attemptNo = await settlements.TryStartAttempt(charge.PledgeId, charge.PledgePublicId, onSession: false, ct);
         if (attemptNo is not { } n)
         {
             return;
@@ -256,8 +339,23 @@ public sealed class RunSettlementHandler(
     private async Task Resolve(Guid campaignId, ChargeWork charge, string customer, CancellationToken ct)
     {
         var n = charge.AttemptNo;
-        var outcome = await WithinTimeout(c => psp.LookUp(new ChargeReference(charge.PspPaymentId, customer, charge.PledgePublicId, n), c), ct);
-        if (outcome is ChargeOutcome.NotFound)
+        var reference = new ChargeReference(charge.PspPaymentId, customer, charge.PledgePublicId, n);
+        var outcome = await WithinTimeout(c => psp.LookUp(reference, c), ct);
+        if (charge.OnSession)
+        {
+            // A payment the backer confirms waits for the backer, until the window ends: then it is
+            // cancelled, and a backer who confirmed meanwhile is charged, never dropped.
+            var windowOver = (charge.PaymentFailedAt ?? clock.GetUtcNow()) + dunning.Window <= clock.GetUtcNow();
+            if (outcome is ChargeOutcome.Unknown { Reason: ChargeOutcome.WaitingForBacker } && windowOver)
+            {
+                outcome = await WithinTimeout(c => psp.Cancel(reference, c), ct);
+            }
+            else if (outcome is ChargeOutcome.NotFound)
+            {
+                outcome = new ChargeOutcome.Declined("authentication_required", null); // never created: the backer may confirm again
+            }
+        }
+        else if (outcome is ChargeOutcome.NotFound)
         {
             // The first request never reached the PSP: send that same attempt again, with its own key.
             outcome = await WithinTimeout(c => psp.Charge(
@@ -285,47 +383,6 @@ public sealed class RunSettlementHandler(
 
     private Task Record(Guid campaignId, ChargeWork charge, int n, ChargeOutcome outcome, CancellationToken cancellationToken) =>
         outcome is ChargeOutcome.Unknown
-            ? Task.CompletedTask // the attempt stays IN_FLIGHT, and the next pass asks about it
-            : transaction.Run(async ct => Result.Success(await results.Apply(campaignId, charge, n, outcome, ct)), cancellationToken);
-}
-
-/// <summary>
-/// Records what the PSP said about one attempt, with the same conditional moves whoever heard it:
-/// a settlement pass, its resolver, or the PSP's own webhook. Runs inside the caller's transaction.
-/// A second report of the same result changes nothing and publishes nothing.
-/// </summary>
-public sealed class ChargeResults(
-    ISettlements settlements,
-    SettlementOptions options,
-    TimeProvider clock,
-    [FromKeyedServices(PaymentsModuleName.Value)] IOutbox outbox)
-{
-    public async Task<bool> Apply(Guid campaignId, ChargeWork charge, int n, ChargeOutcome outcome, CancellationToken ct)
-    {
-        switch (outcome)
-        {
-            case ChargeOutcome.Succeeded s:
-                if (!await settlements.TryRecordSuccess(charge.PledgeId, n, s.PspPaymentId, ct))
-                {
-                    return false;
-                }
-
-                await outbox.Add(new PledgeChargeSucceeded(Guid.CreateVersion7(), clock.GetUtcNow(), charge.PledgeId, campaignId, n, s.PspPaymentId, charge.AmountMinor, charge.BackerId), ct);
-                return true;
-
-            case ChargeOutcome.Declined d:
-                var final = n >= options.MaxAttempts;
-                var next = final ? (DateTimeOffset?)null : clock.GetUtcNow() + options.RetryAfter;
-                if (!await settlements.TryRecordDecline(charge.PledgeId, n, d.Code, d.PspPaymentId, final, next, ct))
-                {
-                    return false;
-                }
-
-                await outbox.Add(new PledgeChargeFailed(Guid.CreateVersion7(), clock.GetUtcNow(), charge.PledgeId, campaignId, n, d.Code, final, charge.BackerId), ct);
-                return true;
-
-            default:
-                return false;
-        }
-    }
+            ? Task.CompletedTask
+            : transaction.Run(async ct => Result.Success(await outcomes.Record(charge with { CampaignId = campaignId }, n, outcome, ct)), cancellationToken);
 }

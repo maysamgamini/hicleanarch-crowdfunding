@@ -53,18 +53,18 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
             SET status = 'PENDING', lease_owner = NULL, lease_until = NULL, last_turn_at = clock_timestamp(),
                 not_before = greatest(now() + {pause}, CASE
                     WHEN EXISTS (SELECT 1 FROM payments.charges c
-                                 WHERE c.campaign_id = j.campaign_id AND c.status = 'TO_CHARGE'
+                                 WHERE c.campaign_id = j.campaign_id AND c.status IN ('TO_CHARGE', 'PAYMENT_FAILED')
                                    AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now()))
                         THEN NULL                       -- work is waiting now
                     WHEN EXISTS (SELECT 1 FROM payments.charges c WHERE c.campaign_id = j.campaign_id AND c.status = 'CHARGING')
                       OR (SELECT count(*) FROM payments.charges c WHERE c.campaign_id = j.campaign_id) < j.expected_charges
                         THEN LEAST(                     -- an unknown attempt, or charges still to be created
                             (SELECT min(c.next_attempt_at) FROM payments.charges c
-                             WHERE c.campaign_id = j.campaign_id AND c.status = 'TO_CHARGE'),
+                             WHERE c.campaign_id = j.campaign_id AND c.status IN ('TO_CHARGE', 'PAYMENT_FAILED')),
                             now() + {unknownBackoff})
                     ELSE COALESCE(                      -- only retries, each due at its own time
                         (SELECT min(c.next_attempt_at) FROM payments.charges c
-                         WHERE c.campaign_id = j.campaign_id AND c.status = 'TO_CHARGE'),
+                         WHERE c.campaign_id = j.campaign_id AND c.status IN ('TO_CHARGE', 'PAYMENT_FAILED')),
                         now() + {unknownBackoff})
                 END)
             WHERE j.campaign_id = {campaignId} AND j.lease_owner = {worker} AND j.status = 'RUNNING'
@@ -84,23 +84,74 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
 
     public async Task<IReadOnlyList<ChargeWork>> Workable(Guid campaignId, int batchSize, CancellationToken cancellationToken)
     {
-        var rows = await db.Charges.FromSql($"""
-            SELECT * FROM payments.charges
-            WHERE campaign_id = {campaignId}
-              AND (status = 'CHARGING' OR (status = 'TO_CHARGE' AND (next_attempt_at IS NULL OR next_attempt_at <= now())))
-            ORDER BY status = 'CHARGING' DESC, created_at
+        // A charge in its recovery window is due again at its next attempt's time (lesson s3-a04).
+        var rows = await db.Database.SqlQuery<ChargeRow>($"""
+            SELECT c.*, coalesce(a.on_session, false) AS on_session
+            FROM payments.charges c
+            LEFT JOIN payments.charge_attempts a ON a.pledge_id = c.pledge_id AND a.attempt_no = c.attempt_no
+            WHERE c.campaign_id = {campaignId}
+              AND (c.status = 'CHARGING'
+                   OR (c.status IN ('TO_CHARGE', 'PAYMENT_FAILED') AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now())))
+            ORDER BY c.status = 'CHARGING' DESC, c.created_at
             LIMIT {batchSize}
-            """).AsNoTracking().ToListAsync(cancellationToken);
-        return [.. rows.Select(c => new ChargeWork(c.PledgeId, c.BackerId, c.AmountMinor, c.Currency, c.PaymentMethodRef, c.Status, c.AttemptNo, c.PspPaymentId))];
+            """).ToListAsync(cancellationToken);
+        return [.. rows.Select(r => r.ToWork())];
     }
 
     public async Task<ChargeOfPledge?> FindCharge(Guid pledgeId, CancellationToken cancellationToken)
     {
-        var c = await db.Charges.AsNoTracking().SingleOrDefaultAsync(c => c.PledgeId == pledgeId, cancellationToken);
-        return c is null
-            ? null
-            : new ChargeOfPledge(c.CampaignId, new ChargeWork(c.PledgeId, c.BackerId, c.AmountMinor, c.Currency, c.PaymentMethodRef, c.Status, c.AttemptNo, c.PspPaymentId));
+        var row = (await db.Database.SqlQuery<ChargeRow>($"""
+            SELECT c.*, coalesce(a.on_session, false) AS on_session
+            FROM payments.charges c
+            LEFT JOIN payments.charge_attempts a ON a.pledge_id = c.pledge_id AND a.attempt_no = c.attempt_no
+            WHERE c.pledge_id = {pledgeId}
+            """).ToListAsync(cancellationToken)).SingleOrDefault();
+        return row is null ? null : new ChargeOfPledge(row.CampaignId, row.ToWork());
     }
+
+    public async Task<ChargeWork?> FindForBacker(Guid pledgeId, Guid backerId, CancellationToken cancellationToken) =>
+        (await db.Database.SqlQuery<ChargeRow>($"""
+            SELECT c.*, coalesce(a.on_session, false) AS on_session
+            FROM payments.charges c
+            LEFT JOIN payments.charge_attempts a ON a.pledge_id = c.pledge_id AND a.attempt_no = c.attempt_no
+            WHERE c.pledge_id = {pledgeId} AND c.backer_id = {backerId}
+            """).ToListAsync(cancellationToken)).SingleOrDefault()?.ToWork();
+
+    public async Task<(ChargeWork Charge, int AttemptNo)?> FindByPayment(string pspPaymentId, CancellationToken cancellationToken)
+    {
+        var row = (await db.Database.SqlQuery<ChargeRow>($"""
+            SELECT c.*, a.on_session
+            FROM payments.charge_attempts a
+            JOIN payments.charges c ON c.pledge_id = a.pledge_id
+            WHERE a.psp_payment_id = {pspPaymentId} AND a.status = 'IN_FLIGHT' AND c.attempt_no = a.attempt_no
+            """).ToListAsync(cancellationToken)).SingleOrDefault();
+        return row is null ? null : (row.ToWork(), row.AttemptNo);
+    }
+
+    public async Task<bool> TryUseNewCard(Guid pledgeId, string paymentMethodRef, CancellationToken cancellationToken)
+    {
+        var changed = await db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE payments.charges SET payment_method_ref = {paymentMethodRef}, next_attempt_at = now()
+            WHERE pledge_id = {pledgeId} AND status = 'PAYMENT_FAILED'
+            """, cancellationToken);
+        if (changed == 1)
+        {
+            await db.Database.ExecuteSqlInterpolatedAsync($"""
+                UPDATE payments.settlement_jobs SET not_before = now()
+                WHERE campaign_id = (SELECT campaign_id FROM payments.charges WHERE pledge_id = {pledgeId}) AND status <> 'DONE'
+                """, cancellationToken);
+        }
+
+        return changed == 1;
+    }
+
+    public Task RecordPayment(Guid pledgeId, int attemptNo, string pspPaymentId, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE payments.charge_attempts SET psp_payment_id = {pspPaymentId}
+            WHERE pledge_id = {pledgeId} AND attempt_no = {attemptNo} AND status = 'IN_FLIGHT';
+            UPDATE payments.charges SET psp_payment_id = {pspPaymentId}
+            WHERE pledge_id = {pledgeId} AND attempt_no = {attemptNo} AND status = 'CHARGING';
+            """, cancellationToken);
 
     public async Task<SettlementCounts> Counts(Guid campaignId, CancellationToken cancellationToken)
     {
@@ -109,7 +160,8 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
             .GroupBy(c => c.Status).Select(g => new { g.Key, Count = g.Count() })
             .ToDictionaryAsync(g => g.Key, g => g.Count, cancellationToken);
         int Of(ChargeStatus s) => byStatus.GetValueOrDefault(s);
-        return new SettlementCounts(expected, Of(ChargeStatus.Charged), Of(ChargeStatus.Failed), Of(ChargeStatus.ToCharge) + Of(ChargeStatus.Charging));
+        return new SettlementCounts(expected, Of(ChargeStatus.Charged), Of(ChargeStatus.Dropped),
+            Of(ChargeStatus.ToCharge) + Of(ChargeStatus.Charging) + Of(ChargeStatus.PaymentFailed));
     }
 
     public async Task<(SettlementCounts Counts, string Status, int OpenAheadOrAlongside)?> Progress(Guid campaignId, CancellationToken cancellationToken)
@@ -121,7 +173,8 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
         }
 
         var counts = await Counts(campaignId, cancellationToken);
-        var open = counts.Open;
+        // The ETA is for the charges due now; one in its recovery window waits for its day, not for the rate.
+        var open = await db.Charges.CountAsync(c => c.CampaignId == campaignId && (c.Status == ChargeStatus.ToCharge || c.Status == ChargeStatus.Charging), cancellationToken);
         var shared = await db.Database.SqlQuery<int>($"""
             SELECT coalesce(sum(least(c.open, {open})), 0)::int AS "Value"
             FROM (SELECT campaign_id, count(*) AS open FROM payments.charges
@@ -131,12 +184,13 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
         return (counts, Names.Of(job.Status), shared);
     }
 
-    public async Task<int?> TryStartAttempt(Guid pledgeId, string pledgePublicId, CancellationToken cancellationToken)
+    public async Task<int?> TryStartAttempt(Guid pledgeId, string pledgePublicId, bool onSession, CancellationToken cancellationToken)
     {
-        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        // Its own transaction, committed before the PSP is called; inside a backer's request, that request's.
+        await using var transaction = db.Database.CurrentTransaction is null ? await db.Database.BeginTransactionAsync(cancellationToken) : null;
         var started = await db.Database.SqlQuery<int>($"""
-            UPDATE payments.charges SET status = 'CHARGING', attempt_no = attempt_no + 1, next_attempt_at = NULL
-            WHERE pledge_id = {pledgeId} AND status = 'TO_CHARGE'
+            UPDATE payments.charges SET status = 'CHARGING', attempt_no = attempt_no + 1, next_attempt_at = NULL, psp_payment_id = NULL
+            WHERE pledge_id = {pledgeId} AND status IN ('TO_CHARGE', 'PAYMENT_FAILED')
             RETURNING attempt_no AS "Value"
             """).ToListAsync(cancellationToken);
         if (started.Count == 0)
@@ -146,10 +200,13 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
 
         var n = started[0];
         await db.Database.ExecuteSqlInterpolatedAsync($"""
-            INSERT INTO payments.charge_attempts (pledge_id, attempt_no, idempotency_key, status)
-            VALUES ({pledgeId}, {n}, {Charge.KeyFor(pledgePublicId, n)}, 'IN_FLIGHT')
+            INSERT INTO payments.charge_attempts (pledge_id, attempt_no, idempotency_key, status, on_session)
+            VALUES ({pledgeId}, {n}, {Charge.KeyFor(pledgePublicId, n)}, 'IN_FLIGHT', {onSession})
             """, cancellationToken);
-        await transaction.CommitAsync(cancellationToken); // recorded before the PSP is called
+        if (transaction is not null)
+        {
+            await transaction.CommitAsync(cancellationToken); // recorded before the PSP is called
+        }
         return n;
     }
 
@@ -166,15 +223,17 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
         return attempt == 1 && charge == 1;
     }
 
-    public async Task<bool> TryRecordDecline(Guid pledgeId, int attemptNo, string code, string? pspPaymentId, bool final, DateTimeOffset? nextAttemptAt, CancellationToken cancellationToken)
+    public async Task<bool> TryRecordDecline(Guid pledgeId, int attemptNo, string code, string? pspPaymentId, bool drop, DateTimeOffset? nextAttemptAt, CancellationToken cancellationToken)
     {
         var attempt = await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE payments.charge_attempts SET status = 'FAILED', decline_code = {code}, psp_payment_id = {pspPaymentId}
             WHERE pledge_id = {pledgeId} AND attempt_no = {attemptNo} AND status = 'IN_FLIGHT'
             """, cancellationToken);
-        var status = final ? "FAILED" : "TO_CHARGE";
+        var status = drop ? "DROPPED" : "PAYMENT_FAILED";
         var charge = await db.Database.ExecuteSqlInterpolatedAsync($"""
-            UPDATE payments.charges SET status = {status}, next_attempt_at = {nextAttemptAt}
+            UPDATE payments.charges
+            SET status = {status}, next_attempt_at = {nextAttemptAt}, last_decline_code = {code},
+                payment_failed_at = coalesce(payment_failed_at, now())
             WHERE pledge_id = {pledgeId} AND status = 'CHARGING' AND attempt_no = {attemptNo}
             """, cancellationToken);
         return attempt == 1 && charge == 1;
@@ -183,4 +242,26 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
     public async Task<string> CustomerOf(Guid backerId, CancellationToken cancellationToken) =>
         await customers.Find(backerId, cancellationToken)
             ?? await customers.Add(PspCustomer.For(backerId, await psp.CreateCustomer(backerId, cancellationToken)), cancellationToken);
+}
+
+/// <summary>A charge row with its latest attempt's kind, as raw SQL returns it.</summary>
+internal sealed record ChargeRow(
+    Guid PledgeId,
+    Guid CampaignId,
+    Guid BackerId,
+    long AmountMinor,
+    string Currency,
+    string PaymentMethodRef,
+    string Status,
+    int AttemptNo,
+    string? PspPaymentId,
+    DateTimeOffset? NextAttemptAt,
+    DateTimeOffset? PaymentFailedAt,
+    string? LastDeclineCode,
+    DateTimeOffset CreatedAt,
+    bool OnSession)
+{
+    public ChargeWork ToWork() => new(
+        PledgeId, BackerId, AmountMinor, Currency, PaymentMethodRef, Names.Parse<ChargeStatus>(Status), AttemptNo, PspPaymentId,
+        CampaignId, PaymentFailedAt, LastDeclineCode, OnSession);
 }

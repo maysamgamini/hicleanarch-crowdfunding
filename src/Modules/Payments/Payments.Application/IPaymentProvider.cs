@@ -15,7 +15,22 @@ public interface IPaymentProvider
 
     /// <summary>What became of an attempt whose reply never arrived: by the PSP's payment id if we have one, else by the pledge and attempt in the payment's metadata.</summary>
     Task<ChargeOutcome> LookUp(ChargeReference reference, CancellationToken ct);
+
+    /// <summary>
+    /// A payment the backer confirms on our page, with the bank's check: the PSP creates it and the
+    /// backer's browser confirms it with the secret. Its result arrives as a webhook. The same key
+    /// returns the same payment.
+    /// </summary>
+    Task<OnSessionPayment> StartOnSessionPayment(ChargeRequest request, string idempotencyKey, CancellationToken ct);
+
+    /// <summary>
+    /// Ends a payment that is still waiting for the backer. If the backer confirmed it meanwhile, the
+    /// answer is its success: a payment that went through is never treated as failed.
+    /// </summary>
+    Task<ChargeOutcome> Cancel(ChargeReference reference, CancellationToken ct);
 }
+
+public sealed record OnSessionPayment(string PspPaymentId, string ClientSecret);
 
 public sealed record CardSetupIntent(string PspSetupId, string ClientSecret);
 
@@ -31,6 +46,9 @@ public abstract record ChargeOutcome
     public sealed record Declined(string Code, string? PspPaymentId) : ChargeOutcome;
 
     public sealed record Unknown(string Reason) : ChargeOutcome;
+
+    /// <summary>The reason a payment that waits for the backer gives while it waits.</summary>
+    public const string WaitingForBacker = "requires_action";
 
     /// <summary>A lookup found no payment for the attempt: the first request never reached the PSP.</summary>
     public sealed record NotFound : ChargeOutcome;

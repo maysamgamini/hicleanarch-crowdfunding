@@ -28,8 +28,11 @@ public interface IPledges
     /// </summary>
     Task<bool> TryActivate(Guid pledgeId, string paymentMethodRef, CancellationToken cancellationToken);
 
-    /// <summary>TO_CHARGE to the charge's final outcome, CHARGED or FAILED, once.</summary>
-    Task<bool> TryRecordCharge(Guid pledgeId, bool charged, CancellationToken cancellationToken);
+    /// <summary>TO_CHARGE to CHARGED, once.</summary>
+    Task<bool> TryRecordCharged(Guid pledgeId, CancellationToken cancellationToken);
+
+    /// <summary>TO_CHARGE to DROPPED, once: the pledge as it was. Null: it was not waiting for its charge.</summary>
+    Task<Pledge?> TryDrop(Guid pledgeId, CancellationToken cancellationToken);
 
     /// <summary>ACTIVE back to EXPIRED, in the same transaction that activated it, when the campaign had closed meanwhile.</summary>
     Task<bool> TryExpireActivated(Guid pledgeId, CancellationToken cancellationToken);

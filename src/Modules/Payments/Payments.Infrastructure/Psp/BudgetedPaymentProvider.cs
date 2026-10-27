@@ -24,6 +24,12 @@ internal sealed class BudgetedPaymentProvider(IPaymentProvider psp, ITokenBucket
     public Task<ChargeOutcome> LookUp(ChargeReference reference, CancellationToken ct) =>
         Call(PspCall.LookUp, c => psp.LookUp(reference, c), ct);
 
+    public Task<OnSessionPayment> StartOnSessionPayment(ChargeRequest request, string idempotencyKey, CancellationToken ct) =>
+        Call(PspCall.Charge, c => psp.StartOnSessionPayment(request, idempotencyKey, c), ct);
+
+    public Task<ChargeOutcome> Cancel(ChargeReference reference, CancellationToken ct) =>
+        Call(PspCall.Charge, c => psp.Cancel(reference, c), ct);
+
     private async Task<T> Call<T>(PspCall call, Func<CancellationToken, Task<T>> send, CancellationToken ct)
     {
         while (true)
