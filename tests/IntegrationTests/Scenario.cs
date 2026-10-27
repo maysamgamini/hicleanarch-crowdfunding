@@ -105,7 +105,10 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
             using var message = request();
             message.Headers.Add("Idempotency-Key", key);
             var response = await client.SendAsync(message, Ct);
-            if (response.StatusCode != HttpStatusCode.Conflict || response.Headers.RetryAfter?.Delta is not { } wait)
+            // A busy answer (409) or a database that did not answer in time (503), each with Retry-After,
+            // asks the client to send the same request again with its key; anything else is the answer.
+            if (response.StatusCode is not (HttpStatusCode.Conflict or HttpStatusCode.ServiceUnavailable)
+                || response.Headers.RetryAfter?.Delta is not { } wait)
             {
                 return response;
             }
