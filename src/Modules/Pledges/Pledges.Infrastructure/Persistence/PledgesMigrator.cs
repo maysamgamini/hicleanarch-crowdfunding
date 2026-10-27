@@ -71,7 +71,9 @@ internal sealed class PledgesMigrator(TimeFence fence, IConfiguration configurat
     public async Task Verify(IReadOnlyList<ModuleDatabase> roles, CancellationToken cancellationToken)
     {
         var requestPath = roles.Single(r => r.Module == Module);
-        await using var connection = new NpgsqlConnection(requestPath.ConnectionString);
+        // A new login: a role's settings apply to sessions that start after ALTER ROLE, and a pooled
+        // session opened earlier in this process would not have the limit.
+        await using var connection = new NpgsqlConnection(new NpgsqlConnectionStringBuilder(requestPath.ConnectionString) { Pooling = false }.ConnectionString);
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
         var limit = fence.TransactionLimit;
