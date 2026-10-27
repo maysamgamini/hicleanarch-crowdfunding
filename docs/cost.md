@@ -2,8 +2,9 @@
 
 Derived from the Terraform in `infra/env` (the shape after lesson s3-l12: the monolith, the
 gateway, an Aurora writer and reader, Valkey, CloudFront) and AWS's us-east-1 on-demand list prices,
-read on 2026-10-27. These are estimates from prices, not a bill. The sandbox run records what an
-hour actually cost; put the measured figure next to these in lesson s3-l13.
+read on 2026-10-27. These are design estimates from list prices, not a bill: the course never runs
+this stack on AWS. A learner who applies it in their own account reads what an hour actually cost
+in Cost Explorer, and that figure, not these, is the one to trust for that account.
 
 ## Prices used
 
