@@ -4,6 +4,7 @@ using BuildingBlocks.Infrastructure.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 
 namespace BuildingBlocks.Infrastructure.Events;
 
@@ -46,7 +47,8 @@ public static class EventRegistration
         services.AddKeyedScoped<IOutbox>(module, (sp, _) =>
             new EfOutbox<TContext>(sp.GetRequiredService<TContext>(), sp.GetRequiredService<PendingEvents<TContext>>(), sp.GetRequiredService<EventRoutes>(), module));
         services.TryAddScoped<OutboxCommitInterceptor<TContext>>(sp => new OutboxCommitInterceptor<TContext>(
-            sp.GetRequiredService<PendingEvents<TContext>>(), sp.GetRequiredService<EventBus>(), sp.GetService<PublishHandoff>()));
+            sp.GetRequiredService<PendingEvents<TContext>>(), sp.GetRequiredService<EventBus>(), sp.GetService<PublishHandoff>(),
+            sp.GetService<ILogger<OutboxCommitInterceptor<TContext>>>()));
         services.AddSingleton<IModuleEvents>(sp => new ModuleEvents<TContext>(module, sp.GetRequiredService<IServiceScopeFactory>()));
         return services;
     }

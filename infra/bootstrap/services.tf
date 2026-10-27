@@ -14,6 +14,8 @@ locals {
       task_defs  = ["arn:aws:ecs:${var.region}:${local.account_id}:task-definition/${var.project}-${name}:*", "arn:aws:ecs:${var.region}:${local.account_id}:task-definition/${var.project}-${name}-migrate:*"]
       service    = "arn:aws:ecs:${var.region}:${local.account_id}:service/${var.project}-sandbox/${name}"
       log_group  = "arn:aws:logs:${var.region}:${local.account_id}:log-group:/${var.project}/sandbox/${name}"
+      alarms     = ["arn:aws:cloudwatch:${var.region}:${local.account_id}:alarm:${var.project}-sandbox-${name}-*", "arn:aws:cloudwatch:${var.region}:${local.account_id}:alarm:${var.project}-sandbox-${name}_running_tasks"]
+      dashboard  = "arn:aws:cloudwatch::${local.account_id}:dashboard/${var.project}-sandbox-${name}-signals"
       state      = "${aws_s3_bucket.state.arn}/services/${name}/*"
       repository = "arn:aws:ecr:${var.region}:${local.account_id}:repository/${var.project}/crowdfunding-${name}"
     }
@@ -154,6 +156,26 @@ data "aws_iam_policy_document" "deploy_service" {
     }
   }
 
+  # Its alarms and its signals dashboard (s5-l13), named after the service.
+  statement {
+    sid = "ItsAlarms"
+    actions = [
+      "cloudwatch:PutMetricAlarm", "cloudwatch:PutCompositeAlarm", "cloudwatch:DeleteAlarms",
+      "cloudwatch:TagResource", "cloudwatch:UntagResource", "cloudwatch:ListTagsForResource",
+    ]
+    resources = local.service_access[each.key].alarms
+  }
+  statement {
+    sid       = "ItsDashboard"
+    actions   = ["cloudwatch:PutDashboard", "cloudwatch:GetDashboard", "cloudwatch:DeleteDashboards"]
+    resources = [local.service_access[each.key].dashboard]
+  }
+  statement {
+    sid       = "ReadAlarms"
+    actions   = ["cloudwatch:DescribeAlarms"]
+    resources = ["*"]
+  }
+
   statement {
     sid       = "ItsLogGroup"
     actions   = ["logs:*"]
@@ -266,6 +288,12 @@ data "aws_iam_policy_document" "deploy_shared_services" {
     effect    = "Deny"
     actions   = ["iam:*"]
     resources = [for a in local.service_access : a.roles]
+  }
+  statement {
+    sid       = "NotTheServicesSignals"
+    effect    = "Deny"
+    actions   = ["cloudwatch:PutMetricAlarm", "cloudwatch:PutCompositeAlarm", "cloudwatch:DeleteAlarms", "cloudwatch:PutDashboard", "cloudwatch:DeleteDashboards"]
+    resources = flatten([for a in local.service_access : concat(a.alarms, [a.dashboard])])
   }
   statement {
     sid       = "NotTheServicesLogs"

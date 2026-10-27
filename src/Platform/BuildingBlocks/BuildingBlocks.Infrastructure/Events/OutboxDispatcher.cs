@@ -260,10 +260,12 @@ public sealed partial class OutboxDispatcher(
                 using var handling = Source.StartActivity($"handle {handler.Handler}", ActivityKind.Internal);
                 await target.HandleOnce(handler.Handler, record.EventId,
                     (scope, ct) => handler.Invoke(scope, integrationEvent, ct), cancellationToken);
+                JourneyLog.EventHandled(logger, handler.Handler, handler.Module, record, JourneyLog.Handled);
                 return true;
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
+                JourneyLog.EventHandled(logger, handler.Handler, handler.Module, record, JourneyLog.Failed);
                 await TryRecordFailure(source, record, $"{handler.Handler}: {e.Message}", cancellationToken);
                 if (attempt >= delays.Count || _taking.IsCancellationRequested)
                 {

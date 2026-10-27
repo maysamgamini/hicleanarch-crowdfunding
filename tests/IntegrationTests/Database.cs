@@ -160,11 +160,11 @@ public sealed class Database : IAsyncLifetime
     /// of their own (what OpenTofu builds, under a fresh prefix), so no other test's hosts read their
     /// messages. Every route to another service is on <c>Broker</c>. <see cref="PaymentsBeside"/> says how the
     /// pair is wired; <c>host.Payments()</c>, <c>host.Notifications()</c> and <c>host.Campaigns()</c> are the services.
-    /// <paramref name="payments"/> and <paramref name="campaigns"/> configure those services (their services, or settings they alone read).
+    /// <paramref name="payments"/>, <paramref name="campaigns"/> and <paramref name="notifications"/> configure those services (their services, or settings they alone read).
     /// </summary>
     public WebApplicationFactory<Program> StartHost(Action<IServiceCollection>? services = null, Action<IWebHostBuilder>? payments = null,
-        Action<IWebHostBuilder>? campaigns = null) =>
-        StartHost(Provision().Settings, services, payments: payments, campaigns: campaigns);
+        Action<IWebHostBuilder>? campaigns = null, Action<IServiceCollection>? notifications = null) =>
+        StartHost(Provision().Settings, services, payments: payments, campaigns: campaigns, notifications: notifications);
 
     /// <summary>Topics and queues for one monolith and its services: each reads only its own service's queue.</summary>
     public MotoBroker.Provisioned Provision() =>
@@ -173,18 +173,20 @@ public sealed class Database : IAsyncLifetime
 
     /// <summary>A monolith and its services on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).</summary>
     public WebApplicationFactory<Program> StartHost(IReadOnlyDictionary<string, string?> broker, Action<IServiceCollection>? services = null,
-        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null, Action<IWebHostBuilder>? campaigns = null) =>
-        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments, campaigns);
+        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null, Action<IWebHostBuilder>? campaigns = null,
+        Action<IServiceCollection>? notifications = null) =>
+        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments, campaigns, notifications);
 
     /// <summary>
     /// One monolith started directly, with no Events:Broker section and no Payments service beside it: what
     /// a deploy that lost the broker's settings would start (CQA-1504's refusal). It is not meant to serve.
     /// </summary>
     public WebApplicationFactory<Program> StartMonolithWithoutBroker() =>
-        Configure(new WebApplicationFactory<Program>(), null, null, "00:10:00", null, null);
+        Configure(new WebApplicationFactory<Program>(), null, null, "00:10:00", null, null, null);
 
     private WebApplicationFactory<Program> Configure(WebApplicationFactory<Program> factory, Action<IServiceCollection>? services,
-        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments, Action<IWebHostBuilder>? campaigns) =>
+        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments, Action<IWebHostBuilder>? campaigns,
+        Action<IServiceCollection>? notifications) =>
         factory.WithWebHostBuilder(web =>
         {
             web.ConfigureTestServices(s =>
@@ -201,7 +203,7 @@ public sealed class Database : IAsyncLifetime
                             PaymentsBeside.Link(sp.GetRequiredService<TwoHosts.PaymentsLink>(), sp.GetRequiredService<PaymentsBeside>()));
 
                         // And the Notifications service (s5-l04), on the same database and broker, reading its own queue.
-                        s.AddSingleton(new NotificationsBeside(StartNotifications(broker)));
+                        s.AddSingleton(new NotificationsBeside(StartNotifications(broker, notifications)));
                         s.AddHostedService(sp => sp.GetRequiredService<NotificationsBeside>());
 
                         // And the Campaigns service (s5-l09: Campaigns runs nowhere else), reading the campaigns queue,

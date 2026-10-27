@@ -83,3 +83,36 @@ run "service_deploy_roles" {
     error_message = "Each service has its own repository of immutable tags."
   }
 }
+
+# Lesson s5-l13: each service's deploy role changes its own pages, window alarms and signals dashboard,
+# and the shared deploy role none of them.
+run "each_service_owns_its_signals" {
+  command = apply
+
+  assert {
+    condition = alltrue([for name, doc in data.aws_iam_policy_document.deploy_service :
+      one([for st in doc.statement : st.resources if st.sid == "ItsAlarms"]) == toset([
+        "arn:aws:cloudwatch:${var.region}:${local.account_id}:alarm:${var.project}-sandbox-${name}-*",
+        "arn:aws:cloudwatch:${var.region}:${local.account_id}:alarm:${var.project}-sandbox-${name}_running_tasks",
+      ])
+      && one([for st in doc.statement : st.resources if st.sid == "ItsDashboard"]) == toset(["arn:aws:cloudwatch::${local.account_id}:dashboard/${var.project}-sandbox-${name}-signals"])
+    ])
+    error_message = "A service's deploy role puts alarms and a dashboard under its own name only."
+  }
+
+  assert {
+    condition = alltrue(flatten([for name in local.delivered_services : [
+      for r in concat(local.service_access[name].alarms, [local.service_access[name].dashboard]) :
+      contains(one([for st in data.aws_iam_policy_document.deploy_shared_services.statement : st.resources if st.sid == "NotTheServicesSignals"]), r)
+    ]]))
+    error_message = "The shared deploy role is denied every service's alarms and dashboard."
+  }
+
+  assert {
+    condition = one([for st in data.aws_iam_policy_document.deploy_payments.statement : st.resources if st.sid == "ItsAlarms"]) == toset(local.payments_alarms) && alltrue([
+      for r in concat(local.payments_alarms, [local.payments_dashboard]) :
+      contains(one([for st in data.aws_iam_policy_document.deploy_shared.statement : st.resources if st.sid == "NotPaymentsSignals"]), r)
+    ])
+    error_message = "Payments' deploy role owns its alarms and dashboard; the shared deploy role is denied them."
+  }
+}

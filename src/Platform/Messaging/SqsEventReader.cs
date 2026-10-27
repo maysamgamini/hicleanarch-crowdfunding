@@ -309,8 +309,19 @@ public sealed partial class SqsEventReader(
             using var span = MessageTraces.StartProcessing(type, handler.Handler, attributes, received, message.MessageId,
                 MessageTraces.QueueName(options.Queues[service].Url));
             var target = modules.Single(m => m.Module == handler.Module);
-            await target.HandleOnce(handler.Handler, integrationEvent.EventId,
-                (scope, ct) => handler.Invoke(scope, integrationEvent, ct), cancellationToken);
+            try
+            {
+                await target.HandleOnce(handler.Handler, integrationEvent.EventId,
+                    (scope, ct) => handler.Invoke(scope, integrationEvent, ct), cancellationToken);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                // The same journey line as the in-process dispatcher's (lesson s5-l13); the message comes back later.
+                JourneyLog.EventHandled(logger, handler.Handler, handler.Module, integrationEvent.EventId, type, message.Body, attributes.GetValueOrDefault(MessageAttributes.TraceParent), JourneyLog.Failed);
+                throw;
+            }
+
+            JourneyLog.EventHandled(logger, handler.Handler, handler.Module, integrationEvent.EventId, type, message.Body, attributes.GetValueOrDefault(MessageAttributes.TraceParent), JourneyLog.Handled);
         }
 
         return true;

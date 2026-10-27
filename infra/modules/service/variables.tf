@@ -105,3 +105,18 @@ variable "assembly" {
   description = "The host's assembly, as the image runs it (CrowdFunding.<Service>.Host.dll): the container's health check runs it with `health` (HealthProbe), which asks the program's own /health/ready."
   type        = string
 }
+
+variable "objectives" {
+  description = <<-EOT
+    What the service promises over 30 days (lesson s5-l13): the share of its public requests that must
+    not answer 5xx, the share that must answer within threshold_ms, and, if it reads a queue, the share
+    of minutes in which no message on it is older than max_age_seconds. Each objective pages fast and
+    slow (infra/modules/service-signals).
+  EOT
+  type = object({
+    availability = optional(number, 0.999)
+    latency      = optional(object({ threshold_ms = number, target = number }), { threshold_ms = 1000, target = 0.99 })
+    lag          = optional(object({ max_age_seconds = number, target = number }), { max_age_seconds = 60, target = 0.99 })
+  })
+  default = {}
+}

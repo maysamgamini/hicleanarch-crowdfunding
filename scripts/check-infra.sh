@@ -7,9 +7,11 @@
 set -euo pipefail
 iac="${IAC:-tofu}"
 "$iac" fmt -check -recursive infra
-for dir in infra/bootstrap infra/env infra/services/*/; do
+# The roots, and each module that has tests of its own (infra/modules/service-signals).
+for dir in infra/bootstrap infra/env infra/services/*/ infra/modules/*/; do
   dir="${dir%/}"
   ls "$dir"/*.tf >/dev/null 2>&1 || continue
+  case "$dir" in infra/modules/*) [ -d "$dir/tests" ] || continue ;; esac
   echo "== $iac: $dir"
   "$iac" -chdir="$dir" init -backend=false -input=false -lockfile=readonly
   "$iac" -chdir="$dir" validate

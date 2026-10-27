@@ -23,3 +23,12 @@ output "task_subnets" {
 output "task_security_group" {
   value = module.service.task_security_group
 }
+
+# Lesson s5-l13: its objectives' pages and dashboard, and the windows the tests evaluate.
+output "signals" {
+  value = {
+    pages        = module.service.page_alarm_names
+    dashboard    = module.service.signals_dashboard
+    burn_windows = module.service.burn_windows
+  }
+}

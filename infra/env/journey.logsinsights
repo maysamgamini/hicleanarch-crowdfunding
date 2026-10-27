@@ -1,0 +1,4 @@
+fields @timestamp, @log, State.journey.step as step, State.module as module, State.pledge.id as pledge, State.outcome as outcome, State.event.type as event, State.trace.id as trace
+| filter State.campaign.id = "CAMPAIGN_ID"
+| sort @timestamp asc
+| limit 10000

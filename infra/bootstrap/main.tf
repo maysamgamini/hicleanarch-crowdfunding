@@ -214,6 +214,12 @@ data "aws_iam_policy_document" "deploy_services" {
     actions   = ["logs:DescribeLogGroups"]
     resources = ["*"]
   }
+  # The journey view's saved query (s5-l13): not a log group, so it needs a right of its own.
+  statement {
+    sid       = "JourneyQuery"
+    actions   = ["logs:PutQueryDefinition", "logs:DeleteQueryDefinition", "logs:DescribeQueryDefinitions"]
+    resources = ["*"]
+  }
   statement {
     sid       = "PushImagesSignIn"
     actions   = ["ecr:GetAuthorizationToken"]

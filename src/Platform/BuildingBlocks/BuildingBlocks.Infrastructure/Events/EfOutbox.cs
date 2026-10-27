@@ -2,6 +2,8 @@ using BuildingBlocks.Application;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace BuildingBlocks.Infrastructure.Events;
 
@@ -42,11 +44,32 @@ internal sealed class EfOutbox<TContext>(TContext db, PendingEvents<TContext> pe
     }
 }
 
-/// <summary>Right after the commit, the events of the transaction go to the bus; after a rollback, nowhere.</summary>
-public sealed class OutboxCommitInterceptor<TContext>(PendingEvents<TContext> pending, EventBus bus, PublishHandoff? publishing = null)
-    : DbTransactionInterceptor
+/// <summary>
+/// Right after the commit, the events of the transaction go to the bus, each with its journey line
+/// (lesson s5-l13); after a rollback, nowhere.
+/// </summary>
+public sealed class OutboxCommitInterceptor<TContext> : DbTransactionInterceptor
     where TContext : DbContext
 {
+    private readonly PendingEvents<TContext> pending;
+    private readonly EventBus bus;
+    private readonly PublishHandoff? publishing;
+    private readonly ILogger journey;
+
+    public OutboxCommitInterceptor(PendingEvents<TContext> pending, EventBus bus, PublishHandoff? publishing = null)
+        : this(pending, bus, publishing, null)
+    {
+    }
+
+    /// <param name="journey">Where the journey lines go; none are written without it.</param>
+    public OutboxCommitInterceptor(PendingEvents<TContext> pending, EventBus bus, PublishHandoff? publishing, ILogger<OutboxCommitInterceptor<TContext>>? journey)
+    {
+        this.pending = pending;
+        this.bus = bus;
+        this.publishing = publishing;
+        this.journey = journey ?? (ILogger)NullLogger.Instance;
+    }
+
     public override Task TransactionCommittedAsync(System.Data.Common.DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
     {
         Flush();
@@ -67,6 +90,7 @@ public sealed class OutboxCommitInterceptor<TContext>(PendingEvents<TContext> pe
     {
         foreach (var record in pending.Records)
         {
+            JourneyLog.EventCommitted(journey, record);
             if (record.Sinks is null || record.Sinks.Any(s => s != OutboxSink.Broker))
             {
                 bus.Publish(record);

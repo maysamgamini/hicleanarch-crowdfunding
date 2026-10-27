@@ -64,4 +64,12 @@ module "service" {
   ]
   queue_arn = local.shared.pledges_queue_arn
   topic_arn = local.shared.pledges_topic_arn
+
+  # Its queue carries CampaignPublished (lesson s5-l13). Until it is handled, a pledge for the new campaign
+  # answers 404 campaign_not_found, and the clients retry after 1, 2 and 4 seconds: a minute in which a
+  # message waited longer than 10 s is a bad minute. A backlog counts too, because a new CampaignPublished
+  # waits behind it.
+  objectives = {
+    lag = { max_age_seconds = 10, target = 0.99 }
+  }
 }

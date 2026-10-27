@@ -5,11 +5,14 @@
 locals {
   account_id = data.aws_caller_identity.current.account_id
 
-  payments_roles          = "arn:aws:iam::${local.account_id}:role/${var.project}-sandbox-payments-*"
-  payments_families       = ["${var.project}-payments", "${var.project}-payments-migrate", "${var.project}-payments-move"]
-  payments_task_defs      = [for f in local.payments_families : "arn:aws:ecs:${var.region}:${local.account_id}:task-definition/${f}:*"]
-  payments_service        = "arn:aws:ecs:${var.region}:${local.account_id}:service/${var.project}-sandbox/payments"
-  payments_log_group      = "arn:aws:logs:${var.region}:${local.account_id}:log-group:/${var.project}/sandbox/payments"
+  payments_roles     = "arn:aws:iam::${local.account_id}:role/${var.project}-sandbox-payments-*"
+  payments_families  = ["${var.project}-payments", "${var.project}-payments-migrate", "${var.project}-payments-move"]
+  payments_task_defs = [for f in local.payments_families : "arn:aws:ecs:${var.region}:${local.account_id}:task-definition/${f}:*"]
+  payments_service   = "arn:aws:ecs:${var.region}:${local.account_id}:service/${var.project}-sandbox/payments"
+  payments_log_group = "arn:aws:logs:${var.region}:${local.account_id}:log-group:/${var.project}/sandbox/payments"
+  # Its burn-rate alarms and pages (s5-l13), and the service module's running-tasks alarm.
+  payments_alarms         = ["arn:aws:cloudwatch:${var.region}:${local.account_id}:alarm:${var.project}-sandbox-payments-*", "arn:aws:cloudwatch:${var.region}:${local.account_id}:alarm:${var.project}-sandbox-payments_running_tasks"]
+  payments_dashboard      = "arn:aws:cloudwatch::${local.account_id}:dashboard/${var.project}-sandbox-payments-signals"
   payments_state          = "${aws_s3_bucket.state.arn}/services/payments/*"
   shared_outputs_document = "${aws_s3_bucket.state.arn}/env/shared.json"
 }
@@ -145,6 +148,26 @@ data "aws_iam_policy_document" "deploy_payments" {
     }
   }
 
+  # Its alarms and its signals dashboard (s5-l13), named after the service.
+  statement {
+    sid = "ItsAlarms"
+    actions = [
+      "cloudwatch:PutMetricAlarm", "cloudwatch:PutCompositeAlarm", "cloudwatch:DeleteAlarms",
+      "cloudwatch:TagResource", "cloudwatch:UntagResource", "cloudwatch:ListTagsForResource",
+    ]
+    resources = local.payments_alarms
+  }
+  statement {
+    sid       = "ItsDashboard"
+    actions   = ["cloudwatch:PutDashboard", "cloudwatch:GetDashboard", "cloudwatch:DeleteDashboards"]
+    resources = [local.payments_dashboard]
+  }
+  statement {
+    sid       = "ReadAlarms"
+    actions   = ["cloudwatch:DescribeAlarms"]
+    resources = ["*"]
+  }
+
   # Its log group.
   statement {
     sid       = "ItsLogGroup"
@@ -278,6 +301,12 @@ data "aws_iam_policy_document" "deploy_shared" {
     effect    = "Deny"
     actions   = ["iam:*"]
     resources = [local.payments_roles]
+  }
+  statement {
+    sid       = "NotPaymentsSignals"
+    effect    = "Deny"
+    actions   = ["cloudwatch:PutMetricAlarm", "cloudwatch:PutCompositeAlarm", "cloudwatch:DeleteAlarms", "cloudwatch:PutDashboard", "cloudwatch:DeleteDashboards"]
+    resources = concat(local.payments_alarms, [local.payments_dashboard])
   }
   statement {
     sid       = "NotPaymentsLogs"

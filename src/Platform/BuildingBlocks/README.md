@@ -24,6 +24,10 @@ the `package` workflow packs and publishes to AWS CodeArtifact.
 
 ## Versions
 
+- **6.2.0**: `JourneyLog` (lesson s5-l13): one structured line per journey step, with `campaign.id` and
+  `pledge.id`, written by `OutboxCommitInterceptor` for each committed event and by `OutboxDispatcher`
+  for each handler it runs (handled or failed). `OutboxCommitInterceptor` gains a constructor that
+  takes the logger; the old one stays and writes no lines.
 - **6.1.0**: `RetiredSettings`: `AddServiceDefaults` refuses to start a program that still sets any
   `Modules:*` key (lesson s5-l10: every module runs in its own service).
 - **6.0.1**: `DatabaseBusy.WithLockTimeout` puts the lock wait back to the session's own once its

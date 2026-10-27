@@ -63,3 +63,17 @@ output "ecs_service" {
 output "task_definitions_kept" {
   value = aws_ecs_task_definition.service.skip_destroy && aws_ecs_task_definition.migrate.skip_destroy
 }
+
+output "page_alarm_names" {
+  description = "The burn-rate pages (lesson s5-l13): one composite alarm per objective and speed."
+  value       = module.signals.page_alarm_names
+}
+
+output "signals_dashboard" {
+  value = module.signals.dashboard_name
+}
+
+output "burn_windows" {
+  description = "Every window alarm's parameters; the roots' tests evaluate synthetic traffic against them."
+  value       = module.signals.burn_windows
+}

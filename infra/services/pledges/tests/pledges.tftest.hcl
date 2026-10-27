@@ -126,3 +126,47 @@ run "first_apply_of_a_deploy_creates_no_service" {
     error_message = "The first deploy registers the task definitions and runs the migration before any service exists."
   }
 }
+
+# Lesson s5-l13: Pledges' objectives. Availability and latency of its endpoints, and the lag of its
+# queue, which carries CampaignPublished: each pages fast and slow, under names its deploy role owns.
+# Applied against the mocked provider, so the next run can read its outputs.
+run "pledges_objectives_and_pages" {
+  command = apply
+
+  assert {
+    condition = toset(output.signals.pages) == toset([for k in [
+      "availability-fast", "availability-slow", "latency-fast", "latency-slow", "lag-events-fast", "lag-events-slow",
+    ] : "hicleanarch-sandbox-pledges-${k}-burn"])
+    error_message = "Three objectives, each paging fast and slow."
+  }
+
+  assert {
+    condition     = output.signals.dashboard == "hicleanarch-sandbox-pledges-signals"
+    error_message = "Its signals dashboard, under the name its deploy role may change."
+  }
+
+  assert {
+    condition     = output.signals.burn_windows["lag-events-fast-long"].max_age_seconds == 10 && output.signals.burn_windows["lag-events-fast-long"].bad_minutes == 9
+    error_message = "A minute in which a message waited longer than the clients' retries (10 s) is bad; 9 of 60 page fast."
+  }
+}
+
+# A CampaignPublished held on Pledges' queue for 15 minutes, with the queue otherwise empty: the age of
+# its oldest message grows a minute each minute. The fast lag page fires, and no other.
+run "a_campaign_published_held_on_pledges_queue_pages_its_lag" {
+  command = plan
+
+  module {
+    source = "../../modules/service-signals/tests/evaluate"
+  }
+
+  variables {
+    windows        = run.pledges_objectives_and_pages.signals.burn_windows
+    synthetic_ages = { "lag-events" = concat([for i in range(345) : 0], [for i in range(15) : (i + 1) * 60]) }
+  }
+
+  assert {
+    condition     = jsonencode(output.pages) == jsonencode(["lag-events-fast"])
+    error_message = "The held message pages Pledges' lag fast: ${jsonencode(output.pages)}"
+  }
+}
