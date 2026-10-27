@@ -68,6 +68,12 @@ internal sealed class EfSettlements(PaymentsDbContext db, IPaymentProvider psp, 
             WHERE j.campaign_id = {campaignId} AND j.lease_owner = {worker} AND j.status = 'RUNNING'
             """, cancellationToken);
 
+    public Task ReleaseAll(string worker, CancellationToken cancellationToken) =>
+        db.Database.ExecuteSqlInterpolatedAsync($"""
+            UPDATE payments.settlement_jobs SET status = 'PENDING', lease_owner = NULL, lease_until = NULL
+            WHERE lease_owner = {worker} AND status = 'RUNNING'
+            """, cancellationToken);
+
     public async Task<bool> TryFinish(Guid campaignId, string worker, CancellationToken cancellationToken) =>
         await db.Database.ExecuteSqlInterpolatedAsync($"""
             UPDATE payments.settlement_jobs SET status = 'DONE', lease_owner = NULL, lease_until = NULL

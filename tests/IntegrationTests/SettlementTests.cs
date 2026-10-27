@@ -7,6 +7,7 @@ using BuildingBlocks.Application;
 using Microsoft.Extensions.DependencyInjection;
 
 using Payments.Application;
+using Payments.Infrastructure;
 using Payments.Infrastructure.Psp;
 
 using Pledges.Application;
@@ -220,6 +221,22 @@ public sealed class SettlementTests(Database database) : IDisposable
         await Settle(campaign); // the resolver now finds nothing to resolve
         Assert.Equal(1L, await given.Scalar<long>(
             "SELECT count(*) FROM payments.outbox WHERE type = 'PledgeChargeSucceeded' AND payload ->> 'pledgeId' = @id::text", pledge));
+    }
+
+    [Fact]
+    public async Task A_stopping_worker_gives_its_job_back_at_once()
+    {
+        var (given, campaign) = await Funded(FakePaymentProvider.CardSucceeds);
+        var worker = _host.Services.GetRequiredService<SettlementWorker>();
+        await given.Execute(
+            $"UPDATE payments.settlement_jobs SET status = 'RUNNING', lease_owner = '{worker.WorkerName}', lease_until = now() + interval '1 minute' WHERE campaign_id = @id",
+            campaign.CampaignId);
+
+        await worker.Stop(Ct);
+
+        Assert.Equal("PENDING", await given.Scalar<string>("SELECT status FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.True(await Settle(campaign, "another-task")); // no wait for the lease
+        Assert.Equal(1L, await Count(given, campaign, "CHARGED"));
     }
 
     private Task<HttpResponseMessage> Deliver(SignedWebhook webhook)

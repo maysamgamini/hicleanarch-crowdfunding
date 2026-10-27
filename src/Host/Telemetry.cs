@@ -22,7 +22,7 @@ internal static class Telemetry
         var otel = services.AddOpenTelemetry()
             .ConfigureResource(resource => resource.AddService(ServiceName))
             .WithTracing(tracing => tracing
-                .AddAspNetCoreInstrumentation(o => o.Filter = http => http.Request.Path != "/health")
+                .AddAspNetCoreInstrumentation(o => o.Filter = http => !http.Request.Path.StartsWithSegments("/health"))
                 .AddHttpClientInstrumentation()
                 .AddNpgsql()
                 .AddSource(OutboxDispatcher.ActivitySourceName))

@@ -45,6 +45,9 @@ public interface ISettlements
     /// </summary>
     Task Release(Guid campaignId, string worker, TimeSpan recheckAfter, CancellationToken cancellationToken);
 
+    /// <summary>Gives back every job this worker holds, at once: the worker is stopping.</summary>
+    Task ReleaseAll(string worker, CancellationToken cancellationToken);
+
     /// <summary>RUNNING to DONE, if this worker still holds it. False: it does not.</summary>
     Task<bool> TryFinish(Guid campaignId, string worker, CancellationToken cancellationToken);
 

@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Events;
+using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Identity;
 using BuildingBlocks.Infrastructure.Persistence;
 
@@ -26,6 +27,8 @@ builder.Services.AddSingleton<DatabaseMigrator>();
 builder.Services.AddTelemetry(builder.Configuration);
 builder.Services.AddTokenAuthentication(builder.Configuration);
 builder.Services.AddInProcessEvents();
+builder.Services.AddProxyHeaders(builder.Configuration);
+builder.Services.AddGracefulStop();
 
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
@@ -52,12 +55,13 @@ if (args.FirstOrDefault() == "token" && app.Environment.IsDevelopment())
     return;
 }
 
+app.UseForwardedHeaders();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+app.MapHealth();
 app.MapCampaignsEndpoints();
 app.MapPledgesEndpoints();
 app.MapPaymentsEndpoints();

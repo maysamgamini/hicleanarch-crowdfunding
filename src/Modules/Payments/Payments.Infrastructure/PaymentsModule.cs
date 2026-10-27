@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using BuildingBlocks.Application;
 using BuildingBlocks.Infrastructure.Events;
+using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Persistence;
 
 using Microsoft.AspNetCore.Builder;
@@ -44,7 +45,9 @@ public static class PaymentsModule
         services.AddEventHandler<CampaignFundingDecided, CreateSettlementJob>(PaymentsModuleName.Value);
         services.AddOptions<SettlementOptions>().Bind(configuration.GetSection("Payments:Settlement"));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SettlementOptions>>().Value);
-        services.AddHostedService<SettlementWorker>();
+        services.AddSingleton<SettlementWorker>();
+        services.AddHostedService(sp => sp.GetRequiredService<SettlementWorker>());
+        services.AddSingleton<IStopParticipant>(sp => sp.GetRequiredService<SettlementWorker>());
         services.AddHostedService<PaymentsMonitor>();
         services.AddSingleton<IModuleMigrator, PaymentsMigrator>();
         services.AddSingleton(new ModuleDatabase(PaymentsModuleName.Value, PaymentsDbContext.Schema, connectionString));

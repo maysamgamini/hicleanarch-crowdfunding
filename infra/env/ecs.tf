@@ -42,8 +42,11 @@ locals {
       { name = "Notifications__Sender", value = var.notifications_from == "" ? "InMemory" : "Ses" },
       { name = "Notifications__FromAddress", value = var.notifications_from },
       { name = "Notifications__UserPoolId", value = aws_cognito_user_pool.users.id },
+      { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
     ]
-    secrets = local.module_secrets
+    # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
+    stopTimeout = 30
+    secrets     = local.module_secrets
     logConfiguration = {
       logDriver = "awslogs"
       options = {
@@ -137,6 +140,11 @@ resource "aws_ecs_service" "api" {
   deployment_circuit_breaker {
     enable   = true
     rollback = true
+  }
+
+  # Autoscaling owns the task count once the service exists (autoscaling.tf).
+  lifecycle {
+    ignore_changes = [desired_count]
   }
 
   # The workflow applies everything else, including this service's new image, only after `migrate`.

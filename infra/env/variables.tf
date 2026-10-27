@@ -22,6 +22,12 @@ variable "desired_count" {
   default     = 2
 }
 
+variable "max_count" {
+  description = "The most copies autoscaling may run, for a launch."
+  type        = number
+  default     = 6
+}
+
 variable "aurora_engine_version" {
   description = "Aurora PostgreSQL version; 17 is the engine the course targets."
   type        = string
