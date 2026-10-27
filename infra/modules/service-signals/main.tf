@@ -45,6 +45,8 @@ locals {
           factor    = s.factor
           target    = o.target
           bad       = o.bad
+          # What a request must answer within to count as good; null for availability.
+          threshold_ms = objective == "latency" ? var.latency_objective.threshold_ms : null
         }
       }
     ]...)

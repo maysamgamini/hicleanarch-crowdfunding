@@ -71,7 +71,13 @@ module "service" {
   # answers 404 campaign_not_found, and the clients retry after 1, 2 and 4 seconds: a minute in which a
   # message waited longer than 10 s is a bad minute. A backlog counts too, because a new CampaignPublished
   # waits behind it.
+  #
+  # What it promises, as tests/load/slos.json (decision service-slos) says (CQA-2118): the Round 2 targets
+  # (R2.1), 99.99% of its public requests without a 5xx and 99% of them within 200 ms (pledge P99 < 200 ms).
+  # The module's defaults (99.9%, 1,000 ms) are not Pledges' objectives.
   objectives = {
-    lag = { max_age_seconds = 10, target = 0.99 }
+    availability = 0.9999
+    latency      = { threshold_ms = 200, target = 0.99 }
+    lag          = { max_age_seconds = 10, target = 0.99 }
   }
 }

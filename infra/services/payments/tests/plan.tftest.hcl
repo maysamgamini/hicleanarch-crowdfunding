@@ -135,3 +135,30 @@ run "names_every_consumer_queue_its_subscription_check_reads" {
     error_message = "The task definition names no payments topic, which its subscription check and its publisher need."
   }
 }
+
+# CQA-2118: the service pages on what tests/load/slos.json says it promises (decision service-slos), the
+# file the load tests and scripts/measure-services.sh read: availability, the latency endpoint's P99 as a
+# threshold 99% of requests answer within, and the age its queue's oldest message may reach.
+run "pages_on_the_objectives_slos_json_names" {
+  command = plan
+
+  assert {
+    condition     = alltrue([for w in module.service.burn_windows : w.target == jsondecode(file("../../../tests/load/slos.json")).services.payments.availability if w.objective == "availability"])
+    error_message = "The availability pages are not on slos.json's availability for payments."
+  }
+
+  assert {
+    condition     = alltrue([for w in module.service.burn_windows : w.target == 0.99 && w.threshold_ms == jsondecode(file("../../../tests/load/slos.json")).services.payments.latency.p99Ms if w.objective == "latency"])
+    error_message = "The latency pages are not on slos.json's P99 for payments."
+  }
+
+  assert {
+    condition     = alltrue([for w in module.service.burn_windows : w.max_age_seconds == jsondecode(file("../../../tests/load/slos.json")).services.payments.lagSeconds if w.objective == "lag-events"])
+    error_message = "The lag pages are not on slos.json's lagSeconds for payments."
+  }
+
+  assert {
+    condition     = length([for w in module.service.burn_windows : w if contains(["availability", "latency", "lag-events"], w.objective)]) == 12
+    error_message = "Each of the three objectives has its four windows."
+  }
+}

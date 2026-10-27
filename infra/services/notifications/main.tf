@@ -47,6 +47,17 @@ module "service" {
     { name = "Events__Broker__Queues__notifications__Url", value = local.shared.notifications_queue_url },
     { name = "Events__Broker__Read__0", value = "notifications" },
   ]
+
+  # What it promises, as tests/load/slos.json (decision service-slos) says, and pages on (CQA-2118); the
+  # module's defaults (99.9%, 1,000 ms, 60 s) are not its objectives.
+  # It promises 99.9% of its public requests without a 5xx, 99% of them within 300 ms,
+  # and no event waiting more than five minutes for its email.
+  objectives = {
+    availability = 0.999
+    latency      = { threshold_ms = 300, target = 0.99 }
+    lag          = { max_age_seconds = 300, target = 0.99 }
+  }
+
   queue_arn = local.shared.notifications_queue_arn
 
   task_policy_json = data.aws_iam_policy_document.task.json

@@ -18,6 +18,8 @@ output "burn_windows" {
       seconds   = w.seconds
       factor    = w.factor
       target    = w.target
+      # The latency objective's threshold (CQA-2118: the roots' tests check it against tests/load/slos.json).
+      threshold_ms = w.threshold_ms
     } },
     { for k, w in local.lag_windows : k => {
       kind            = "minutes"
