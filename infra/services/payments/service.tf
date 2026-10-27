@@ -5,7 +5,8 @@ resource "aws_cloudwatch_log_group" "payments" {
 
 locals {
   # The consumers of Payments' events run elsewhere, so every route of its events is Broker; it reads
-  # the payments queue and checks the subscriptions of the topics it reads from (s4-l02, s4-l05).
+  # the payments queue, publishes to its own topic, and checks that topic's subscription to the
+  # monolith's queue, which it knows by ARN only (s4-l10).
   broker_environment = concat(
     [
       { name = "Events__Routes__Pledges", value = "Broker" },
@@ -14,9 +15,10 @@ locals {
       { name = "Events__Broker__Region", value = var.region },
       { name = "Events__Broker__Queues__payments__Arn", value = local.shared.payments_queue_arn },
       { name = "Events__Broker__Queues__payments__Url", value = local.shared.payments_queue_url },
+      { name = "Events__Broker__Queues__monolith__Arn", value = local.shared.monolith_queue_arn },
       { name = "Events__Broker__Read__0", value = "payments" },
-    ],
-    [for t, arn in local.shared.event_topic_arns : { name = "Events__Broker__Topics__${t}", value = arn }],
+      { name = "Events__Broker__Topics__payments", value = local.shared.payments_topic_arn },
+    ]
   )
 
   payments_secrets = [
@@ -40,7 +42,6 @@ locals {
       { name = "Auth__Authority", value = local.shared.cognito_issuer },
       { name = "Auth__ClientId", value = local.shared.user_pool_client_id },
       { name = "ForwardedHeaders__KnownNetwork", value = local.shared.vpc_cidr },
-      # One budget at the PSP while both hosts run Payments' code (s4-l05).
       { name = "Payments__Budget__Prefix", value = local.shared.psp_budget_prefix },
       # Only the monolith's service identity may call the internal endpoint (s4-l04).
       { name = "Auth__ServiceClients__0", value = local.shared.monolith_service_client_id },

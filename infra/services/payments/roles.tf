@@ -93,15 +93,16 @@ data "aws_iam_policy_document" "task" {
     resources = [local.shared.payments_topic_arn]
   }
   statement {
+    # Each producer checks its own topic's subscriptions (s4-l10): Payments names no other topic.
     sid       = "CheckItsSubscriptions"
     actions   = ["sns:ListSubscriptionsByTopic"]
-    resources = values(local.shared.event_topic_arns)
+    resources = [local.shared.payments_topic_arn]
   }
   statement {
     # A subscription's ARN is its topic's plus an id.
     sid       = "ReadItsSubscriptionsFilters"
     actions   = ["sns:GetSubscriptionAttributes"]
-    resources = [for arn in values(local.shared.event_topic_arns) : "${arn}:*"]
+    resources = ["${local.shared.payments_topic_arn}:*"]
   }
 }
 

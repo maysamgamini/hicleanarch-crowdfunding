@@ -170,21 +170,28 @@ resource "aws_cloudwatch_metric_alarm" "topic_failures" {
   ok_actions          = [aws_sns_topic.alarms.arn]
 }
 
-# The monolith publishes every producing module's events and reads both queues (s4-l02); from s4-l10
-# each service's role names only its own topic and queue.
+# Since s4-l10 each service's role names only its own topics and its own queue: the monolith publishes
+# Campaigns' and Pledges' events and reads the monolith queue; Payments' topic and queue are Payments'
+# alone (infra/services/payments). Each producer checks its own topic's subscriptions (SubscriptionCheck).
+locals {
+  # The plan's topics of the modules the monolith runs.
+  monolith_topics      = toset([for m in local.broker_plan_services.monolith : lower(m) if contains(local.broker_plan.topics, lower(m))])
+  broker_plan_services = jsondecode(file("${path.module}/../../events/subscriptions.json")).services
+}
+
 data "aws_iam_policy_document" "events" {
   statement {
     actions   = ["sns:Publish", "sns:ListSubscriptionsByTopic"]
-    resources = [for t in aws_sns_topic.events : t.arn]
+    resources = [for t in local.monolith_topics : aws_sns_topic.events[t].arn]
   }
   statement {
     # The subscription check reads each subscription's filter; a subscription's ARN is its topic's plus an id.
     actions   = ["sns:GetSubscriptionAttributes"]
-    resources = [for t in aws_sns_topic.events : "${t.arn}:*"]
+    resources = [for t in local.monolith_topics : "${aws_sns_topic.events[t].arn}:*"]
   }
   statement {
     actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility"]
-    resources = [for q in aws_sqs_queue.events : q.arn]
+    resources = [aws_sqs_queue.events["monolith"].arn]
   }
 }
 
@@ -194,8 +201,11 @@ resource "aws_iam_role_policy" "task_events" {
 }
 
 locals {
-  # The routes of s4-l02: Payments' events, in and out, go through the broker, with every module still
-  # in the monolith. Module names are configuration keys; topics and queues are the plan's lower-case names.
+  # Payments' events, in and out, go through the broker (s4-l02); Payments runs elsewhere (s4-l10). The
+  # monolith publishes to its own topics and reads its own queue. Of the payments queue it holds only the
+  # ARN: the subscription check looks for its topics' subscriptions to that address, and no role of the
+  # monolith grants anything on it. Module names are configuration keys; topics and queues are the
+  # plan's lower-case names.
   broker_environment = concat(
     [
       { name = "Events__Routes__Payments", value = "Broker" },
@@ -204,13 +214,12 @@ locals {
       { name = "Events__Producers__Payments__Notifications", value = "Broker" },
       { name = "Events__Broker__Region", value = var.region },
       { name = "Events__Broker__VisibilityTimeoutSeconds", value = tostring(local.visibility_timeout_seconds) },
+      { name = "Events__Broker__Queues__monolith__Arn", value = aws_sqs_queue.events["monolith"].arn },
+      { name = "Events__Broker__Queues__monolith__Url", value = aws_sqs_queue.events["monolith"].id },
+      { name = "Events__Broker__Queues__payments__Arn", value = aws_sqs_queue.events["payments"].arn },
+      { name = "Events__Broker__Read__0", value = "monolith" },
     ],
-    [for t, topic in aws_sns_topic.events : { name = "Events__Broker__Topics__${t}", value = topic.arn }],
-    flatten([for q, queue in aws_sqs_queue.events : [
-      { name = "Events__Broker__Queues__${q}__Arn", value = queue.arn },
-      { name = "Events__Broker__Queues__${q}__Url", value = queue.id },
-    ]]),
-    [for i, q in sort(tolist(local.queues)) : { name = "Events__Broker__Read__${i}", value = q }],
+    [for t in local.monolith_topics : { name = "Events__Broker__Topics__${t}", value = aws_sns_topic.events[t].arn }],
   )
 }
 

@@ -13,10 +13,13 @@ namespace CrowdFunding.Messaging;
 /// <summary>
 /// SNS accepts a publish to a topic with no matching subscription and drops it, so every <c>Broker</c>
 /// route of this host is checked against the topics: at start (a problem refuses the start) and every
-/// five minutes (a problem is logged and counted for the alarm). For each module here that gets a
-/// producer's events through the broker, the producer's topic must have a raw-delivery subscription to the
-/// module's service queue whose filter lets those event types through, and this host must read that queue;
-/// for each producer here with a <c>Broker</c> consumer, a topic must be configured.
+/// five minutes (a problem is logged and counted for the alarm). For each producer here with a
+/// <c>Broker</c> consumer, a topic must be configured, and that topic must have a raw-delivery
+/// subscription to the consumer's service queue whose filter lets those event types through. The
+/// producer checks its own topic because its role is the only one that may read it (s4-l10): the
+/// monolith's role names no Payments topic, and Payments' names no topic of the monolith's modules.
+/// For each module here that gets a producer's events through the broker, this host must read that
+/// module's service queue.
 /// </summary>
 public sealed partial class SubscriptionCheck(
     IAmazonSimpleNotificationService sns,
@@ -96,19 +99,27 @@ public sealed partial class SubscriptionCheck(
             }
         }
 
-        var needed = routes.Subscriptions.Events
+        var routed = routes.Subscriptions.Events
             .SelectMany(e => e.Value.Consumers.Select(consumer => (Type: e.Key, e.Value.Producer, Consumer: consumer)))
-            .Where(e => routes.RunsHere(e.Consumer) && routes.RouteOf(e.Consumer, e.Producer) == EventRoute.Broker)
-            .GroupBy(e => (e.Producer, Service: plan.ServiceOf(e.Consumer)));
-        foreach (var subscription in needed)
+            .Where(e => routes.RouteOf(e.Consumer, e.Producer) == EventRoute.Broker)
+            .ToList();
+
+        // What this host's modules take from the broker arrives in their service's queue, which it must read.
+        foreach (var inbound in routed.Where(e => routes.RunsHere(e.Consumer)).GroupBy(e => (e.Producer, Service: plan.ServiceOf(e.Consumer))))
+        {
+            var (producer, service) = inbound.Key;
+            if (!options.Read.Contains(service, StringComparer.OrdinalIgnoreCase))
+            {
+                problems.Add($"{string.Join(", ", inbound.Select(e => e.Consumer).Distinct())} get {producer}'s events from the {service} queue, which this host does not read (Events:Broker:Read).");
+            }
+        }
+
+        // What this host's modules publish to the broker must reach each consumer's queue.
+        var producersHere = published.Select(p => p.Module).ToHashSet(StringComparer.Ordinal);
+        foreach (var subscription in routed.Where(e => producersHere.Contains(e.Producer)).GroupBy(e => (e.Producer, Service: plan.ServiceOf(e.Consumer))))
         {
             var (producer, service) = subscription.Key;
             var types = subscription.Select(e => e.Type).Distinct().ToList();
-            if (!options.Read.Contains(service, StringComparer.OrdinalIgnoreCase))
-            {
-                problems.Add($"{string.Join(", ", subscription.Select(e => e.Consumer).Distinct())} get {producer}'s events from the {service} queue, which this host does not read (Events:Broker:Read).");
-            }
-
             if (!options.Topics.TryGetValue(producer, out var topic) || !options.Queues.TryGetValue(service, out var queue))
             {
                 problems.Add($"No topic for {producer} or no queue for {service} is configured (Events:Broker:Topics, Events:Broker:Queues).");

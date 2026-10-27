@@ -2,9 +2,10 @@ name: payments
 
 # The Payments service's pipeline: contract tests, then Payments built and tested alone from its
 # solution filter, then (on main) its image pushed with its own deploy role and, if a sandbox is up,
-# Payments deployed into it. The paths are what the Payments image is built from. Until s4-l10 the
-# monolith also compiles src/Modules/Payments, so that path runs both pipelines (see monolith.yml);
-# Contracts, BuildingBlocks, the subscriptions file and the build settings run both too.
+# Payments deployed into it. The paths are what the Payments image is built from, and the tests that
+# run both services (System.slnf). Since s4-l10 src/Modules/Payments runs this pipeline only, but for
+# Payments.Client, which is the monolith's; Contracts, BuildingBlocks, the subscriptions file and the
+# build settings run both.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:
   push:
@@ -17,12 +18,18 @@ on:
       - "infra/env/payments-network.tf"
       - "infra/env/messaging.tf"
       - "src/Modules/Payments/**"
+      - "!src/Modules/Payments/Payments.Client/**"
       - "src/Modules/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
       - "tests/Payments.UnitTests/**"
       - "tests/Directory.Build.props"
       - "Payments.slnf"
+      - "System.slnf"
+      - "tests/IntegrationTests/**"
+      - "tests/ArchitectureTests/**"
+      - "tests/Contracts.ConsumerTests/**"
+      - "tests/Shared/**"
       - "Contracts.slnf"
       - "CrowdFunding.slnx"
       - "BuildingBlocks.slnx"
@@ -51,12 +58,18 @@ on:
       - "infra/env/payments-network.tf"
       - "infra/env/messaging.tf"
       - "src/Modules/Payments/**"
+      - "!src/Modules/Payments/Payments.Client/**"
       - "src/Modules/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
       - "tests/Payments.UnitTests/**"
       - "tests/Directory.Build.props"
       - "Payments.slnf"
+      - "System.slnf"
+      - "tests/IntegrationTests/**"
+      - "tests/ArchitectureTests/**"
+      - "tests/Contracts.ConsumerTests/**"
+      - "tests/Shared/**"
       - "Contracts.slnf"
       - "CrowdFunding.slnx"
       - "BuildingBlocks.slnx"
@@ -126,6 +139,10 @@ jobs:
       - name: Test
         # A test that stops making progress is aborted with a dump of what it was doing.
         run: dotnet test Payments.slnf --no-build --blame-hang-timeout 5m
+      - name: The tests that run both services, built from this commit
+        # The rule tests start the monolith and Payments.Host side by side (s4-l10): whichever service
+        # changed is checked against the other at the same commit.
+        run: dotnet test System.slnf --blame-hang-timeout 5m
       - name: Every model change has its migration
         run: |
           dotnet tool restore

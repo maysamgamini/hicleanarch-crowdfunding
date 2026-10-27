@@ -2,48 +2,33 @@ using Microsoft.Extensions.Configuration;
 
 namespace Payments.Client;
 
-/// <summary>Where the Payments module runs: in this process, or in a service of its own.</summary>
-public enum PaymentsMode
-{
-    InProcess,
-    Remote,
-}
-
-/// <summary>How this process sends Payments its commands: through the dispatcher in memory, or over HTTP.</summary>
-public enum PaymentsCalls
-{
-    InProcess,
-    Http,
-}
-
 /// <summary>
-/// Configuration section <c>Modules:Payments</c>, the switches of the split (lesson s4-a02's branch by
-/// abstraction). <c>Mode = InProcess</c> (the default) runs the module here, with its endpoints, jobs,
-/// handlers and queue; <c>Mode = Remote</c> runs none of them and sends its commands to
-/// <c>BaseAddress</c>. <c>Calls = Http</c> with the module still here calls its own internal port over
-/// loopback (s4-l03). Each switch back is the rollback.
+/// Configuration section <c>Modules:Payments</c>: where Payments' service answers its commands
+/// (<c>BaseAddress</c>, its internal port through Service Connect). Payments runs only in its own service
+/// since lesson s4-l10, so the switches of the split (lesson s4-a02's branch by abstraction), <c>Mode</c>
+/// and <c>Calls</c>, are gone: a program that still sets one refuses to start rather than ignore it.
 /// </summary>
-public sealed record PaymentsPlacement(PaymentsMode Mode, PaymentsCalls Calls, Uri BaseAddress)
+public sealed record PaymentsPlacement(Uri BaseAddress)
 {
     public const string Section = "Modules:Payments";
 
-    /// <summary>Over loopback, this process's own internal port.</summary>
-    public static readonly Uri Loopback = new("http://localhost:8081");
+    /// <summary>Payments' internal port through Service Connect (lesson s4-l05).</summary>
+    public static readonly Uri ServiceConnect = new("http://payments:8081");
 
-    public bool RunsHere => Mode == PaymentsMode.InProcess;
-
-    public bool OverHttp => Calls == PaymentsCalls.Http;
+    /// <summary>The switches of s4-l03 and s4-l05, removed here.</summary>
+    private static readonly string[] Removed = ["Mode", "Calls"];
 
     public static PaymentsPlacement From(IConfiguration configuration)
     {
         var section = configuration.GetSection(Section);
-        var mode = section.GetValue("Mode", PaymentsMode.InProcess);
-        var calls = section.GetValue("Calls", mode == PaymentsMode.Remote ? PaymentsCalls.Http : PaymentsCalls.InProcess);
-        if (mode == PaymentsMode.Remote && calls != PaymentsCalls.Http)
+        var removed = Removed.Where(key => section[key] is not null).ToList();
+        if (removed.Count > 0)
         {
-            throw new InvalidOperationException($"{Section}: Mode = Remote needs Calls = Http, because Payments does not run in this process.");
+            throw new InvalidOperationException(
+                $"{Section}:{string.Join(" and ", removed)} no longer exist (lesson s4-l10): Payments runs only in its own service, " +
+                $"and this program sends it its commands over HTTP. Remove the setting.");
         }
 
-        return new PaymentsPlacement(mode, calls, section.GetValue<Uri>("BaseAddress") ?? Loopback);
+        return new PaymentsPlacement(section.GetValue<Uri>("BaseAddress") ?? ServiceConnect);
     }
 }

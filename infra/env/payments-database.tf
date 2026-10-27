@@ -1,39 +1,25 @@
-# Payments' own Aurora cluster (lesson s4-l07, fence, clone, switch). It is a copy-on-write clone of
-# the shared cluster, taken after `move-payments fence`, once the shared cluster's latest restorable
-# time is past the fence (scripts/move-payments.sh waits for it). The clone starts with every
-# module's data: `move-payments prune` drops all but Payments', and the write-only master password
-# below replaces the copied one. Nothing here exists until payments_database_clone is true.
-#
-# payments_database_clone = false, payments_database = "shared"  before the move, and after a rollback
-# payments_database_clone = true,  payments_database = "shared"  the clone, during the pause
-# payments_database_clone = true,  payments_database = "own"     the switch: Payments' tasks roll onto the new secret
-
-variable "payments_database_clone" {
-  description = "Whether Payments' own cluster (the clone of the shared one) exists."
-  type        = bool
-  default     = false
-}
-
-variable "payments_database" {
-  description = "Which cluster Payments' tasks connect to: shared, or own (the clone, once switched)."
-  type        = string
-  default     = "shared"
-
-  validation {
-    condition     = contains(["shared", "own"], var.payments_database)
-    error_message = "payments_database is shared or own."
-  }
-
-  validation {
-    condition     = var.payments_database == "shared" || var.payments_database_clone
-    error_message = "payments_database = own needs payments_database_clone = true."
-  }
-}
+# Payments' own Aurora cluster. Lesson s4-l07 made it as a copy-on-write clone of the shared cluster,
+# fenced, pruned and switched; since s4-l10 it is simply Payments' cluster, and a new environment creates
+# it empty: Payments' own migrate task (infra/services/payments) creates Payments' schema and login on it,
+# as the cluster's master. The shared cluster holds nothing of Payments, and the monolith's roles can
+# read none of the secrets below.
 
 locals {
-  payments_clone = var.payments_database_clone ? 1 : 0
-  # The one secret the switch changes: what ConnectionStrings__Payments reads in Payments' task (ecs.tf).
-  payments_connection_secret = var.payments_database == "own" ? aws_secretsmanager_secret.payments_own["payments"].arn : aws_secretsmanager_secret.connection["payments"].arn
+  # What ConnectionStrings__Payments reads in Payments' task: its own cluster, always.
+  payments_connection_secret = aws_secretsmanager_secret.payments_own["payments"].arn
+  # Payments' login role on its cluster; the shared cluster no longer has one (secrets.tf).
+  payments_role = "payments_app"
+}
+
+# The clone of s4-l07 lived at count index 0; an environment that went through the move keeps it.
+moved {
+  from = aws_rds_cluster.payments[0]
+  to   = aws_rds_cluster.payments
+}
+
+moved {
+  from = aws_rds_cluster_instance.payments_writer[0]
+  to   = aws_rds_cluster_instance.payments_writer
 }
 
 # Its own parameter group, so a change to Payments' settings never reboots the shared writer.
@@ -43,7 +29,7 @@ resource "aws_rds_cluster_parameter_group" "payments" {
   description = "Payments' own cluster"
 }
 
-# Only Payments reaches it: the tasks that run Payments, and the task that runs move-payments.
+# Only Payments reaches it: its service's tasks and its migrate task, all in Payments' security group.
 resource "aws_security_group" "payments_database" {
   name        = "${var.project}-payments-database"
   description = "PostgreSQL for Payments only"
@@ -56,15 +42,7 @@ resource "aws_vpc_security_group_ingress_rule" "payments_database_from_payments"
   from_port                    = 5432
   to_port                      = 5432
   ip_protocol                  = "tcp"
-  description                  = "PostgreSQL from Payments' tasks and the move-payments task"
-}
-
-resource "aws_vpc_security_group_ingress_rule" "payments_database_from_tasks" {
-  security_group_id            = aws_security_group.payments_database.id
-  referenced_security_group_id = aws_security_group.tasks.id
-  from_port                    = 5432
-  to_port                      = 5432
-  ip_protocol                  = "tcp"
+  description                  = "PostgreSQL from Payments' tasks"
 }
 
 ephemeral "random_password" "payments_owner" {
@@ -78,21 +56,14 @@ ephemeral "random_password" "payments_app" {
 }
 
 resource "aws_rds_cluster" "payments" {
-  count              = local.payments_clone
   cluster_identifier = "${var.project}-sandbox-payments"
   engine             = aws_rds_cluster.main.engine
   engine_mode        = "provisioned"
   engine_version     = aws_rds_cluster.main.engine_version
+  database_name      = "crowdfunding"
+  master_username    = "owner"
 
-  # Copy-on-write: the clone shares the shared cluster's pages and copies one only when either side
-  # changes it, so its making does not grow with the money journals. The master user is the source's.
-  restore_to_point_in_time {
-    source_cluster_identifier  = aws_rds_cluster.main.cluster_identifier
-    restore_type               = "copy-on-write"
-    use_latest_restorable_time = true
-  }
-
-  # The copied master password goes: this one is sent to RDS and to the owner's secret, never to the state.
+  # Write-only: sent to RDS and to the owner's secret, never to the state.
   master_password_wo              = ephemeral.random_password.payments_owner.result
   master_password_wo_version      = 1
   db_subnet_group_name            = aws_db_subnet_group.main.name
@@ -110,31 +81,36 @@ resource "aws_rds_cluster" "payments" {
     min_capacity = 0.5
     max_capacity = local.db_max_acu
   }
+
+  # A cluster made by s4-l07's clone records where it was restored from; changing that would replace
+  # it, with every payment in it. The clone already holds what a new cluster would be created with.
+  lifecycle {
+    ignore_changes = [restore_to_point_in_time, snapshot_identifier]
+  }
 }
 
 resource "aws_rds_cluster_instance" "payments_writer" {
-  count               = local.payments_clone
   identifier          = "${var.project}-sandbox-payments-writer"
-  cluster_identifier  = aws_rds_cluster.payments[0].id
+  cluster_identifier  = aws_rds_cluster.payments.id
   instance_class      = "db.serverless"
-  engine              = aws_rds_cluster.payments[0].engine
-  engine_version      = aws_rds_cluster.payments[0].engine_version
+  engine              = aws_rds_cluster.payments.engine
+  engine_version      = aws_rds_cluster.payments.engine_version
   apply_immediately   = true
   publicly_accessible = false
 }
 
 locals {
-  payments_db_host = var.payments_database_clone ? aws_rds_cluster.payments[0].endpoint : ""
+  payments_db_host = aws_rds_cluster.payments.endpoint
   payments_own_connections = {
     owner    = "Host=${local.payments_db_host};Port=5432;Database=crowdfunding;Username=owner;Password=${ephemeral.random_password.payments_owner.result};Timeout=60;${local.db_tls};${local.owner_pool}"
-    payments = "Host=${local.payments_db_host};Port=5432;Database=crowdfunding;Username=${local.db_roles.payments};Password=${ephemeral.random_password.payments_app.result};Timeout=60;${local.db_tls};${local.pool}"
+    payments = "Host=${local.payments_db_host};Port=5432;Database=crowdfunding;Username=${local.payments_role};Password=${ephemeral.random_password.payments_app.result};Timeout=60;${local.db_tls};${local.pool}"
   }
 }
 
-# The clone's two logins: its master (move-payments, and Payments' own migrate step from then on),
-# and Payments' role with the password that `move-payments switch` gives it on the clone.
+# The cluster's two logins: its master, read only by Payments' migrate task, and Payments' role, which
+# that task creates with this password (an environment that went through s4-l07 got it at the switch).
 resource "aws_secretsmanager_secret" "payments_own" {
-  for_each                = var.payments_database_clone ? toset(["owner", "payments"]) : toset([])
+  for_each                = toset(["owner", "payments"])
   name                    = "${var.project}/sandbox/db/payments-own/${each.key}"
   recovery_window_in_days = 0
 }
@@ -146,25 +122,8 @@ resource "aws_secretsmanager_secret_version" "payments_own" {
   secret_string_wo_version = 1
 }
 
-data "aws_iam_policy_document" "read_payments_own" {
-  count = local.payments_clone
-  statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [for s in aws_secretsmanager_secret.payments_own : s.arn]
-  }
-}
-
-resource "aws_iam_role_policy" "execution_payments_own" {
-  count  = local.payments_clone
-  role   = aws_iam_role.execution.id
-  policy = data.aws_iam_policy_document.read_payments_own[0].json
-}
-
-# The move-payments task is Payments' own (infra/services/payments/move.tf): it runs Payments' image
-# in Payments' security group, with an execution role that reads the secrets below.
-
 output "payments_security_group" {
-  description = "Payments' tasks' security group: the move-payments task runs in it."
+  description = "Payments' tasks' security group: its service and its migrate task run in it."
   value       = aws_security_group.payments.id
 }
 
@@ -172,14 +131,6 @@ output "payments_database_endpoint" {
   value = local.payments_db_host
 }
 
-output "shared_cluster_identifier" {
-  value = aws_rds_cluster.main.cluster_identifier
-}
-
 output "payments_cluster_identifier" {
-  value = "${var.project}-sandbox-payments"
-}
-
-output "payments_own_secret_prefix" {
-  value = "${var.project}/sandbox/db/payments-own"
+  value = aws_rds_cluster.payments.cluster_identifier
 }

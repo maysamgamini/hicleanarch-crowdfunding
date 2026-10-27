@@ -23,7 +23,3 @@ output "task_subnets" {
 output "task_security_group" {
   value = local.shared.payments_security_group_id
 }
-
-output "move_payments_task_definition" {
-  value = aws_ecs_task_definition.move_payments.arn
-}
