@@ -107,6 +107,12 @@ internal sealed class CircuitBreakingPaymentProvider(IPaymentProvider psp, Circu
     public Task<ChargeOutcome> Cancel(ChargeReference reference, CancellationToken ct) =>
         Guarded(c => psp.Cancel(reference, c), Answered, ct);
 
+    public Task<string> Refund(string pspPaymentId, long amountMinor, string idempotencyKey, CancellationToken ct) =>
+        Guarded(c => psp.Refund(pspPaymentId, amountMinor, idempotencyKey, c), _ => true, ct);
+
+    public Task<string> Transfer(Guid creatorId, long amountMinor, string currency, string idempotencyKey, CancellationToken ct) =>
+        Guarded(c => psp.Transfer(creatorId, amountMinor, currency, idempotencyKey, c), _ => true, ct);
+
     /// <summary>A decline is the PSP working, and so is a payment waiting for its backer; a timeout is not.</summary>
     private static bool Answered(ChargeOutcome outcome) =>
         outcome is not ChargeOutcome.Unknown { Reason: not ChargeOutcome.WaitingForBacker };

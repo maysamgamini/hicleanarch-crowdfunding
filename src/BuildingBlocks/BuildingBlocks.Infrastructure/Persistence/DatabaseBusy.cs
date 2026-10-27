@@ -48,7 +48,7 @@ public sealed class DatabaseBusyHandler : IExceptionHandler
         var reason = exception switch
         {
             DatabaseBusyException busy => busy.Reason,
-            PostgresException { SqlState: TransactionTimeout } => "try_again",
+            _ when EndedByTransactionTimeout(exception) => "try_again",
             _ => null,
         };
         if (reason is null)
@@ -62,5 +62,19 @@ public sealed class DatabaseBusyHandler : IExceptionHandler
             title: "The request met a busy moment and changed nothing. Send it again with the same Idempotency-Key.",
             extensions: new Dictionary<string, object?> { ["reason"] = reason }).ExecuteAsync(httpContext);
         return true;
+    }
+
+    // EF Core wraps it (DbUpdateException from SaveChanges), so the whole chain is searched.
+    private static bool EndedByTransactionTimeout(Exception? exception)
+    {
+        for (; exception is not null; exception = exception.InnerException)
+        {
+            if (exception is PostgresException { SqlState: TransactionTimeout })
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

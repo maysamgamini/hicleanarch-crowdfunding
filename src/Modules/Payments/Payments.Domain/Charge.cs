@@ -11,6 +11,9 @@ public enum ChargeStatus
 
     /// <summary>The window ended, or the attempts ran out: never charged, and the campaign stays funded.</summary>
     Dropped,
+
+    /// <summary>Charged, then given back to the backer. The money ledger records the refund as a journal of its own.</summary>
+    Refunded,
 }
 
 public enum AttemptStatus
@@ -48,6 +51,9 @@ public sealed class Charge
     public int AttemptNo { get; private set; }
 
     public string? PspPaymentId { get; private set; }
+
+    /// <summary>Set when a charged pledge is given back.</summary>
+    public string? PspRefundId { get; private set; }
 
     /// <summary>A failed charge is tried again no earlier than this.</summary>
     public DateTimeOffset? NextAttemptAt { get; private set; }

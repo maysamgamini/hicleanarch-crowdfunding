@@ -52,11 +52,13 @@ public sealed class TokenBucketTests(Valkey valkey) : IClassFixture<Valkey>, IDi
     public async Task An_empty_bucket_refills_at_its_rate()
     {
         var buckets = Task();
-        var bucket = NewBucket(perSecond: 10, capacity: 1);
+        // One token a second: the refusal must not be undone by a slow machine between the two takes.
+        var bucket = NewBucket(perSecond: 1, capacity: 1);
         Assert.True((await buckets.TryTake([bucket], Ct)).Granted);
-        Assert.False((await buckets.TryTake([bucket], Ct)).Granted);
+        var refused = await buckets.TryTake([bucket], Ct);
+        Assert.False(refused.Granted);
 
-        await System.Threading.Tasks.Task.Delay(150, Ct);
+        await System.Threading.Tasks.Task.Delay(refused.RetryAfter + TimeSpan.FromMilliseconds(50), Ct);
 
         Assert.True((await buckets.TryTake([bucket], Ct)).Granted);
     }

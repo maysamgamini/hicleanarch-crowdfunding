@@ -19,4 +19,8 @@ internal sealed class PaymentsMigrator : IModuleMigrator
         await using var db = new PaymentsDbContext(options);
         await db.Database.MigrateAsync(cancellationToken);
     }
+
+    /// <summary>The money ledger is added to and read, never changed or emptied.</summary>
+    public string AfterGrants(string quotedRole) =>
+        $"REVOKE UPDATE, DELETE, TRUNCATE ON payments.money_journals, payments.money_entries FROM {quotedRole};";
 }

@@ -28,6 +28,8 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     private readonly ConcurrentDictionary<string, ChargeOutcome> _onSession = new();
     private readonly ConcurrentQueue<(string Call, DateTimeOffset At)> _calls = new();
     private int _attempts;
+    private readonly ConcurrentDictionary<string, string> _refundsByKey = new();
+    private readonly ConcurrentDictionary<string, string> _transfersByKey = new();
     private int _loseNextReplies;
     private int _unreachable;
     private int _rateLimitNext;
@@ -80,7 +82,7 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
                 CardDeclined => new ChargeOutcome.Declined("insufficient_funds", paymentId),
                 CardExpired => new ChargeOutcome.Declined("expired_card", paymentId),
                 CardNeedsAuthentication => new ChargeOutcome.Declined("authentication_required", paymentId),
-                _ => new ChargeOutcome.Succeeded(paymentId),
+                _ => new ChargeOutcome.Succeeded(paymentId, FeeFor(request.AmountMinor)),
             };
             _payments[paymentId] = (request, result);
             return result;
@@ -149,9 +151,29 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     public SignedWebhook FinishOnSessionPayment(string pspPaymentId, bool confirmed = true)
     {
         var (request, _) = _payments[pspPaymentId];
-        ChargeOutcome result = confirmed ? new ChargeOutcome.Succeeded(pspPaymentId) : new ChargeOutcome.Declined("authentication_required", pspPaymentId);
+        ChargeOutcome result = confirmed ? new ChargeOutcome.Succeeded(pspPaymentId, FeeFor(request.AmountMinor)) : new ChargeOutcome.Declined("authentication_required", pspPaymentId);
         _payments[pspPaymentId] = (request, result);
-        return Webhook(confirmed ? "payment_succeeded" : "payment_failed", new { payment_id = pspPaymentId, decline_code = confirmed ? null : "authentication_required" });
+        return Webhook(confirmed ? "payment_succeeded" : "payment_failed", new { payment_id = pspPaymentId, fee_minor = confirmed ? FeeFor(request.AmountMinor) : (long?)null, decline_code = confirmed ? null : "authentication_required" });
+    }
+
+    /// <summary>A common card list price: 2.9% plus 30 cents, rounded to the cent.</summary>
+    public static long FeeFor(long amountMinor) => (long)Math.Round(amountMinor * 0.029m, MidpointRounding.AwayFromZero) + 30;
+
+    /// <summary>How many refunds and transfers the PSP has actually made.</summary>
+    public int RefundsMade => _refundsByKey.Count;
+
+    public int TransfersMade => _transfersByKey.Count;
+
+    public Task<string> Refund(string pspPaymentId, long amountMinor, string idempotencyKey, CancellationToken ct)
+    {
+        Reach("charge");
+        return Task.FromResult(_refundsByKey.GetOrAdd(idempotencyKey, _ => $"re_{Guid.NewGuid():N}"));
+    }
+
+    public Task<string> Transfer(Guid creatorId, long amountMinor, string currency, string idempotencyKey, CancellationToken ct)
+    {
+        Reach("charge");
+        return Task.FromResult(_transfersByKey.GetOrAdd(idempotencyKey, _ => $"tr_{Guid.NewGuid():N}"));
     }
 
     /// <summary>The backer finished the PSP's card form: the webhook the PSP would send, signed.</summary>

@@ -81,10 +81,11 @@ internal sealed partial class SettlementWorker(IServiceScopeFactory scopes, IOpt
         }
     }
 
+    // _pass is not disposed: a host torn down while Stop still runs would make its Release throw, and a
+    // SemaphoreSlim whose wait handle is never asked for holds nothing that needs disposing.
     public override void Dispose()
     {
         _stopping.Dispose();
-        _pass.Dispose();
         base.Dispose();
     }
 

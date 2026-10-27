@@ -23,6 +23,26 @@ public sealed class ChangeAndCancelTests(Database database) : IDisposable
     private static Task<HttpResponseMessage> Change(HttpClient backer, string pledge, long amount, string? tier = null) =>
         backer.PatchAsJsonAsync(pledge, new { amount_minor = amount, tier_id = tier }, Ct);
 
+    /// <summary>
+    /// A change sent again while the database ends its transaction for running too long (409 try_again,
+    /// rolled back in full), as a client does. Ten changes queue on one row, so on a loaded machine some
+    /// outlast the module role's 2 s transaction limit.
+    /// </summary>
+    private static async Task<HttpResponseMessage> ChangeUntilAnswered(HttpClient backer, string pledge, long amount)
+    {
+        while (true)
+        {
+            var response = await Change(backer, pledge, amount);
+            if (response.StatusCode != HttpStatusCode.Conflict || await Reason(response) != "try_again")
+            {
+                return response;
+            }
+
+            response.Dispose();
+            await Task.Delay(100, Ct);
+        }
+    }
+
     private static async Task<string> Reason(HttpResponseMessage response) =>
         (await response.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString()!;
 
@@ -133,7 +153,7 @@ public sealed class ChangeAndCancelTests(Database database) : IDisposable
         var pledge = await Place(backer, campaign, 6_000);
 
         var amounts = Enumerable.Range(1, 10).Select(i => 6_000L + (i * 100)).ToArray();
-        var responses = await Task.WhenAll(amounts.Select(a => Change(backer, pledge, a)));
+        var responses = await Task.WhenAll(amounts.Select(a => ChangeUntilAnswered(backer, pledge, a)));
 
         // Each change waited for the one before on the pledge's row lock, then applied in full.
         Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));

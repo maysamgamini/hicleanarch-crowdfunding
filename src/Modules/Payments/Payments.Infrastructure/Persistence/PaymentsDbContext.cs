@@ -24,6 +24,12 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
 
     public DbSet<SettlementJob> SettlementJobs => Set<SettlementJob>();
 
+    public DbSet<MoneyJournalRow> MoneyJournals => Set<MoneyJournalRow>();
+
+    public DbSet<Payout> Payouts => Set<Payout>();
+
+    public DbSet<CampaignPayee> CampaignPayees => Set<CampaignPayee>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema(Schema);
@@ -62,6 +68,7 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             charge.Property(c => c.Currency).HasMaxLength(3).IsFixedLength();
             charge.Property(c => c.PaymentMethodRef).HasMaxLength(200);
             charge.Property(c => c.PspPaymentId).HasMaxLength(100);
+            charge.Property(c => c.PspRefundId).HasMaxLength(100);
             charge.Property(c => c.Status).HasConversion(s => Names.Of(s), s => Names.Parse<ChargeStatus>(s)).HasMaxLength(20);
             charge.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
             charge.Property(c => c.LastDeclineCode).HasMaxLength(100);
@@ -98,6 +105,48 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             job.Property(j => j.LeaseOwner).HasMaxLength(100);
             job.Property(j => j.CreatedAt).HasDefaultValueSql("now()");
             job.HasIndex(j => j.CreatedAt).HasFilter("status <> 'DONE'").HasDatabaseName("settlement_jobs_open");
+        });
+
+        // The money ledger. Lines are added, never changed; a journal's lines sum to zero, which a
+        // deferred constraint trigger checks at commit (added by the migration as SQL).
+        modelBuilder.Entity<MoneyJournalRow>(journal =>
+        {
+            journal.ToTable("money_journals");
+            journal.HasKey(j => j.JournalId);
+            journal.Property(j => j.JournalId).UseIdentityAlwaysColumn();
+            journal.Property(j => j.Kind).HasMaxLength(20);
+            journal.Property(j => j.SourceRef).HasMaxLength(200);
+            journal.Property(j => j.Currency).HasMaxLength(3).IsFixedLength();
+            journal.Property(j => j.CreatedAt).HasDefaultValueSql("now()");
+            journal.HasIndex(j => new { j.SourceRef, j.Kind }).IsUnique().HasDatabaseName("one_journal_per_source");
+            journal.HasIndex(j => j.CampaignId);
+        });
+
+        modelBuilder.Entity<MoneyEntryRow>(entry =>
+        {
+            entry.ToTable("money_entries", t => t.HasCheckConstraint("money_entries_not_zero", "amount_minor <> 0"));
+            entry.HasKey(e => e.EntryId);
+            entry.Property(e => e.EntryId).UseIdentityAlwaysColumn();
+            entry.Property(e => e.Account).HasMaxLength(40);
+            entry.HasOne<MoneyJournalRow>().WithMany().HasForeignKey(e => e.JournalId);
+        });
+
+        modelBuilder.Entity<Payout>(payout =>
+        {
+            payout.ToTable("payouts");
+            payout.HasKey(p => p.CampaignId);
+            payout.Property(p => p.CampaignId).ValueGeneratedNever();
+            payout.Property(p => p.Currency).HasMaxLength(3).IsFixedLength();
+            payout.Property(p => p.Status).HasConversion(s => Names.Of(s), s => Names.Parse<PayoutStatus>(s)).HasMaxLength(20);
+            payout.Property(p => p.PspTransferId).HasMaxLength(100);
+            payout.Property(p => p.SettledAt).HasDefaultValueSql("now()");
+        });
+
+        modelBuilder.Entity<CampaignPayee>(payee =>
+        {
+            payee.ToTable("campaign_payees");
+            payee.HasKey(p => p.CampaignId);
+            payee.Property(p => p.CampaignId).ValueGeneratedNever();
         });
 
         modelBuilder.Entity<WebhookMessage>(message =>

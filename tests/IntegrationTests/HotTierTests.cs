@@ -17,11 +17,19 @@ public sealed class HotTierTests(Database database, Valkey valkey) : IClassFixtu
     private readonly WebApplicationFactory<Program> _host = database.StartHost()
         .WithWebHostBuilder(web => web.UseSetting("ConnectionStrings:Valkey", valkey.Configuration));
 
-    public void Dispose() => _host.Dispose();
+    // One connection for the test, held until it ends. A connection made per call and dropped at once
+    // can be collected while its command is still on the wire, which cancels the read under it.
+    private ConnectionMultiplexer? _valkey;
+
+    public void Dispose()
+    {
+        _valkey?.Dispose();
+        _host.Dispose();
+    }
 
     private static string FlagKey(string publicTierId) => $"pledges:tier-sold-out:{publicTierId["tir_".Length..]}";
 
-    private async Task<IDatabase> Valkey() => (await ConnectionMultiplexer.ConnectAsync(valkey.Configuration)).GetDatabase();
+    private async Task<IDatabase> Valkey() => (_valkey ??= await ConnectionMultiplexer.ConnectAsync(valkey.Configuration)).GetDatabase();
 
     private static async Task<HttpResponseMessage> Pledge(Scenario given, Scenario.Published campaign) =>
         await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(4_900, campaign.TierIds[0]), Ct);

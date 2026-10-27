@@ -27,12 +27,12 @@
   </ItemGroup>
   <!-- The version every module is built and tested with. Upgrading is a change of its own.
        On a developer's machine, scripts/pack-buildingblocks.sh packs a fresh prerelease of it
-       (1.0.0-local.<time>) and records it in this file, so a stale 1.0.0 is never restored from
-       the package cache. CI and Docker images pack 1.0.0 itself into a clean feed. -->
+       (1.0.0-local.<time>) and records it in this file, so a stale release is never restored from
+       the package cache. CI and Docker images pack the release version itself into a clean feed. -->
   <Import Project="$(MSBuildThisFileDirectory)artifacts/packages/local-version.props"
           Condition="Exists('$(MSBuildThisFileDirectory)artifacts/packages/local-version.props')" />
   <PropertyGroup>
-    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">1.0.0</BuildingBlocksVersion>
+    <BuildingBlocksVersion Condition="'$(BuildingBlocksVersion)' == ''">1.0.1</BuildingBlocksVersion>
   </PropertyGroup>
   <ItemGroup Label="BuildingBlocks">
     <PackageVersion Include="CrowdFunding.BuildingBlocks.Application" Version="$(BuildingBlocksVersion)" />

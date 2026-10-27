@@ -28,6 +28,12 @@ public interface IPaymentProvider
     /// answer is its success: a payment that went through is never treated as failed.
     /// </summary>
     Task<ChargeOutcome> Cancel(ChargeReference reference, CancellationToken ct);
+
+    /// <summary>Gives a charge back to the backer. The same key returns the same refund; the PSP keeps its fee.</summary>
+    Task<string> Refund(string pspPaymentId, long amountMinor, string idempotencyKey, CancellationToken ct);
+
+    /// <summary>Pays a creator from the platform's PSP balance. The same key returns the same transfer.</summary>
+    Task<string> Transfer(Guid creatorId, long amountMinor, string currency, string idempotencyKey, CancellationToken ct);
 }
 
 public sealed record OnSessionPayment(string PspPaymentId, string ClientSecret);
@@ -41,7 +47,9 @@ public sealed record ChargeReference(string? PspPaymentId, string PspCustomerId,
 /// <summary>What we know about one charge attempt. <see cref="Unknown"/> is an answer of its own: never a failure.</summary>
 public abstract record ChargeOutcome
 {
-    public sealed record Succeeded(string PspPaymentId) : ChargeOutcome;
+    /// <summary>The PSP took its fee from the charge (at Stripe, on the charge's balance transaction); the ledger records it.</summary>
+    /// <summary>FeeMinor is null when the message did not carry the fee (a webhook without it); the journal is then booked before payout.</summary>
+    public sealed record Succeeded(string PspPaymentId, long? FeeMinor = null) : ChargeOutcome;
 
     public sealed record Declined(string Code, string? PspPaymentId) : ChargeOutcome;
 

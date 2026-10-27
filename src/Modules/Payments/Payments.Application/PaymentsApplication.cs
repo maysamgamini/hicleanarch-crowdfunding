@@ -16,5 +16,9 @@ public static class PaymentsApplication
             .AddScoped<IQueryHandler<GetSettlementProgress, SettlementProgress>, GetSettlementProgressHandler>()
             .AddScoped<ICommandHandler<UseNewCard, ChargeView>, UseNewCardHandler>()
             .AddScoped<ICommandHandler<ConfirmPayment, PaymentToConfirm>, ConfirmPaymentHandler>()
-            .AddScoped<ChargeOutcomes>();
+            .AddScoped<ChargeOutcomes>()
+            .AddScoped<ChargeBookkeeping>()
+            .AddScoped<ICommandHandler<PayOut, PayoutDone>, PayOutHandler>()
+            .AddScoped<ICommandHandler<RefundPledge, RefundDone>, RefundPledgeHandler>()
+            .AddScoped<IQueryHandler<GetCampaignMoney, CampaignMoney>, GetCampaignMoneyHandler>();
 }

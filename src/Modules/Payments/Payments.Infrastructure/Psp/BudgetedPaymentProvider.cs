@@ -30,6 +30,13 @@ internal sealed class BudgetedPaymentProvider(IPaymentProvider psp, ITokenBucket
     public Task<ChargeOutcome> Cancel(ChargeReference reference, CancellationToken ct) =>
         Call(PspCall.Charge, c => psp.Cancel(reference, c), ct);
 
+    // Refunds and transfers are writes, so they share the charges' bucket.
+    public Task<string> Refund(string pspPaymentId, long amountMinor, string idempotencyKey, CancellationToken ct) =>
+        Call(PspCall.Charge, c => psp.Refund(pspPaymentId, amountMinor, idempotencyKey, c), ct);
+
+    public Task<string> Transfer(Guid creatorId, long amountMinor, string currency, string idempotencyKey, CancellationToken ct) =>
+        Call(PspCall.Charge, c => psp.Transfer(creatorId, amountMinor, currency, idempotencyKey, c), ct);
+
     private async Task<T> Call<T>(PspCall call, Func<CancellationToken, Task<T>> send, CancellationToken ct)
     {
         while (true)

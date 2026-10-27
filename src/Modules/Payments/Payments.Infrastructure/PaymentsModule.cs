@@ -10,6 +10,8 @@ using BuildingBlocks.Infrastructure.Hosting;
 using BuildingBlocks.Infrastructure.Persistence;
 using BuildingBlocks.Infrastructure.Valkey;
 
+using Campaigns.Contracts;
+
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -20,8 +22,8 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 using Payments.Application;
-using Payments.Domain;
 using Payments.Contracts;
+using Payments.Domain;
 using Payments.Infrastructure.Persistence;
 using Payments.Infrastructure.Psp;
 
@@ -53,6 +55,13 @@ public static class PaymentsModule
         services.AddOptions<PspBudget>().Bind(configuration.GetSection("Payments:Budget"));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<PspBudget>>().Value);
         services.AddSingleton((configuration.GetSection("Payments:Dunning").Get<DunningOptions>() ?? new DunningOptions()).Policy);
+        services.AddEventHandler<CampaignPublished, RecordPayee>(PaymentsModuleName.Value);
+        services.AddOptions<MoneyOptions>().Bind(configuration.GetSection("Payments:Money"));
+        services.AddSingleton(sp =>
+        {
+            var money = sp.GetRequiredService<IOptions<MoneyOptions>>().Value;
+            return new MoneyPolicy(money.PlatformFeeBasisPoints, money.ReserveBasisPoints);
+        });
         services.AddOptions<SettlementOptions>().Bind(configuration.GetSection("Payments:Settlement"));
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SettlementOptions>>().Value);
         services.AddSingleton<SettlementWorker>();
@@ -75,6 +84,7 @@ public static class PaymentsModule
             sp.GetRequiredService<CircuitBreaker>()));
 
         services.AddScoped<EfPayments>();
+        services.AddScoped<EfMoney>();
         return services
             .AddPaymentsApplication()
             .AddScoped<IPspCustomers>(sp => sp.GetRequiredService<EfPayments>())
@@ -85,6 +95,11 @@ public static class PaymentsModule
             .AddSingleton<IdempotencyKeyPurge<PaymentsDbContext>>()
             .AddSingleton<IIdempotencyKeyPurge>(sp => sp.GetRequiredService<IdempotencyKeyPurge<PaymentsDbContext>>())
             .AddHostedService(sp => sp.GetRequiredService<IdempotencyKeyPurge<PaymentsDbContext>>())
+            .AddScoped<IMoneyLedger>(sp => sp.GetRequiredService<EfMoney>())
+            .AddScoped<IPayouts>(sp => sp.GetRequiredService<EfMoney>())
+            .AddScoped<ICampaignPayees>(sp => sp.GetRequiredService<EfMoney>())
+            .AddScoped<IChargeRefunds>(sp => sp.GetRequiredService<EfMoney>())
+            .AddScoped<IChargeJournals>(sp => sp.GetRequiredService<EfMoney>())
             .AddScoped<ModuleTransaction<PaymentsDbContext>>()
             .AddKeyedScoped<ITransactionScope>(PaymentsModuleName.Value, (sp, _) => sp.GetRequiredService<ModuleTransaction<PaymentsDbContext>>());
     }

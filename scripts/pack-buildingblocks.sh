@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Packs the BuildingBlocks into the local feed for this machine, under a fresh prerelease version
-# (1.0.0-local.<UTC time>), and records that version in artifacts/packages/local-version.props, which
+# (<version>-local.<UTC time>), and records that version in artifacts/packages/local-version.props, which
 # Directory.Packages.props reads. A new version each time means NuGet never serves a stale copy from
 # its package cache after the BuildingBlocks change. CI and Docker images pack the release version
 # into a clean feed and do not use this script.

@@ -76,7 +76,7 @@ public sealed class HandlePspWebhookHandler(
                 }
 
                 ChargeOutcome outcome = command.Type == "payment_succeeded"
-                    ? new ChargeOutcome.Succeeded(paymentId)
+                    ? new ChargeOutcome.Succeeded(paymentId, FeeOf(command.Data))
                     : new ChargeOutcome.Declined(command.Data.TryGetProperty("decline_code", out var code) && code.GetString() is { } c ? c : "authentication_required", paymentId);
                 return Result.Success(await outcomes.Record(payment.Charge, payment.AttemptNo, outcome, cancellationToken)
                     ? WebhookHandled.Applied
@@ -99,8 +99,11 @@ public sealed class HandlePspWebhookHandler(
         var paymentId = data.GetProperty("payment_id").GetString()!;
         var n = data.GetProperty("attempt_no").GetInt32();
         ChargeOutcome outcome = command.Type == "charge_succeeded"
-            ? new ChargeOutcome.Succeeded(paymentId)
+            ? new ChargeOutcome.Succeeded(paymentId, FeeOf(data))
             : new ChargeOutcome.Declined(data.GetProperty("decline_code").GetString()!, paymentId);
         return await outcomes.Record(found.Work with { CampaignId = found.CampaignId }, n, outcome, ct);
     }
+
+    private static long? FeeOf(JsonElement data) =>
+        data.TryGetProperty("fee_minor", out var fee) && fee.ValueKind == JsonValueKind.Number ? fee.GetInt64() : null;
 }

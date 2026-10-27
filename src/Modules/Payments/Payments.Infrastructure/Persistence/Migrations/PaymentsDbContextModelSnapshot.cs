@@ -249,6 +249,11 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnType("character varying(100)")
                         .HasColumnName("psp_payment_id");
 
+                    b.Property<string>("PspRefundId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("psp_refund_id");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -334,6 +339,54 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Payments.Domain.Payout", b =>
+                {
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<long?>("AmountMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("amount_minor");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .HasColumnName("currency")
+                        .IsFixedLength();
+
+                    b.Property<DateTimeOffset?>("PaidOutAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("paid_out_at");
+
+                    b.Property<string>("PspTransferId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("psp_transfer_id");
+
+                    b.Property<long?>("ReserveMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("reserve_minor");
+
+                    b.Property<DateTimeOffset>("SettledAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("settled_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.HasKey("CampaignId")
+                        .HasName("pk_payouts");
+
+                    b.ToTable("payouts", "payments");
+                });
+
             modelBuilder.Entity("Payments.Domain.PspCustomer", b =>
                 {
                     b.Property<Guid>("BackerId")
@@ -404,6 +457,108 @@ namespace Payments.Infrastructure.Persistence.Migrations
                     b.ToTable("settlement_jobs", "payments");
                 });
 
+            modelBuilder.Entity("Payments.Infrastructure.Persistence.CampaignPayee", b =>
+                {
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<Guid>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creator_id");
+
+                    b.HasKey("CampaignId")
+                        .HasName("pk_campaign_payees");
+
+                    b.ToTable("campaign_payees", "payments");
+                });
+
+            modelBuilder.Entity("Payments.Infrastructure.Persistence.MoneyEntryRow", b =>
+                {
+                    b.Property<long>("EntryId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("entry_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("EntryId"));
+
+                    b.Property<string>("Account")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("account");
+
+                    b.Property<long>("AmountMinor")
+                        .HasColumnType("bigint")
+                        .HasColumnName("amount_minor");
+
+                    b.Property<long>("JournalId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("journal_id");
+
+                    b.HasKey("EntryId")
+                        .HasName("pk_money_entries");
+
+                    b.HasIndex("JournalId")
+                        .HasDatabaseName("ix_money_entries_journal_id");
+
+                    b.ToTable("money_entries", "payments", t =>
+                        {
+                            t.HasCheckConstraint("money_entries_not_zero", "amount_minor <> 0");
+                        });
+                });
+
+            modelBuilder.Entity("Payments.Infrastructure.Persistence.MoneyJournalRow", b =>
+                {
+                    b.Property<long>("JournalId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("journal_id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("JournalId"));
+
+                    b.Property<Guid>("CampaignId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("campaign_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character(3)")
+                        .HasColumnName("currency")
+                        .IsFixedLength();
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("SourceRef")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("source_ref");
+
+                    b.HasKey("JournalId")
+                        .HasName("pk_money_journals");
+
+                    b.HasIndex("CampaignId")
+                        .HasDatabaseName("ix_money_journals_campaign_id");
+
+                    b.HasIndex("SourceRef", "Kind")
+                        .IsUnique()
+                        .HasDatabaseName("one_journal_per_source");
+
+                    b.ToTable("money_journals", "payments");
+                });
+
             modelBuilder.Entity("Payments.Infrastructure.Persistence.WebhookMessage", b =>
                 {
                     b.Property<string>("MessageId")
@@ -421,6 +576,16 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasName("pk_webhook_inbox");
 
                     b.ToTable("webhook_inbox", "payments");
+                });
+
+            modelBuilder.Entity("Payments.Infrastructure.Persistence.MoneyEntryRow", b =>
+                {
+                    b.HasOne("Payments.Infrastructure.Persistence.MoneyJournalRow", null)
+                        .WithMany()
+                        .HasForeignKey("JournalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_money_entries_money_journals_journal_id");
                 });
 #pragma warning restore 612, 618
         }

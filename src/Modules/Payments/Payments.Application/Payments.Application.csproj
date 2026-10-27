@@ -4,6 +4,7 @@
     <PackageReference Include="CrowdFunding.BuildingBlocks.Application" />
     <ProjectReference Include="..\Payments.Contracts\Payments.Contracts.csproj" />
     <ProjectReference Include="..\Payments.Domain\Payments.Domain.csproj" />
+    <ProjectReference Include="..\..\Campaigns\Campaigns.Contracts\Campaigns.Contracts.csproj" />
     <ProjectReference Include="..\..\Pledges\Pledges.Contracts\Pledges.Contracts.csproj" />
   </ItemGroup>
 

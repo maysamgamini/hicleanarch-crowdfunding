@@ -163,6 +163,7 @@ public sealed class DunningOptions
 /// </summary>
 public sealed class ChargeOutcomes(
     ISettlements settlements,
+    IMoneyLedger ledger,
     DunningPolicy dunning,
     TimeProvider clock,
     [FromKeyedServices(PaymentsModuleName.Value)] IOutbox outbox)
@@ -176,6 +177,12 @@ public sealed class ChargeOutcomes(
                 if (!await settlements.TryRecordSuccess(charge.PledgeId, n, s.PspPaymentId, ct))
                 {
                     return false;
+                }
+
+                // The journal goes in the success's own transaction. Without the fee it waits for ChargeBookkeeping.
+                if (s.FeeMinor is { } fee)
+                {
+                    await ledger.Post(MoneyJournal.ForCharge(charge.CampaignId, s.PspPaymentId, charge.AmountMinor, fee, charge.Currency), ct);
                 }
 
                 await outbox.Add(new PledgeChargeSucceeded(Guid.CreateVersion7(), now, charge.PledgeId, charge.CampaignId, n, s.PspPaymentId, charge.AmountMinor, charge.BackerId), ct);
@@ -254,6 +261,7 @@ public sealed record RunSettlement(string Worker, Guid? CampaignId = null, IRead
 /// </summary>
 public sealed class RunSettlementHandler(
     ISettlements settlements,
+    IPayouts payouts,
     IPaymentProvider psp,
     SettlementOptions options,
     ChargeOutcomes outcomes,
@@ -312,6 +320,7 @@ public sealed class RunSettlementHandler(
                 }
 
                 await outbox.Add(new CampaignSettled(Guid.CreateVersion7(), clock.GetUtcNow(), id, counts.Charged, counts.Failed), ct);
+                await payouts.Open(id, ct); // the money's way to the creator starts here
                 return Result.Success(true);
             }, cancellationToken);
             return Result.Success(worked > 0 || finished.Value);

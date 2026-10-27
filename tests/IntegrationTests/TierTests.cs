@@ -27,7 +27,9 @@ public sealed class TierTests(Database database) : IDisposable
 
     /// <summary>
     /// One backer's pledge, sent again with the same key while the tier row is busy (409 tier_busy,
-    /// lesson s3-l05), as a client does, until it gets a real answer: its status and reason.
+    /// lesson s3-l05) or the database ended its transaction for running too long (409 try_again),
+    /// as a client does, until it gets a real answer: its status and reason. Fifty pledges queue on
+    /// one row here, so under a loaded machine some outlast the module role's 2 s transaction limit.
     /// </summary>
     private static async Task<(HttpStatusCode Status, string? Reason)> PledgeUntilAnswered(Scenario given, Scenario.Published campaign)
     {
@@ -43,7 +45,7 @@ public sealed class TierTests(Database database) : IDisposable
             using var response = await backer.SendAsync(request, Ct);
             using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
             var reason = body.RootElement.TryGetProperty("reason", out var r) ? r.GetString() : null;
-            if (reason != "tier_busy")
+            if (reason is not ("tier_busy" or "try_again"))
             {
                 return (response.StatusCode, reason);
             }
@@ -60,8 +62,9 @@ public sealed class TierTests(Database database) : IDisposable
 
         var responses = await Task.WhenAll(Enumerable.Range(0, 50).Select(_ => PledgeUntilAnswered(given, campaign)));
 
-        Assert.Equal(10, responses.Count(r => r.Status == HttpStatusCode.Created));
-        Assert.Equal(40, responses.Count(r => r.Status == HttpStatusCode.Conflict && r.Reason == "tier_sold_out"));
+        var answers = string.Join(", ", responses.GroupBy(r => $"{(int)r.Status} {r.Reason}").Select(g => $"{g.Key} x{g.Count()}"));
+        Assert.True(responses.Count(r => r.Status == HttpStatusCode.Created) == 10, answers);
+        Assert.True(responses.Count(r => r.Status == HttpStatusCode.Conflict && r.Reason == "tier_sold_out") == 40, answers);
 
         Assert.Equal(10, await given.Scalar<int>("SELECT claimed FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(49_000L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
