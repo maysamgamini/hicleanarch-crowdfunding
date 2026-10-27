@@ -7,7 +7,8 @@ namespace BuildingBlocks.Infrastructure.Persistence;
 /// <summary>
 /// The deploy step that prepares the database, run once per release before the new tasks start.
 /// For each module: make sure its login role and its schema exist, apply its migrations as the
-/// owner, then let the module's role use its own schema, and nothing else.
+/// owner, then let the module's role use its own schema, and nothing else: not the <c>public</c>
+/// schema, not temporary tables, and not its schema's migration history, which only the owner writes.
 /// </summary>
 public sealed partial class DatabaseMigrator(
     IEnumerable<IModuleMigrator> migrators,
@@ -52,7 +53,10 @@ public sealed partial class DatabaseMigrator(
                 END IF;
             END $$;
             CREATE SCHEMA IF NOT EXISTS {schema};
-            REVOKE ALL ON SCHEMA public FROM {role};
+            -- Every role holds what PUBLIC holds: USAGE on schema public and TEMPORARY on the database
+            -- by default. Revoking from one role would change nothing; revoking from PUBLIC does.
+            REVOKE ALL ON SCHEMA public FROM PUBLIC;
+            DO $$ BEGIN EXECUTE format('REVOKE TEMPORARY ON DATABASE %I FROM PUBLIC', current_database()); END $$;
             GRANT USAGE ON SCHEMA {schema} TO {role};
             """, ct);
     }
@@ -64,6 +68,7 @@ public sealed partial class DatabaseMigrator(
         return $"""
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {role};
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {role};
+            REVOKE ALL ON {schema}.{Quote(MigrationsHistory)} FROM {role};
 
             """;
     }
@@ -82,6 +87,9 @@ public sealed partial class DatabaseMigrator(
         await command.ExecuteNonQueryAsync(ct);
         await transaction.CommitAsync(ct);
     }
+
+    /// <summary>The migration history table every module keeps in its own schema.</summary>
+    public const string MigrationsHistory = "__ef_migrations";
 
     private static string Quote(string identifier) => "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
 

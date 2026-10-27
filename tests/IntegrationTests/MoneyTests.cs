@@ -151,19 +151,17 @@ public sealed class MoneyTests(Database database) : IDisposable
     }
 
     [Theory]
-    [InlineData("INSERT INTO payments.money_entries (journal_id, account, amount_minor) VALUES ((SELECT journal_id FROM j), 'CLEARING', -100)")]
-    [InlineData("SELECT 1")]
+    [InlineData("INSERT INTO payments.money_entries (journal_id, account, amount_minor) SELECT journal_id, 'CLEARING', -100 FROM j")]
+    [InlineData("SELECT 1 FROM j")]
     public async Task A_journal_that_does_not_balance_cannot_commit(string entries)
     {
         await using var payments = new NpgsqlConnection(database.Payments);
         await payments.OpenAsync(Ct);
         await using var transaction = await payments.BeginTransactionAsync(Ct);
         await using var write = new NpgsqlCommand($"""
-            CREATE TEMP TABLE j ON COMMIT DROP AS
-            WITH inserted AS (
+            WITH j AS (
                 INSERT INTO payments.money_journals (campaign_id, kind, source_ref, currency)
                 VALUES (gen_random_uuid(), 'CHARGE', 'pi_' || gen_random_uuid(), 'USD') RETURNING journal_id)
-            SELECT journal_id FROM inserted;
             {entries};
             """, payments, transaction);
         await write.ExecuteNonQueryAsync(Ct);

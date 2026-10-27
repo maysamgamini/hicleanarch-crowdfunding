@@ -55,6 +55,50 @@ public sealed class PersistenceTests(Database database)
         Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, refused.SqlState);
     }
 
+    [Theory]
+    [InlineData("campaigns")]
+    [InlineData("pledges")]
+    [InlineData("payments")]
+    [InlineData("notifications")]
+    public async Task A_module_role_cannot_write_its_schemas_migration_history(string schema)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var role = schema switch
+        {
+            "campaigns" => database.Campaigns,
+            "pledges" => database.Pledges,
+            "payments" => database.Payments,
+            _ => database.Notifications,
+        };
+        await using var connection = new NpgsqlConnection(role);
+        await connection.OpenAsync(ct);
+        await using var write = new NpgsqlCommand(
+            $"INSERT INTO {schema}.__ef_migrations (migration_id, product_version) VALUES ('29991231000000_Sneaky', '10.0.0')", connection);
+
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => write.ExecuteNonQueryAsync(ct));
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, refused.SqlState);
+    }
+
+    [Fact]
+    public async Task A_module_role_has_no_use_of_the_public_schema_and_no_temporary_tables()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var campaigns = new NpgsqlConnection(database.Campaigns);
+        await campaigns.OpenAsync(ct);
+        await using var rights = new NpgsqlCommand(
+            "SELECT has_schema_privilege('public', 'USAGE'), has_database_privilege(current_database(), 'TEMPORARY')", campaigns);
+        await using (var reader = await rights.ExecuteReaderAsync(ct))
+        {
+            Assert.True(await reader.ReadAsync(ct));
+            Assert.False(reader.GetBoolean(0));
+            Assert.False(reader.GetBoolean(1));
+        }
+
+        await using var temp = new NpgsqlCommand("CREATE TEMP TABLE sneaky (id int)", campaigns);
+        var refused = await Assert.ThrowsAsync<PostgresException>(() => temp.ExecuteNonQueryAsync(ct));
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, refused.SqlState);
+    }
+
     [Fact]
     public async Task The_campaigns_role_cannot_create_tables_of_its_own()
     {
