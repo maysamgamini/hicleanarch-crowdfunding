@@ -16,6 +16,7 @@ using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 
 using Payments.Infrastructure;
+using Payments.Infrastructure.Cutover;
 
 namespace Payments.Host;
 
@@ -77,6 +78,13 @@ public static class PaymentsProgram
             var owner = app.Configuration.GetConnectionString("Owner")
                 ?? throw new InvalidOperationException("ConnectionStrings:Owner is not set.");
             await app.Services.GetRequiredService<DatabaseMigrator>().Run(owner, CancellationToken.None);
+            return;
+        }
+
+        // `move-payments <step>` runs one step of moving Payments' tables to their own cluster, and exits (s4-l07).
+        if (args.FirstOrDefault() == "move-payments")
+        {
+            Environment.ExitCode = await app.Services.MovePayments(args.ElementAtOrDefault(1), CancellationToken.None);
             return;
         }
 

@@ -7,6 +7,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 using Payments.Application;
+using Payments.Infrastructure.Cutover;
 
 namespace Payments.Infrastructure;
 
@@ -15,9 +16,10 @@ namespace Payments.Infrastructure;
 /// claiming while there is work; when there is none it waits for the next poll. When the task is
 /// told to stop, the worker ends its pass and gives its job back, so another task's worker carries
 /// on at once instead of waiting for the lease to run out. A task that dies without warning only
-/// makes the others wait for the lease.
+/// makes the others wait for the lease. While a data move pauses Payments, it claims nothing and
+/// gives back what it holds.
 /// </summary>
-internal sealed partial class SettlementWorker(IServiceScopeFactory scopes, IOptions<SettlementOptions> options, ILogger<SettlementWorker> logger)
+internal sealed partial class SettlementWorker(IServiceScopeFactory scopes, IOptions<SettlementOptions> options, IPaymentsPause pause, ILogger<SettlementWorker> logger)
     : BackgroundService, IStopParticipant
 {
     private readonly string _name = $"{Environment.MachineName}:{Guid.NewGuid():N}";
@@ -44,6 +46,12 @@ internal sealed partial class SettlementWorker(IServiceScopeFactory scopes, IOpt
                     do
                     {
                         await using var scope = scopes.CreateAsyncScope();
+                        if (await pause.IsSet(stop.Token))
+                        {
+                            await scope.ServiceProvider.GetRequiredService<ISettlements>().ReleaseAll(_name, stop.Token);
+                            break;
+                        }
+
                         worked = (await scope.ServiceProvider.GetRequiredService<IDispatcher>()
                             .Send<RunSettlement, bool>(new RunSettlement(_name), stop.Token)).Value;
                     }

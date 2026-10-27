@@ -16,6 +16,7 @@ using Notifications;
 
 using Payments.Client;
 using Payments.Infrastructure;
+using Payments.Infrastructure.Cutover;
 
 using Pledges.Infrastructure;
 
@@ -92,6 +93,13 @@ if (args.Contains("migrate"))
 if (args.FirstOrDefault() == "replay-events")
 {
     Environment.ExitCode = await EventReplay.Run(app.Services, [.. args.Skip(1)], Console.Out, CancellationToken.None);
+    return;
+}
+
+// `dotnet run -- move-payments <step>` runs one step of moving Payments' tables to their own cluster, and exits.
+if (args.FirstOrDefault() == "move-payments")
+{
+    Environment.ExitCode = await app.Services.MovePayments(args.ElementAtOrDefault(1), CancellationToken.None);
     return;
 }
 

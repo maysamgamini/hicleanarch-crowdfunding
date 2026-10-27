@@ -25,6 +25,7 @@ using Microsoft.Extensions.Options;
 using Payments.Application;
 using Payments.Contracts;
 using Payments.Domain;
+using Payments.Infrastructure.Cutover;
 using Payments.Infrastructure.Persistence;
 using Payments.Infrastructure.Psp;
 
@@ -54,6 +55,7 @@ public static class PaymentsModule
         services.AddEventHandler<CampaignFundingDecided, CreateSettlementJob>(PaymentsModuleName.Value);
         services.AddSharedValkey(configuration);
         services.AddPaymentsCallers(configuration);
+        services.AddPaymentsPause(configuration);
         // Every section is checked when the program starts, so a wrong setting fails the deploy, not the first call.
         services.AddOptions<PspBudget>().Bind(configuration.GetSection("Payments:Budget"))
             .Validate(b => new[] { b.AccountPerSecond, b.CustomersPerSecond, b.CardSetupsPerSecond, b.ChargesPerSecond, b.LookUpsPerSecond }.All(r => r > 0),
@@ -87,7 +89,13 @@ public static class PaymentsModule
         services.AddHostedService(sp => sp.GetRequiredService<SettlementWorker>());
         services.AddSingleton<IStopParticipant>(sp => sp.GetRequiredService<SettlementWorker>());
         services.AddHostedService<PaymentsMonitor>();
-        services.AddSingleton<IModuleMigrator, PaymentsMigrator>();
+        // Once Payments has its own cluster (lesson s4-l07), a host whose owner connection is another
+        // database leaves Payments' schema alone: its migrations run on Payments' own cluster.
+        if (PaymentsDatabase.IsMigratedBy(configuration.GetConnectionString("Owner"), connectionString))
+        {
+            services.AddSingleton<IModuleMigrator, PaymentsMigrator>();
+        }
+
         services.AddSingleton(new ModuleDatabase(PaymentsModuleName.Value, PaymentsDbContext.Schema, connectionString));
         services.AddOptions<PaymentsOptions>().Bind(configuration.GetSection("Payments"))
             .Validate(o => o.WebhookSecret.Length >= 16, "Payments:WebhookSecret must be at least 16 characters.")
@@ -147,8 +155,11 @@ public static class PaymentsModule
 
     public static IEndpointRouteBuilder MapPaymentsEndpoints(this IEndpointRouteBuilder app)
     {
+        // While a data move pauses Payments, every endpoint here answers 503 with Retry-After.
+        var payments = app.MapGroup("").AddEndpointFilter<PausedPayments>();
+
         // The PSP calls this from the internet. It proves who it is with the signature, not a token.
-        app.MapPost("/v1/webhooks/psp", async (HttpContext http, IServiceProvider services) =>
+        payments.MapPost("/v1/webhooks/psp", async (HttpContext http, IServiceProvider services) =>
         {
             using var reader = new StreamReader(http.Request.Body);
             var body = await reader.ReadToEndAsync(http.RequestAborted);
@@ -158,7 +169,7 @@ public static class PaymentsModule
         // A charge in its recovery window, fixed by its backer (lesson s3-a04): a new card after a hard
         // decline, or a payment confirmed on our page when the bank wants the cardholder. Both are
         // changes, so both carry an Idempotency-Key: a retried confirmation gets the same payment back.
-        app.MapPut("/v1/pledges/{id}/payment-method", (string id, NewCardRequest request, ClaimsPrincipal user, HttpContext http,
+        payments.MapPut("/v1/pledges/{id}/payment-method", (string id, NewCardRequest request, ClaimsPrincipal user, HttpContext http,
             IDispatcher dispatcher, IdempotentRequests<PaymentsDbContext> once) =>
             once.Run(http, user.UserId(), new { id, request }, async ct =>
             {
@@ -171,7 +182,7 @@ public static class PaymentsModule
                 return result.IsSuccess ? Result.Success(new Reply(StatusCodes.Status200OK, result.Value)) : Result.Failure<Reply>(result.Errors);
             })).RequireAuthorization(Policies.Backer).WithTags("Payments");
 
-        app.MapPost("/v1/pledges/{id}/confirm-payment", (string id, ClaimsPrincipal user, HttpContext http,
+        payments.MapPost("/v1/pledges/{id}/confirm-payment", (string id, ClaimsPrincipal user, HttpContext http,
             IDispatcher dispatcher, IdempotentRequests<PaymentsDbContext> once) =>
             once.Run(http, user.UserId(), new { id }, async ct =>
             {
@@ -186,7 +197,7 @@ public static class PaymentsModule
 
         // How far a funded campaign's settlement has got, with an ETA at the PSP's rate (lesson s3-a04).
         // Only for the campaign's own creator (OWASP API1:2023); the policy only says the caller is a creator.
-        app.MapGet("/v1/campaigns/{id}/settlement", async (string id, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
+        payments.MapGet("/v1/campaigns/{id}/settlement", async (string id, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
         {
             if (!PublicId.TryParse("cmp", id, out var campaignId))
             {
@@ -201,7 +212,7 @@ public static class PaymentsModule
         // only with a listed service's token for payments/commands (s4-l04).
         // The path, the body and the reply are the contract's: [RemoteEndpoint] and ContractJson (s4-l06).
         var startCardSetup = typeof(StartCardSetup).GetCustomAttribute<RemoteEndpointAttribute>()!;
-        app.MapMethods(startCardSetup.Path, [startCardSetup.Method], async (HttpContext http,
+        payments.MapMethods(startCardSetup.Path, [startCardSetup.Method], async (HttpContext http,
             [FromKeyedServices(PaymentsModuleName.Value)] ICommandHandler<StartCardSetup, CardSetupStarted> handler, CancellationToken ct) =>
         {
             StartCardSetup? command;

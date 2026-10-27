@@ -74,8 +74,12 @@ resource "aws_iam_role_policy_attachment" "payments_execution" {
 
 data "aws_iam_policy_document" "payments_secrets" {
   statement {
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_secretsmanager_secret.connection["payments"].arn, aws_secretsmanager_secret.webhook.arn, aws_secretsmanager_secret.valkey["payments"].arn]
+    actions = ["secretsmanager:GetSecretValue"]
+    resources = concat(
+      [aws_secretsmanager_secret.connection["payments"].arn, aws_secretsmanager_secret.webhook.arn, aws_secretsmanager_secret.valkey["payments"].arn],
+      # Payments' own cluster's connection, while it exists (s4-l07).
+      [for k, secret in aws_secretsmanager_secret.payments_own : secret.arn if k == "payments"],
+    )
   }
 }
 
@@ -176,7 +180,8 @@ resource "aws_ecs_task_definition" "payments" {
         { name = "Auth__ServiceClients__0", value = aws_cognito_user_pool_client.monolith_service.id },
       ], local.payments_broker_environment)
       secrets = [
-        { name = "ConnectionStrings__Payments", valueFrom = aws_secretsmanager_secret.connection["payments"].arn },
+        # The shared cluster, or Payments' own once the move has switched (payments-database.tf, s4-l07).
+        { name = "ConnectionStrings__Payments", valueFrom = local.payments_connection_secret },
         { name = "Payments__WebhookSecret", valueFrom = aws_secretsmanager_secret.webhook.arn },
         { name = "ConnectionStrings__Valkey", valueFrom = aws_secretsmanager_secret.valkey["payments"].arn },
       ]
