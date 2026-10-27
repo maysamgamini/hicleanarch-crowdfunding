@@ -49,14 +49,15 @@ locals {
     # ElastiCache takes command|subcommand rules from engine 7.0). ValkeyUsersTests runs these strings
     # against a Valkey container (CQA-1516).
     gateway = "on ~gateway:* &* +@all -@dangerous -scan -randomkey -script|flush -function|flush"
-    # Payments' own host shares the PSP budget's buckets (buckets:<Payments:Budget:Prefix>:*) with the
-    # monolith, and has its own flags (payments:*). Only the categories it uses: the connection's own
-    # commands (PING, ECHO, CLIENT SETNAME, sent while StackExchange.Redis connects), reads, writes and
-    # scripts, no channels; the buckets' script reads Valkey's clock, and TIME is in no category but
-    # @fast, so it is named alone.
     # The Campaigns service (s5-l08): the catalog cache and its refill locks, nothing else.
     campaigns = "on ~campaigns:* resetchannels -@all +@connection +@read +@write +@scripting -@dangerous -scan -randomkey -script|flush -function|flush"
-    payments  = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time -@dangerous -scan -randomkey -script|flush -function|flush"
+    # The Payments service: the PSP budget's buckets (buckets:<Payments:Budget:Prefix>:*, the prefix psp of
+    # payments-split.tf), which its tasks share so the PSP sees one budget, and its own flags (payments:*).
+    # Since s4-l10 no other client runs Payments' code, so no other user names the buckets (CQA-2119). Only
+    # the categories it uses: the connection's own commands (PING, ECHO, CLIENT SETNAME, sent while
+    # StackExchange.Redis connects), reads, writes and scripts, no channels; the buckets' script reads
+    # Valkey's clock, and TIME is in no category but @fast, so it is named alone.
+    payments = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time -@dangerous -scan -randomkey -script|flush -function|flush"
   }
 
   # A user limited to its own keys may not read the client's tiebreaker key or subscribe to its
