@@ -36,7 +36,7 @@ public class PathFilterTests
         { "src/Host/Program.cs", false, true },
         { "src/Gateway/Program.cs", false, true },
         { "src/Modules/Pledges/Pledges.Application/PlacePledge.cs", false, true },
-        { "src/Modules/Notifications/Templates.cs", false, true },
+        { "src/Modules/Notifications/Templates.cs", false, false },
         { "infra/env/ecs.tf", false, true },
         { "Dockerfile", false, true },
         { "tests/IntegrationTests/PledgeTests.cs", true, true },

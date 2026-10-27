@@ -2,7 +2,7 @@
 # the database, its migration role's secret (services.tf) and the one-time hand-over of its schema.
 # Everything else of the service (roles, task definitions, ECS service, log group) is its own OpenTofu
 # root, infra/services/notifications, applied by its own deploy role (lesson s5-l03). The monolith keeps
-# the module and its access until s5-l04.
+# nothing of it since s5-l04.
 
 variable "notifications_image" {
   description = "The Notifications.Host image the one-time hand-over runs; empty until the release that gives Notifications its own host (s5-l03). The service itself is deployed from infra/services/notifications."
@@ -120,15 +120,4 @@ resource "aws_ecs_task_definition" "notifications_handover" {
 output "handover_task_definitions" {
   description = "The one-time hand-over task of each service whose image is set (scripts/hand-over.sh)."
   value       = local.handover_task_definitions
-}
-
-variable "notifications_mode" {
-  description = "Whether the monolith still runs Notifications (InProcess) or leaves it to its own service (Remote, lesson s5-l03). Remote only after `open-sinks --module Notifications` reports no row left; back to InProcess is the rollback."
-  type        = string
-  default     = "InProcess"
-
-  validation {
-    condition     = contains(["InProcess", "Remote"], var.notifications_mode)
-    error_message = "notifications_mode is InProcess or Remote."
-  }
 }

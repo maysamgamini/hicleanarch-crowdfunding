@@ -52,7 +52,6 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
             .UseSetting("ConnectionStrings:Campaigns", As("campaigns_app", "campaigns_test"))
             .UseSetting("ConnectionStrings:Pledges", As("pledges_app", "pledges_test"))
             .UseSetting("ConnectionStrings:PledgesJobs", As("pledges_jobs", "pledges_jobs_test"))
-            .UseSetting("ConnectionStrings:Notifications", As("notifications_app", "notifications_test"))
             .UseSetting("Modules:Payments:BaseAddress", "http://payments:8081")
             .UseSetting("ServiceIdentity:ClientId", Database.ServiceClientId)
             .UseSetting("Pledges:CloseEvery", "01:00:00")
@@ -63,6 +62,8 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
             .UseSetting("Events:Producers:Payments:Pledges", "Broker")
             .UseSetting("Events:Producers:Payments:Campaigns", "Broker")
             .UseSetting("Events:Producers:Payments:Notifications", "Broker")
+            // Notifications runs only in its own service (s5-l04): what it consumes goes to its queue.
+            .UseSetting("Events:Routes:Notifications", "Broker")
             .Configure(shared.Provision().Settings));
 
         // The monolith's migrate step, as the owner.
@@ -116,7 +117,7 @@ public sealed class SchemaHandoverTests(Database shared) : IAsyncLifetime
         // password a role logs in with is in that log.
         var (stdout, stderr) = await _database.GetLogsAsync(ct: ct);
         Assert.Contains("CREATE ROLE", stdout + stderr, StringComparison.Ordinal);
-        foreach (var password in new[] { "pledges_migrator_test", "pledges_test", "pledges_jobs_test", "campaigns_test", "notifications_test" })
+        foreach (var password in new[] { "pledges_migrator_test", "pledges_test", "pledges_jobs_test", "campaigns_test" })
         {
             Assert.DoesNotContain(password, stdout + stderr, StringComparison.Ordinal);
         }

@@ -1,3 +1,5 @@
+extern alias NotificationsService;
+
 using System.Collections.Concurrent;
 
 using BuildingBlocks.Application;
@@ -11,6 +13,8 @@ using Notifications;
 using Npgsql;
 
 using Pledges.Contracts;
+
+using NotificationsHost = NotificationsService::Program;
 
 namespace IntegrationTests;
 
@@ -26,7 +30,7 @@ public sealed class OwnDatabase : IAsyncLifetime
 
 /// <summary>
 /// Handlers only record who is to be told; the email worker sends, paced, and retries each recipient
-/// on their own, so one failing address holds back nobody else.
+/// on their own, so one failing address holds back nobody else. The Notifications service alone (s5-l04).
 /// </summary>
 public sealed class EmailQueueTests(OwnDatabase own) : IClassFixture<OwnDatabase>
 {
@@ -70,8 +74,8 @@ public sealed class EmailQueueTests(OwnDatabase own) : IClassFixture<OwnDatabase
         }
     }
 
-    private WebApplicationFactory<Program> Host(params (string Key, string Value)[] settings) =>
-        _database.StartHost(services =>
+    private WebApplicationFactory<NotificationsHost> Host(params (string Key, string Value)[] settings) =>
+        _database.StartNotifications(null, services =>
         {
             services.AddSingleton(sp => new FlakySender(sp.GetRequiredService<InMemoryEmailSender>()));
             services.AddSingleton<IEmailSender>(sp => sp.GetRequiredService<FlakySender>());
@@ -86,7 +90,7 @@ public sealed class EmailQueueTests(OwnDatabase own) : IClassFixture<OwnDatabase
         });
 
     /// <summary>One Notifications handler call, in a transaction of its own, as the inbox runs it.</summary>
-    private static async Task Handle<TEvent>(WebApplicationFactory<Program> host, TEvent integrationEvent)
+    private static async Task Handle<TEvent>(WebApplicationFactory<NotificationsHost> host, TEvent integrationEvent)
         where TEvent : IntegrationEvent
     {
         await using var scope = host.Services.CreateAsyncScope();
@@ -100,7 +104,7 @@ public sealed class EmailQueueTests(OwnDatabase own) : IClassFixture<OwnDatabase
     /// A campaign's backers, as Notifications hears them, and its unsuccessful decision, told per pledge.
     /// The backers have turned pledge_confirmed off, so the outcome is the one email each gets.
     /// </summary>
-    private async Task DecideWithBackers(WebApplicationFactory<Program> host, IEnumerable<Guid> backers)
+    private async Task DecideWithBackers(WebApplicationFactory<NotificationsHost> host, IEnumerable<Guid> backers)
     {
         var campaign = Guid.NewGuid();
         foreach (var backer in backers)
@@ -112,7 +116,7 @@ public sealed class EmailQueueTests(OwnDatabase own) : IClassFixture<OwnDatabase
         }
     }
 
-    private static int Told(WebApplicationFactory<Program> host, Guid user) =>
+    private static int Told(WebApplicationFactory<NotificationsHost> host, Guid user) =>
         host.Services.GetRequiredService<InMemoryEmailSender>().Sent.Count(m => m.RecipientId == user && m.Subject == Outcome);
 
     /// <summary>The status and attempts of the outcome email to one recipient, read as the owner.</summary>

@@ -4,6 +4,7 @@ using BuildingBlocks.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 using Npgsql;
 
@@ -66,12 +67,27 @@ public sealed class OpenSinks(IEnumerable<ModuleDatabase> databases, EventSubscr
     }
 }
 
-/// <summary>Refuses to start a host that no longer runs a module while rows here still owe that module an in-process delivery.</summary>
-internal sealed class OpenSinksCheck(OpenSinks sinks, string module) : IHostedService
+/// <summary>
+/// Refuses to start a host that no longer runs a module while rows here still owe that module an in-process
+/// delivery. It is the backstop to the deploy's <c>open-sinks</c> step, which runs before the rollout: a host
+/// that cannot reach a database at start still starts, not ready, as every host does (s3-l01), and says
+/// that it could not check.
+/// </summary>
+internal sealed partial class OpenSinksCheck(OpenSinks sinks, string module, ILogger<OpenSinks> logger) : IHostedService
 {
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        var open = await sinks.For(module, cancellationToken);
+        IReadOnlyDictionary<string, long> open;
+        try
+        {
+            open = await sinks.For(module, cancellationToken);
+        }
+        catch (NpgsqlException e)
+        {
+            CouldNotCheck(logger, e, module);
+            return;
+        }
+
         if (open.Count > 0)
         {
             throw new InvalidOperationException(
@@ -81,6 +97,9 @@ internal sealed class OpenSinksCheck(OpenSinks sinks, string module) : IHostedSe
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Could not check for outbox rows that still owe {Module} an in-process delivery; the deploy's open-sinks step is the check")]
+    private static partial void CouldNotCheck(ILogger logger, Exception exception, string module);
 }
 
 public static class OpenSinksRegistration
@@ -100,7 +119,7 @@ public static class OpenSinksRegistration
     {
         services.AddOpenSinks();
         // Not AddHostedService, which keeps one registration per type: each module left has its own check.
-        services.AddSingleton<IHostedService>(sp => new OpenSinksCheck(sp.GetRequiredService<OpenSinks>(), module));
+        services.AddSingleton<IHostedService>(sp => new OpenSinksCheck(sp.GetRequiredService<OpenSinks>(), module, sp.GetRequiredService<ILogger<OpenSinks>>()));
         return services;
     }
 }

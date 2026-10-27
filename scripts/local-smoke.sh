@@ -139,10 +139,14 @@ p=$(uuid_of "$pledge")
 # The emails the paced worker has sent (CQA-907): the creator hears the decision at once and the
 # settlement after (CQA-400); the backer is told by their own pledge's PledgeDecided (CQA-1625).
 kinds() { sql "SELECT string_agg(kind, ',' ORDER BY kind) FROM notifications.outgoing_emails WHERE status = 'SENT' AND recipient_id = ($1)"; }
-eventually 30 test "$(kinds "SELECT creator_id FROM notifications.campaign_creators WHERE campaign_id = '$c'")" == campaign_decided,campaign_settled ||
-  fail "the creator was not told the campaign was decided and settled: $(kinds "SELECT creator_id FROM notifications.campaign_creators WHERE campaign_id = '$c'")"
-eventually 30 test "$(kinds "SELECT backer_id FROM pledges.pledges WHERE id = '$p'")" == campaign_funded,charge_succeeded,pledge_confirmed || true
-emails=$(kinds "SELECT backer_id FROM pledges.pledges WHERE id = '$p'")
+creator_kinds() { kinds "SELECT creator_id FROM notifications.campaign_creators WHERE campaign_id = '$c'"; }
+backer_kinds() { kinds "SELECT backer_id FROM pledges.pledges WHERE id = '$p'"; }
+# Each try asks again: the emails come from the Notifications service, after its queue's delivery.
+kinds_are() { [[ "$("$1")" == "$2" ]]; }
+eventually 30 kinds_are creator_kinds campaign_decided,campaign_settled ||
+  fail "the creator was not told the campaign was decided and settled: $(creator_kinds)"
+eventually 30 kinds_are backer_kinds campaign_funded,charge_succeeded,pledge_confirmed || true
+emails=$(backer_kinds)
 [[ "$emails" == campaign_funded,charge_succeeded,pledge_confirmed ]] || fail "the backer's emails are $emails"
 
 step "the broker: every event owed to it was published, and nothing is dead-lettered"

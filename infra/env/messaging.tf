@@ -176,8 +176,8 @@ resource "aws_cloudwatch_metric_alarm" "topic_failures" {
 locals {
   # The plan's topics of the modules the monolith runs.
   monolith_topics = toset([for m in local.broker_plan_services.monolith : lower(m) if contains(local.broker_plan.topics, lower(m))])
-  # The queues the monolith reads: its own, and Notifications' while it still runs Notifications (s5-l02).
-  monolith_queues      = ["monolith", "notifications"]
+  # The queue the monolith reads: its own (Notifications' left with it at s5-l04).
+  monolith_queues      = ["monolith"]
   broker_plan_services = jsondecode(file("${path.module}/../../events/subscriptions.json")).services
 }
 
@@ -208,31 +208,22 @@ locals {
   # ARN: the subscription check looks for its topics' subscriptions to that address, and no role of the
   # monolith grants anything on it. Module names are configuration keys; topics and queues are the
   # plan's lower-case names.
-  # From s5-l02 every event Notifications consumes goes through the broker too, into the notifications
-  # queue, which the monolith reads while it still runs Notifications. Rollback: set notifications_route
-  # to "InProcess"; the queue is still read, so what is already in it is still handled.
+  # Every event Notifications consumes goes through the broker, into the notifications queue (s5-l02),
+  # which only the Notifications service reads (s5-l04): the monolith holds nothing of that queue.
   broker_environment = concat(
     [
       { name = "Events__Routes__Payments", value = "Broker" },
       { name = "Events__Producers__Payments__Pledges", value = "Broker" },
       { name = "Events__Producers__Payments__Campaigns", value = "Broker" },
-      { name = "Events__Producers__Payments__Notifications", value = var.notifications_route },
-      { name = "Events__Routes__Notifications", value = var.notifications_route },
-      # Payments' events for Notifications that reached the monolith queue before its subscription changed:
-      # still Notifications', from that queue too, for the release that moves it (the inbox drops the copy).
-      { name = "Events__Broker__AlsoServe__monolith__0", value = "Notifications" },
+      { name = "Events__Producers__Payments__Notifications", value = "Broker" },
+      { name = "Events__Routes__Notifications", value = "Broker" },
       { name = "Events__Broker__Region", value = var.region },
       { name = "Events__Broker__VisibilityTimeoutSeconds", value = tostring(local.visibility_timeout_seconds) },
       { name = "Events__Broker__Queues__monolith__Arn", value = aws_sqs_queue.events["monolith"].arn },
       { name = "Events__Broker__Queues__monolith__Url", value = aws_sqs_queue.events["monolith"].id },
       { name = "Events__Broker__Queues__payments__Arn", value = aws_sqs_queue.events["payments"].arn },
-      { name = "Events__Broker__Queues__notifications__Arn", value = aws_sqs_queue.events["notifications"].arn },
-      { name = "Events__Broker__Queues__notifications__Url", value = aws_sqs_queue.events["notifications"].id },
       { name = "Events__Broker__Read__0", value = "monolith" },
     ],
-    # While the monolith runs Notifications it reads its queue too; once Remote (s5-l03) only Notifications.Host does.
-    var.notifications_mode == "InProcess" ? [{ name = "Events__Broker__Read__1", value = "notifications" }] : [],
-    [{ name = "Modules__Notifications__Mode", value = var.notifications_mode }],
     [for t in local.monolith_topics : { name = "Events__Broker__Topics__${t}", value = aws_sns_topic.events[t].arn }],
   )
 }
@@ -243,15 +234,4 @@ output "event_topic_arns" {
 
 output "event_queue_urls" {
   value = { for q, queue in aws_sqs_queue.events : q => queue.id }
-}
-
-variable "notifications_route" {
-  description = "How the monolith hands Notifications its events (s5-l02): Broker, through the notifications queue, or InProcess, the rollback."
-  type        = string
-  default     = "Broker"
-
-  validation {
-    condition     = contains(["Broker", "InProcess"], var.notifications_route)
-    error_message = "notifications_route is Broker or InProcess."
-  }
 }

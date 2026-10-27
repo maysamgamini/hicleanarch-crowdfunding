@@ -21,7 +21,7 @@ public sealed class PledgeDecidedTests(Database database)
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static int Told(WebApplicationFactory<Program> host, Guid backer, string subject) =>
-        host.Services.GetRequiredService<InMemoryEmailSender>().Sent.Count(m => m.RecipientId == backer && m.Subject == subject);
+        Database.Mail.Sent.Count(m => m.RecipientId == backer && m.Subject == subject);
 
     private static async Task Close(WebApplicationFactory<Program> host, Guid campaignId)
     {
@@ -70,7 +70,8 @@ public sealed class PledgeDecidedTests(Database database)
         await Close(host, campaign.CampaignId);
         await Scenario.Eventually(() => Task.FromResult(Told(host, backers[0], "The campaign was not funded") == 1));
 
-        // The same outbox row handed to the handlers again, as a sweep or a broker's redelivery would.
+        // The same outbox row published again (as a replay or SNS's at-least-once delivery would): it reaches
+        // Notifications' own service through its queue a second time.
         await using var owner = new NpgsqlConnection(database.Owner);
         await owner.OpenAsync(Ct);
         await using var read = new NpgsqlCommand(
@@ -83,8 +84,8 @@ public sealed class PledgeDecidedTests(Database database)
             record = new OutboxRecord("Pledges", row.GetGuid(0), "PledgeDecided", row.GetString(1));
         }
 
-        await host.Services.GetRequiredService<OutboxDispatcher>().Deliver(record, Ct);
-        await Task.Delay(TimeSpan.FromSeconds(2), Ct); // a second email, if one were queued, would be sent by now
+        Assert.Single(await host.Services.GetRequiredService<IEventPublisher>().Publish([record], Ct));
+        await Task.Delay(TimeSpan.FromSeconds(4), Ct); // received, handled and a second email, if one were queued, sent by now
 
         Assert.Equal(1, Told(host, backers[0], "The campaign was not funded"));
     }

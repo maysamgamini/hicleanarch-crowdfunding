@@ -206,8 +206,8 @@ run "the_monolith_holds_nothing_of_payments" {
   }
 
   assert {
-    condition     = toset(data.aws_iam_policy_document.events.statement[2].resources) == toset([aws_sqs_queue.events["monolith"].arn, aws_sqs_queue.events["notifications"].arn])
-    error_message = "The monolith's task role reads its own queue and, while it runs Notifications (s5-l02 to s5-l04), the notifications queue, and no other."
+    condition     = toset(data.aws_iam_policy_document.events.statement[2].resources) == toset([aws_sqs_queue.events["monolith"].arn])
+    error_message = "The monolith's task role reads its own queue and no other: not Payments' (s4-l10), not Notifications' (s5-l04)."
   }
 
   assert {
@@ -233,9 +233,9 @@ run "the_monolith_holds_nothing_of_payments" {
     condition = alltrue([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment :
       !contains(["Modules__Payments__Mode", "Modules__Payments__Calls", "Payments__Budget__Prefix", "Auth__ServiceClients__0",
       "Events__Broker__Topics__payments", "Events__Broker__Queues__payments__Url"], e.name)
-      && !(startswith(e.name, "Events__Broker__Read__") && !contains(["monolith", "notifications"], e.value))
+      && !(startswith(e.name, "Events__Broker__Read__") && e.value != "monolith")
     ])
-    error_message = "The monolith has no Payments switch, budget or service client, reads only its own queue (and Notifications' while it runs it) and publishes to no Payments topic."
+    error_message = "The monolith has no Payments switch, budget or service client, reads only its own queue and publishes to no Payments topic."
   }
 
   assert {
@@ -259,5 +259,39 @@ run "the_monolith_holds_nothing_of_payments" {
   assert {
     condition     = !contains(values(local.shared_outputs), aws_secretsmanager_secret.connection["owner"].arn)
     error_message = "Nothing of Payments is handed the shared cluster's owner."
+  }
+}
+
+# Lesson s5-l04: Notifications runs only as its own service; the monolith can neither send email nor read users.
+run "the_monolith_holds_nothing_of_notifications" {
+  command = apply
+
+  assert {
+    condition     = !contains(data.aws_iam_policy_document.read_connection_strings.statement[0].resources, aws_secretsmanager_secret.connection["notifications"].arn)
+    error_message = "The monolith's execution role must not read Notifications' connection string."
+  }
+
+  assert {
+    condition = alltrue([for td in [aws_ecs_task_definition.api, aws_ecs_task_definition.migrate] :
+    length([for s in jsondecode(td.container_definitions)[0].secrets : s if s.name == "ConnectionStrings__Notifications"]) == 0])
+    error_message = "The monolith's containers must not get Notifications' connection string."
+  }
+
+  assert {
+    condition = length([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e
+    if startswith(e.name, "Notifications__") || startswith(e.name, "Events__Broker__Queues__notifications")]) == 0
+    error_message = "The monolith must neither be configured to send email nor know the notifications queue."
+  }
+
+  assert {
+    condition = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value
+    if startswith(e.name, "Modules__Notifications")] == ["Remote"]
+    error_message = "For the previous image the first apply runs, the monolith's one Notifications setting is Mode = Remote."
+  }
+
+  assert {
+    condition = length([for a in flatten([for d in [data.aws_iam_policy_document.events, data.aws_iam_policy_document.telemetry] : [for st in d.statement : st.actions]]) : a
+    if startswith(a, "ses:") || startswith(a, "cognito-idp:")]) == 0
+    error_message = "No policy of the monolith's task role may send email or read users."
   }
 }

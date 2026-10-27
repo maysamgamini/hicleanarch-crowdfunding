@@ -20,7 +20,6 @@ x-module-connections: &module-connections
   ConnectionStrings__Campaigns: Host=postgres;Port=5432;Database=crowdfunding;Username=campaigns_app;Password=campaigns_dev;GSS Encryption Mode=Disable
   ConnectionStrings__Pledges: Host=postgres;Port=5432;Database=crowdfunding;Username=pledges_app;Password=pledges_dev;GSS Encryption Mode=Disable
   ConnectionStrings__PledgesJobs: Host=postgres;Port=5432;Database=crowdfunding;Username=pledges_jobs;Password=pledges_jobs_dev;GSS Encryption Mode=Disable
-  ConnectionStrings__Notifications: Host=postgres;Port=5432;Database=crowdfunding;Username=notifications_app;Password=notifications_dev;GSS Encryption Mode=Disable
 
 # A health check for the .NET images, which have bash but no curl: GET $0 on port 8080 answers 200.
 x-http-ok: &http-ok >-
@@ -176,8 +175,12 @@ services:
       ConnectionStrings__Owner: Host=postgres;Port=5432;Database=crowdfunding;Username=postgres;Password=postgres;GSS Encryption Mode=Disable
       ConnectionStrings__Migrator: Host=postgres;Port=5432;Database=crowdfunding;Username=notifications_migrator;Password=notifications_migrator_dev;GSS Encryption Mode=Disable
       ConnectionStrings__Notifications: Host=postgres;Port=5432;Database=crowdfunding;Username=notifications_app;Password=notifications_dev;GSS Encryption Mode=Disable
+    # One migrate step at a time, as one pipeline runs one deploy at a time: here Payments' schema is on the
+    # same server, and two steps that grant on the database at once fail with "tuple concurrently updated".
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      payments-migrate:
         condition: service_completed_successfully
 
   notifications-migrate:
@@ -220,8 +223,8 @@ services:
       notifications-migrate:
         condition: service_completed_successfully
 
-  # The monolith (infra/env/ecs.tf, local.api_container): Campaigns, Pledges and Notifications; Payments'
-  # events through the broker, and StartCardSetup over HTTP to the Payments service.
+  # The monolith (infra/env/ecs.tf, local.api_container): Campaigns and Pledges (s5-l04: Notifications
+  # left it); Payments' events through the broker, and StartCardSetup over HTTP to the Payments service.
   api:
     profiles: [stack]
     build: .
@@ -229,7 +232,6 @@ services:
       <<: [*aws-local, *module-connections, *local-auth]
       ASPNETCORE_ENVIRONMENT: Production
       OTEL_SERVICE_NAME: crowdfunding-api
-      Notifications__Sender: InMemory
       ConnectionStrings__Valkey: valkey:6379,user=api,password=api_dev,tiebreaker=,configChannel=
       ForwardedHeaders__KnownNetwork: ${LOCAL_SUBNET:-10.250.0.0/24}
       # The routes of s4-l02 (infra/env/messaging.tf, local.broker_environment); the topics and queues
@@ -239,11 +241,8 @@ services:
       Events__Producers__Payments__Campaigns: Broker
       Events__Producers__Payments__Notifications: Broker
       Events__Broker__Read__0: monolith
-      # s5-l02: every event Notifications consumes comes through its own queue, which the monolith reads
-      # while it still runs Notifications.
+      # s5-l04: what Notifications consumes goes to its own queue, which only the Notifications service reads.
       Events__Routes__Notifications: Broker
-      Events__Broker__Read__1: notifications
-      Events__Broker__AlsoServe__monolith__0: Notifications
       # s4-l03 and s4-l10: StartCardSetup goes over HTTP to the Payments service's internal port.
       Modules__Payments__BaseAddress: http://payments:8081
       # s4-l04: the monolith's service identity. Without a token endpoint it signs its service tokens

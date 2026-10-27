@@ -54,10 +54,15 @@ public sealed class PaymentsBeside : IDisposable
         public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
-    /// <summary>The gateway's routes (src/Gateway/appsettings.json): Payments' four public paths to Payments, the rest to the monolith.</summary>
+    /// <summary>The gateway's routes (src/Gateway/appsettings.json): Payments' four public paths to Payments, the preference to Notifications, the rest to the monolith.</summary>
     internal sealed class GatewayRoutes(WebApplicationFactory<Program> monolith) : DelegatingHandler(monolith.Server.CreateHandler())
     {
         private readonly HttpMessageInvoker _payments = new(monolith.Payments().Server.CreateHandler());
+
+        private readonly HttpMessageInvoker _notifications = new(monolith.Notifications().Host.Server.CreateHandler());
+
+        public static bool IsNotifications(HttpMethod method, string path) =>
+            method == HttpMethod.Put && path.Trim('/').Split('/') is ["v1", "me", "notifications", _];
 
         public static bool IsPayments(HttpMethod method, string path)
         {
@@ -69,9 +74,9 @@ public sealed class PaymentsBeside : IDisposable
         }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
-            IsPayments(request.Method, request.RequestUri!.AbsolutePath)
-                ? _payments.SendAsync(request, cancellationToken)
-                : base.SendAsync(request, cancellationToken);
+            IsPayments(request.Method, request.RequestUri!.AbsolutePath) ? _payments.SendAsync(request, cancellationToken)
+            : IsNotifications(request.Method, request.RequestUri!.AbsolutePath) ? _notifications.SendAsync(request, cancellationToken)
+            : base.SendAsync(request, cancellationToken);
     }
 }
 

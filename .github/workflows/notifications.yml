@@ -2,8 +2,8 @@ name: notifications
 
 # The Notifications service's pipeline (lesson s5-l03): contract tests, then Notifications built and
 # tested alone from its solution filter, then (on main) its image pushed with its own deploy role and,
-# if a sandbox is up, Notifications deployed into it. Until s5-l04 src/Modules/Notifications also runs
-# the monolith's pipeline, which still compiles the module for its InProcess mode.
+# if a sandbox is up, Notifications deployed into it. Since s5-l04 the monolith compiles nothing of
+# Notifications, so src/Modules/Notifications runs this pipeline only.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:
   push:

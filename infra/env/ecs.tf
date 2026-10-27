@@ -21,13 +21,12 @@ resource "aws_cloudwatch_log_group" "collector_metrics" {
 }
 
 locals {
-  # The running program gets only the modules' connection strings; the owner's goes to the
-  # migration task alone.
+  # The running program gets only the connection strings of the modules it runs (Campaigns and Pledges
+  # since s5-l04); the owner's goes to the migration task alone.
   module_secrets = [
     { name = "ConnectionStrings__Campaigns", valueFrom = aws_secretsmanager_secret.connection["campaigns"].arn },
     { name = "ConnectionStrings__Pledges", valueFrom = aws_secretsmanager_secret.connection["pledges"].arn },
     { name = "ConnectionStrings__PledgesJobs", valueFrom = aws_secretsmanager_secret.connection["pledges_jobs"].arn },
-    { name = "ConnectionStrings__Notifications", valueFrom = aws_secretsmanager_secret.connection["notifications"].arn },
     { name = "ConnectionStrings__CampaignsRead", valueFrom = aws_secretsmanager_secret.read_connection["campaigns_read"].arn },
     { name = "ConnectionStrings__PledgesRead", valueFrom = aws_secretsmanager_secret.read_connection["pledges_read"].arn },
     { name = "ConnectionStrings__Valkey", valueFrom = aws_secretsmanager_secret.valkey["api"].arn },
@@ -47,13 +46,14 @@ locals {
       { name = "OTEL_SERVICE_NAME", value = "crowdfunding-api" },
       { name = "Auth__Authority", value = local.cognito_issuer },
       { name = "Auth__ClientId", value = aws_cognito_user_pool_client.api.id },
-      { name = "Notifications__Sender", value = var.notifications_from == "" ? "InMemory" : "Ses" },
-      { name = "Notifications__FromAddress", value = var.notifications_from },
-      { name = "Notifications__UserPoolId", value = aws_cognito_user_pool.users.id },
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
       # Payments runs only in its own service (s4-l10): its command goes to its internal port through
       # Service Connect. The monolith serves nothing for other services, so it listens on 8080 alone.
       { name = "Modules__Payments__BaseAddress", value = "http://payments:8081" },
+      # For one release only (s5-l04): the deploy's first apply runs the previous image with this task
+      # definition, and that image still has s5-l03's mode switch. Without Remote it would run
+      # Notifications in-process, with no connection string to do it. The next lesson removes it.
+      { name = "Modules__Notifications__Mode", value = "Remote" },
     ], local.broker_environment, local.service_identity_environment)
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30

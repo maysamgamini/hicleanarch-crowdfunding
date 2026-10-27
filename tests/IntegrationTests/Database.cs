@@ -1,3 +1,5 @@
+extern alias NotificationsService;
+
 using BuildingBlocks.Infrastructure.Identity;
 
 using CrowdFunding.Messaging;
@@ -12,6 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Payments.Client;
 
 using Testcontainers.PostgreSql;
+
+using NotificationsHost = NotificationsService::Program;
 
 [assembly: AssemblyFixture(typeof(IntegrationTests.Database))]
 
@@ -97,6 +101,9 @@ public sealed class Database : IAsyncLifetime
             .Run(Owner, CancellationToken.None);
         await host.Payments().Services.GetRequiredService<BuildingBlocks.Infrastructure.Persistence.DatabaseMigrator>()
             .Run(Owner, CancellationToken.None);
+        // Notifications runs only in its own service (s5-l04): its deploy migrates its schema.
+        await host.Notifications().Services.GetRequiredService<BuildingBlocks.Infrastructure.Persistence.DatabaseMigrator>()
+            .Run(Owner, CancellationToken.None);
 
         // A role's settings apply to sessions that log in after them. This host's jobs opened pooled
         // sessions before the migrator set pledges_app's time limit, and the time fence refuses a
@@ -118,7 +125,8 @@ public sealed class Database : IAsyncLifetime
     /// Idempotency-Key with every change unless the test sets one.</summary>
     public static HttpClient Client(WebApplicationFactory<Program> host, string? token = null)
     {
-        // Through the gateway's routes: Payments' public paths to the Payments service, the rest to the monolith.
+        // Through the gateway's routes: Payments' public paths to the Payments service, the notification
+        // preference to the Notifications service, the rest to the monolith.
         var client = new HttpClient(new FreshIdempotencyKeys { InnerHandler = new PaymentsBeside.GatewayRoutes(host) }) { BaseAddress = host.Server.BaseAddress };
         if (token is not null)
         {
@@ -153,24 +161,23 @@ public sealed class Database : IAsyncLifetime
 
     /// <summary>Topics and queues for one pair of hosts: each reads only its own service's queue.</summary>
     public MotoBroker.Provisioned Provision() =>
-        // The monolith reads the queues of the services whose modules it runs; Payments.Host beside it reads its own.
-        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], [.. Plan.Services.Keys.Where(s => s != "payments")]).GetAwaiter().GetResult();
+        // The monolith reads its own queue; Payments.Host and Notifications.Host beside it read theirs.
+        Broker.Provision(Plan, $"t{Guid.NewGuid():N}"[..12], ["monolith"]).GetAwaiter().GetResult();
 
     /// <summary>A monolith and its Payments service on <paramref name="broker"/>'s topics and queues (from <see cref="Provision"/>).</summary>
-    /// <paramref name="brokerRoutes"/> false routes Notifications' consumers InProcess again: s5-l02's rollback.
     public WebApplicationFactory<Program> StartHost(IReadOnlyDictionary<string, string?> broker, Action<IServiceCollection>? services = null,
-        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null, bool brokerRoutes = true) =>
-        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments, brokerRoutes);
+        string? recoverAfter = null, Action<IWebHostBuilder>? payments = null) =>
+        Configure(new WebApplicationFactory<Program>(), services, broker, recoverAfter ?? "00:10:00", payments);
 
     /// <summary>
     /// One monolith started directly, with no Events:Broker section and no Payments service beside it: what
     /// a deploy that lost the broker's settings would start (CQA-1504's refusal). It is not meant to serve.
     /// </summary>
     public WebApplicationFactory<Program> StartMonolithWithoutBroker() =>
-        Configure(new WebApplicationFactory<Program>(), null, null, "00:10:00", null, true);
+        Configure(new WebApplicationFactory<Program>(), null, null, "00:10:00", null);
 
     private WebApplicationFactory<Program> Configure(WebApplicationFactory<Program> factory, Action<IServiceCollection>? services,
-        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments, bool brokerRoutes) =>
+        IReadOnlyDictionary<string, string?>? broker, string recoverAfter, Action<IWebHostBuilder>? payments) =>
         factory.WithWebHostBuilder(web =>
         {
             web.ConfigureTestServices(s =>
@@ -185,6 +192,10 @@ public sealed class Database : IAsyncLifetime
                         s.AddHostedService(sp => new PaymentsBeside.StartWithMonolith(sp.GetRequiredService<PaymentsBeside>()));
                         s.AddHttpClient<RemoteStartCardSetup>().ConfigurePrimaryHttpMessageHandler(sp =>
                             PaymentsBeside.Link(sp.GetRequiredService<TwoHosts.PaymentsLink>(), sp.GetRequiredService<PaymentsBeside>()));
+
+                        // And the Notifications service (s5-l04), on the same database and broker, reading its own queue.
+                        s.AddSingleton(new NotificationsBeside(StartNotifications(broker)));
+                        s.AddHostedService(sp => sp.GetRequiredService<NotificationsBeside>());
                     }
 
                     s.AddSingleton(Mail);
@@ -198,10 +209,7 @@ public sealed class Database : IAsyncLifetime
                 .UseSetting("ConnectionStrings:Campaigns", Campaigns)
                 .UseSetting("ConnectionStrings:Pledges", Pledges)
                 .UseSetting("ConnectionStrings:PledgesJobs", PledgesJobs)
-                .UseSetting("ConnectionStrings:Notifications", Notifications)
                 .UseSetting("Pledges:CloseEvery", "01:00:00")
-                // The email worker looks for new rows often, so a test waits for an email briefly.
-                .UseSetting("Notifications:PollEvery", "00:00:00.200")
                 .UseSetting("Auth:ClientId", ClientId)
                 .UseSetting("Auth:LocalSigningKey", SigningKey);
             if (broker is null)
@@ -226,7 +234,45 @@ public sealed class Database : IAsyncLifetime
                 .UseSetting("Events:Producers:Payments:Campaigns", "Broker")
                 .UseSetting("Events:Producers:Payments:Notifications", "Broker")
                 // s5-l02: every event Notifications consumes goes through its own queue, still read here.
-                .UseSetting("Events:Routes:Notifications", brokerRoutes ? "Broker" : "InProcess");
+                // Notifications runs only in its own service (s5-l04): its events always go through the broker.
+                .UseSetting("Events:Routes:Notifications", "Broker");
+        });
+
+    /// <summary>
+    /// The Notifications service on this database, and on <paramref name="broker"/>'s topics and queues if
+    /// given, reading only the notifications queue. It sends into <see cref="Mail"/>.
+    /// </summary>
+    public WebApplicationFactory<NotificationsHost> StartNotifications(IReadOnlyDictionary<string, string?>? broker,
+        Action<IServiceCollection>? services = null) =>
+        new WebApplicationFactory<NotificationsHost>().WithWebHostBuilder(web =>
+        {
+            web.ConfigureTestServices(s =>
+                {
+                    s.AddSingleton(Mail);
+                    services?.Invoke(s);
+                })
+                .UseEnvironment("Testing")
+                .UseSetting("ConnectionStrings:Owner", Owner)
+                .UseSetting("ConnectionStrings:Notifications", Notifications)
+                // The email worker looks for new rows often, so a test waits for an email briefly.
+                .UseSetting("Notifications:PollEvery", "00:00:00.200")
+                .UseSetting("Auth:ClientId", ClientId)
+                .UseSetting("Auth:LocalSigningKey", SigningKey);
+            if (broker is null)
+            {
+                return;
+            }
+
+            foreach (var (key, value) in broker.Where(b => !b.Key.StartsWith("Events:Broker:Read:", StringComparison.OrdinalIgnoreCase)))
+            {
+                web.UseSetting(key, value);
+            }
+
+            web.UseSetting("Events:Broker:Read:0", "notifications")
+                .UseSetting("Events:Routes:Notifications", "Broker")
+                .UseSetting("Events:Broker:Backoff:0", "00:00:01")
+                .UseSetting("Events:Broker:WaitSeconds", "2")
+                .UseSetting("Outbox:Publishing:RecoverAfter", "00:10:00");
         });
 
     /// <summary>How many rows of a table have the given value in a column, read as the owner.</summary>

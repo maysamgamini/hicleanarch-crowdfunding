@@ -5,7 +5,8 @@ name: monolith
 # and tested from their solution filter, then (on main) their images pushed with the deploy role and,
 # if a sandbox is up, the shared layer and the monolith deployed into it. Since s4-l10 the monolith
 # compiles nothing of src/Modules/Payments but Payments.Client (and Payments' Contracts, as a package),
-# so a change elsewhere under src/Modules/Payments runs Payments' pipeline only.
+# so a change elsewhere under src/Modules/Payments runs Payments' pipeline only; since s5-l04 it compiles
+# nothing of Notifications, so src/Modules/Notifications runs Notifications' pipeline only.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:
   push:
@@ -16,7 +17,6 @@ on:
       - "src/Gateway/**"
       - "src/Modules/Campaigns/**"
       - "src/Modules/Pledges/**"
-      - "src/Modules/Notifications/**"
       - "src/Modules/Payments/Payments.Client/**"
       - "src/Modules/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
@@ -61,7 +61,6 @@ on:
       - "src/Gateway/**"
       - "src/Modules/Campaigns/**"
       - "src/Modules/Pledges/**"
-      - "src/Modules/Notifications/**"
       - "src/Modules/Payments/Payments.Client/**"
       - "src/Modules/*/*.Contracts/**"
       - "src/BuildingBlocks/**"

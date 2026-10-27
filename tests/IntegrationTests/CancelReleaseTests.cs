@@ -24,7 +24,7 @@ public sealed class CancelReleaseTests(Database database) : IDisposable
     public void Dispose() => _host.Dispose();
 
     private static int SentTo(WebApplicationFactory<Program> host, Guid user, string subject) =>
-        host.Services.GetRequiredService<InMemoryEmailSender>().Sent.Count(m => m.RecipientId == user && m.Subject == subject);
+        Database.Mail.Sent.Count(m => m.RecipientId == user && m.Subject == subject);
 
     private static async Task ClosePass(WebApplicationFactory<Program> host, Guid campaignId)
     {

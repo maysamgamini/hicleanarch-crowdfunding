@@ -5,23 +5,5 @@ resource "aws_sesv2_email_identity" "sender" {
   email_identity = var.notifications_from
 }
 
-data "aws_iam_policy_document" "notify" {
-  # Notifications looks up a user's email address by their id in the user pool.
-  statement {
-    actions   = ["cognito-idp:ListUsers"]
-    resources = [aws_cognito_user_pool.users.arn]
-  }
-
-  dynamic "statement" {
-    for_each = aws_sesv2_email_identity.sender
-    content {
-      actions   = ["ses:SendEmail"]
-      resources = [statement.value.arn]
-    }
-  }
-}
-
-resource "aws_iam_role_policy" "task_notify" {
-  role   = aws_iam_role.task.id
-  policy = data.aws_iam_policy_document.notify.json
-}
+# Looking users up in Cognito and sending through SES are the Notifications service's alone
+# (infra/services/notifications); since s5-l04 no role of the monolith may do either.

@@ -95,10 +95,20 @@ public class ProjectGraphTests
     }
 
     [Fact]
+    public void The_monolith_builds_nothing_of_notifications()
+    {
+        // Since s5-l04: Notifications' module and host are built, tested and deployed by Notifications' pipeline alone.
+        var graph = Repository.Closure(Repository.FilterProjects(MonolithFilter));
+
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Notifications/", StringComparison.Ordinal) && !p.EndsWith(".Contracts.csproj", StringComparison.Ordinal));
+        Assert.DoesNotContain(graph, p => p.StartsWith("tests/Notifications.", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Every_project_the_system_tests_build_is_built_by_a_service_pipeline()
     {
         // So a change to any of them runs a pipeline, and every pipeline runs the system tests.
-        var services = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter));
+        var services = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter)).Union(Repository.FilterProjects(NotificationsFilter));
         string[] systemTests = ["tests/IntegrationTests/IntegrationTests.csproj", "tests/ArchitectureTests/ArchitectureTests.csproj", "tests/Contracts.ConsumerTests/Contracts.ConsumerTests.csproj"];
 
         Assert.Empty(Repository.FilterProjects(SystemFilter).Except(services).Except(systemTests));

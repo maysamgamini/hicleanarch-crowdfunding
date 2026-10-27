@@ -124,7 +124,7 @@ public sealed class AuthorizationTests(Database database) : IDisposable
             .UseEnvironment(environment)
             .UseSetting("ConnectionStrings:Valkey", ""));
         var expected = environment == "Development"
-            ? [.. Public, "POST /dev/fake-psp/setups/{setupId}/complete", "GET /dev/emails"]
+            ? [.. Public, "POST /dev/fake-psp/setups/{setupId}/complete"]
             : Public;
 
         var anonymous = new List<string>();

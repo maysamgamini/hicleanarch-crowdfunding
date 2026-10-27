@@ -25,9 +25,12 @@ public sealed class NotificationTests(Database database) : IDisposable
 
     public void Dispose() => _host.Dispose();
 
-    private InMemoryEmailSender Mail => _host.Services.GetRequiredService<InMemoryEmailSender>();
+    private static InMemoryEmailSender Mail => Database.Mail;
 
-    private int SentTo(Guid user, string? subject = null) => Mail.Sent.Count(m => m.RecipientId == user && (subject is null || m.Subject == subject));
+    /// <summary>The Notifications service beside the monolith (s5-l04): its handlers, storage and digests.</summary>
+    private IServiceProvider Notifications => _host.Notifications().Services;
+
+    private static int SentTo(Guid user, string? subject = null) => Mail.Sent.Count(m => m.RecipientId == user && (subject is null || m.Subject == subject));
 
     [Fact]
     public async Task A_backer_is_told_their_pledge_counts()
@@ -72,7 +75,7 @@ public sealed class NotificationTests(Database database) : IDisposable
         // The handler itself, twice, past the inbox: the outgoing_emails row is what stops the second send.
         for (var i = 0; i < 2; i++)
         {
-            await using var scope = _host.Services.CreateAsyncScope();
+            await using var scope = Notifications.CreateAsyncScope();
             var db = scope.ServiceProvider.GetRequiredService<NotificationsDbContext>();
             await using var transaction = await db.Database.BeginTransactionAsync(Ct);
             await scope.ServiceProvider.GetRequiredService<Handlers>().Handle(activated, Ct);
@@ -87,7 +90,7 @@ public sealed class NotificationTests(Database database) : IDisposable
     private async Task Handle<TEvent>(TEvent integrationEvent)
         where TEvent : IntegrationEvent
     {
-        await using var scope = _host.Services.CreateAsyncScope();
+        await using var scope = Notifications.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<NotificationsDbContext>();
         await using var transaction = await db.Database.BeginTransactionAsync(Ct);
         await ((IIntegrationEventHandler<TEvent>)(object)scope.ServiceProvider.GetRequiredService<Handlers>()).Handle(integrationEvent, Ct);
@@ -197,7 +200,7 @@ public sealed class NotificationTests(Database database) : IDisposable
 
         for (var pass = 0; pass < 2; pass++)
         {
-            await using var scope = _host.Services.CreateAsyncScope();
+            await using var scope = Notifications.CreateAsyncScope();
             await scope.ServiceProvider.GetRequiredService<PledgeDigests>().Record(day, Ct);
         }
 
@@ -217,7 +220,7 @@ public sealed class NotificationTests(Database database) : IDisposable
     [Fact]
     public async Task On_a_laptop_the_kept_emails_are_listed_at_dev_emails()
     {
-        await using var laptop = database.StartHost().WithWebHostBuilder(web => web.UseEnvironment("Development"));
+        await using var laptop = database.StartNotifications(null).WithWebHostBuilder(web => web.UseEnvironment("Development"));
         var user = Guid.NewGuid();
         var someoneElse = Guid.NewGuid();
         await Database.Mail.Send(new Email(someoneElse, $"{someoneElse:N}@example.invalid", "The campaign is funded", "It reached its goal."), Ct);
@@ -234,9 +237,10 @@ public sealed class NotificationTests(Database database) : IDisposable
     public async Task Outside_Development_there_is_no_dev_emails()
     {
         // Signed in, so the answer is about the route, not the deny-by-default policy.
-        var response = await Database.Client(_host, Database.Token(BuildingBlocks.Infrastructure.Identity.Roles.Backer)).GetAsync("/dev/emails", Ct);
+        var token = Database.Token(BuildingBlocks.Infrastructure.Identity.Roles.Backer);
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Signed(_host.Notifications().Host.CreateClient(), token).GetAsync("/dev/emails", Ct)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await Database.Client(_host, token).GetAsync("/dev/emails", Ct)).StatusCode);
     }
 
     [Fact]
@@ -246,12 +250,22 @@ public sealed class NotificationTests(Database database) : IDisposable
         var campaign = await given.Publish();
         var backer = Guid.NewGuid();
         var client = given.Backer(backer);
+        // The preference is the Notifications service's own endpoint, which the gateway's route reaches; the
+        // monolith no longer has it.
         Assert.Equal(HttpStatusCode.NoContent, (await client.PutAsJsonAsync("/v1/me/notifications/pledge_confirmed", new { enabled = false }, Ct)).StatusCode);
+        var monolithItself = Signed(_host.CreateClient(), Database.Token(backer, BuildingBlocks.Infrastructure.Identity.Roles.Backer));
+        Assert.Equal(HttpStatusCode.NotFound, (await monolithItself.PutAsJsonAsync("/v1/me/notifications/pledge_confirmed", new { enabled = false }, Ct)).StatusCode);
 
         (await client.PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
         await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM notifications.campaign_pledges WHERE campaign_id = @id AND activated_at IS NOT NULL AND cancelled_at IS NULL", campaign.CampaignId) == 1);
 
         Assert.Equal(0L, await database.Count("notifications.outgoing_emails", "recipient_id::text", backer.ToString()));
         Assert.Equal(0, SentTo(backer));
+    }
+
+    private static HttpClient Signed(HttpClient client, string token)
+    {
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        return client;
     }
 }

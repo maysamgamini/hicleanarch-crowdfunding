@@ -21,8 +21,9 @@ using Pledges.Contracts;
 namespace IntegrationTests;
 
 /// <summary>
-/// Lesson s5-l02: every event Notifications consumes comes through its own queue (SNS and SQS on Moto),
-/// while Notifications still runs in the monolith. Its emails do not depend on the order the events arrive in.
+/// Lesson s5-l02: every event Notifications consumes comes through its own queue (SNS and SQS on Moto).
+/// Its emails do not depend on the order the events arrive in. From s5-l04 only the Notifications service
+/// beside the monolith reads that queue; the route-back and the old-queue tests went with the switch.
 /// </summary>
 public sealed class NotificationsBrokerTests(Database database) : IDisposable
 {
@@ -34,9 +35,9 @@ public sealed class NotificationsBrokerTests(Database database) : IDisposable
 
     public void Dispose() => _hosts.ForEach(h => h.Dispose());
 
-    private WebApplicationFactory<Program> Host(IReadOnlyDictionary<string, string?> broker, bool brokerRoutes = true)
+    private WebApplicationFactory<Program> Host(IReadOnlyDictionary<string, string?> broker)
     {
-        var host = database.StartHost(broker, brokerRoutes: brokerRoutes);
+        var host = database.StartHost(broker);
         _hosts.Add(host);
         _ = host.Services; // started
         return host;
@@ -186,71 +187,5 @@ public sealed class NotificationsBrokerTests(Database database) : IDisposable
         await Task.Delay(TimeSpan.FromSeconds(1), Ct);
         Assert.Equal(1, SentTo(backer, subject));
         Assert.Equal(2, Database.Mail.Sent.Count(m => m.RecipientId == backer)); // the decision and the confirmation, nothing else
-    }
-
-    [Fact]
-    public async Task Switching_the_route_back_to_in_process_with_messages_queued_sends_each_email_once()
-    {
-        var provisioned = database.Provision();
-        using var sqs = database.Broker.Sqs();
-        var queue = provisioned.Settings["Events:Broker:Queues:notifications:Url"]!;
-        // Published under Broker before the rollback, and still queued.
-        var queued = Enumerable.Range(0, 3).Select(_ => Activated(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid())).ToList();
-        foreach (var activated in queued)
-        {
-            await Send(sqs, queue, activated, "Pledges");
-        }
-
-        await Send(sqs, queue, queued[0], "Pledges"); // and one of them twice
-
-        // The rollback: Notifications' route back to InProcess; the host still reads the queue.
-        var host = Host(provisioned.Settings, brokerRoutes: false);
-
-        foreach (var activated in queued)
-        {
-            await Scenario.Eventually(() => Task.FromResult(SentTo(activated.BackerId, "You're a backer") == 1));
-        }
-
-        // A pledge placed after the rollback reaches Notifications in process, and owes the broker nothing.
-        var given = new Scenario(database, host);
-        var campaign = await given.Publish();
-        var backer = Guid.NewGuid();
-        (await given.Backer(backer).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
-        await Scenario.Eventually(() => Task.FromResult(SentTo(backer, "You're a backer") == 1));
-        Assert.Equal(1, await Scalar("""
-            SELECT count(*) FROM pledges.outbox
-            WHERE type = 'PledgeActivated' AND payload->>'backerId' = @value AND sinks = ARRAY['Pledges', 'Notifications']
-            """, backer.ToString()));
-
-        await Empty(sqs, queue);
-        await Task.Delay(TimeSpan.FromSeconds(1), Ct);
-        Assert.All(queued, a => Assert.Equal(1, SentTo(a.BackerId, "You're a backer")));
-        Assert.Equal(1, SentTo(backer, "You're a backer"));
-    }
-
-    [Fact]
-    public async Task A_message_left_in_the_monolith_queue_before_the_move_still_reaches_Notifications_and_its_copy_sends_nothing()
-    {
-        var provisioned = database.Provision();
-        var settings = new Dictionary<string, string?>(provisioned.Settings) { ["Events:Broker:AlsoServe:monolith:0"] = "Notifications" };
-        Host(settings);
-        using var sqs = database.Broker.Sqs();
-        var notifications = provisioned.Settings["Events:Broker:Queues:notifications:Url"]!;
-        var monolith = provisioned.Settings["Events:Broker:Queues:monolith:Url"]!;
-        var (campaign, creator) = (Guid.NewGuid(), Guid.NewGuid());
-        await SendAndWait(sqs, notifications, new CampaignPublished(Guid.CreateVersion7(), DateTimeOffset.UtcNow, campaign, creator, 5_000, "USD",
-            DateTimeOffset.UtcNow.AddDays(30), []), "Campaigns");
-        var settled = new CampaignSettled(Guid.CreateVersion7(), DateTimeOffset.UtcNow, campaign, 3, 0);
-
-        // Published while Notifications was still one of the monolith queue's modules.
-        await Send(sqs, monolith, settled, "Payments");
-        await Scenario.Eventually(() => Task.FromResult(SentTo(creator, "Your campaign is settled") == 1));
-
-        // Published after its subscription changed, a copy also reaches the notifications queue.
-        await Send(sqs, notifications, settled, "Payments");
-        await Empty(sqs, notifications);
-        await Empty(sqs, monolith);
-        await Task.Delay(TimeSpan.FromSeconds(1), Ct);
-        Assert.Equal(1, SentTo(creator, "Your campaign is settled"));
     }
 }

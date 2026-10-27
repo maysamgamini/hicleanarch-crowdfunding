@@ -8,7 +8,8 @@ namespace ArchitectureTests;
 /// Payments.Contracts package, which its client is built on (StartCardSetup over HTTP, s4-l03): no
 /// Payments domain, application or infrastructure, and so no Payments endpoint, job, handler, table or
 /// migration in its image. Checked twice: on the compiled assemblies, and on the project files, where a
-/// reference would be added.
+/// reference would be added. Notifications left too (lesson s5-l04): nothing of it, not even its
+/// contracts' consumer code, so the monolith cannot send email or read users even by mistake.
 /// </summary>
 public class MonolithRulesTests
 {
@@ -43,6 +44,17 @@ public class MonolithRulesTests
             .Select(r => (string)r.Attribute("Include")!);
 
         Assert.Contains("CrowdFunding.Payments.Contracts", packages);
+    }
+
+    [Fact]
+    public void The_monolith_references_and_loads_nothing_of_notifications()
+    {
+        var graph = ProjectClosure("src/Host/Host.csproj");
+        var loaded = Closure(Assembly.Load("CrowdFunding.Host"));
+
+        Assert.Contains("Pledges.Infrastructure", loaded); // the check sees the modules it does compose
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Modules/Notifications/", StringComparison.Ordinal));
+        Assert.DoesNotContain(loaded, name => name.StartsWith("Notifications", StringComparison.Ordinal));
     }
 
     /// <summary>Every assembly of ours the program loads, directly or through another of ours.</summary>
