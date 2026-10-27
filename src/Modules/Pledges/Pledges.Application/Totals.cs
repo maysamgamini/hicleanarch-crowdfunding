@@ -21,7 +21,8 @@ public interface ITotalsStore
 /// <summary>Recomputes a campaign's display totals from the ledger, the pledges and the tier counters.</summary>
 public interface ITotalsSource
 {
-    Task<DisplayTotals> Compute(Guid campaignId, CancellationToken cancellationToken);
+    /// <summary>Null when the read side does not know the campaign yet: the reader is a moment behind the writer.</summary>
+    Task<DisplayTotals?> Compute(Guid campaignId, CancellationToken cancellationToken);
 
     /// <summary>Campaigns still taking pledges, for the aggregator's periodic drift check.</summary>
     Task<IReadOnlyList<Guid>> Live(CancellationToken cancellationToken);

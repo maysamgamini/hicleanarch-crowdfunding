@@ -3,19 +3,18 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 using Pledges.Application;
-using Pledges.Infrastructure.Persistence;
 
 namespace Pledges.Infrastructure.Totals;
 
 /// <summary>
 /// Recomputes each changed campaign's display totals from the ledger, at most every two seconds per
 /// campaign, and stores the absolute values. Every minute it also marks every live campaign, so a
-/// signal lost in a crash costs at most a minute of staleness. It runs as the uncapped jobs role.
+/// signal lost in a crash costs at most a minute of staleness. It reads the read side and writes
+/// only the totals store (Valkey), never the database.
 /// </summary>
 internal sealed partial class TotalsAggregator(
     IServiceScopeFactory scopes,
     DirtyCampaigns dirty,
-    PledgesJobsConnection jobs,
     ILogger<TotalsAggregator> logger) : BackgroundService
 {
     private static readonly TimeSpan Tick = TimeSpan.FromMilliseconds(250);
@@ -30,7 +29,6 @@ internal sealed partial class TotalsAggregator(
             try
             {
                 await using var scope = scopes.CreateAsyncScope();
-                jobs.Use(scope.ServiceProvider.GetRequiredService<PledgesDbContext>());
                 var source = scope.ServiceProvider.GetRequiredService<ITotalsSource>();
                 if (DateTimeOffset.UtcNow >= nextDriftCheck)
                 {
@@ -45,7 +43,14 @@ internal sealed partial class TotalsAggregator(
                 var store = scope.ServiceProvider.GetRequiredService<ITotalsStore>();
                 foreach (var campaignId in dirty.TakeDue())
                 {
-                    await store.Set(campaignId, await source.Compute(campaignId, stoppingToken), stoppingToken);
+                    if (await source.Compute(campaignId, stoppingToken) is { } totals)
+                    {
+                        await store.Set(campaignId, totals, stoppingToken);
+                    }
+                    else
+                    {
+                        dirty.Mark(campaignId); // not on the reader yet: next time it is due
+                    }
                 }
             }
             catch (Exception e) when (e is not OperationCanceledException)

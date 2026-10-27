@@ -9,6 +9,9 @@ using Microsoft.Extensions.DependencyInjection;
 
 using Npgsql;
 
+using Pledges.Application;
+using Pledges.Infrastructure.Totals;
+
 namespace IntegrationTests;
 
 /// <summary>
@@ -64,6 +67,38 @@ public sealed class ReadReplicaTests(Database database) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, page.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, totals.StatusCode);
         Assert.Equal(HttpStatusCode.OK, mine.StatusCode); // the backer sees their own pledge
+    }
+
+    [Fact]
+    public async Task The_aggregator_sums_the_ledger_on_the_replica_not_on_the_writer()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var writerOnly = database.StartHost();
+        var given = new Scenario(database, writerOnly);
+        var published = await given.Publish();
+        (await given.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{published.Id}/pledges", Scenario.Pledge(6000), ct)).EnsureSuccessStatusCode();
+        await using var host = database.StartHost().WithWebHostBuilder(web => web
+            .UseSetting("ConnectionStrings:PledgesRead", OnReplica(database.Pledges)));
+
+        // The writer has the pledge; the "replica" has not caught up and does not know the campaign.
+        async Task<DisplayTotals?> Aggregated(Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> on)
+        {
+            on.Services.GetRequiredService<DirtyCampaigns>().Mark(published.CampaignId);
+            for (var i = 0; i < 120; i++) // the aggregator computes a campaign at most every two seconds
+            {
+                if (await on.Services.GetRequiredService<ITotalsStore>().Get(published.CampaignId, ct) is { PledgedMinor: > 0 } totals)
+                {
+                    return totals;
+                }
+
+                await Task.Delay(50, ct);
+            }
+
+            return null;
+        }
+
+        Assert.Equal(6000, (await Aggregated(writerOnly))?.PledgedMinor); // reading the writer, it is found at once
+        Assert.Null(await Aggregated(host));
     }
 
     [Fact]

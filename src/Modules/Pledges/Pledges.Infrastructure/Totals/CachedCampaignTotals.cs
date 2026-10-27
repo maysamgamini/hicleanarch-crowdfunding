@@ -21,6 +21,11 @@ internal sealed class CachedCampaignTotals(ITotalsStore store, ITotalsSource sou
             }
 
             totals = await source.Compute(campaignId, cancellationToken);
+            if (totals is null)
+            {
+                return null; // published a moment ago: the reader does not have it yet
+            }
+
             await store.Set(campaignId, totals, cancellationToken);
         }
 

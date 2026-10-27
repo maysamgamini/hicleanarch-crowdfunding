@@ -24,7 +24,9 @@ internal sealed class EfPublicTotals(ReadOnlyDb<PledgesDbContext> reader, ITotal
         var shown = await store.Get(campaignId, cancellationToken);
         if (shown is null)
         {
-            shown = await source.Compute(campaignId, cancellationToken);
+            // The window was read on the reader, so the reader knows the campaign.
+            shown = await source.Compute(campaignId, cancellationToken)
+                ?? throw new InvalidOperationException($"The read side has funding window {campaignId} but cannot total it.");
             await store.Set(campaignId, shown, cancellationToken);
         }
 
