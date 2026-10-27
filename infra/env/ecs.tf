@@ -1,5 +1,11 @@
 resource "aws_ecs_cluster" "main" {
   name = "${var.project}-sandbox"
+
+  # Per-service task counts in CloudWatch, which the running-tasks alarms read (monitoring.tf).
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
 }
 
 resource "aws_cloudwatch_log_group" "api" {
