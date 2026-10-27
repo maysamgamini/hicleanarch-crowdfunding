@@ -12,6 +12,12 @@ mock_provider "aws" {
       json = "{}"
     }
   }
+  # OpenTofu's mock fills computed values in a plan too, and the provider checks ARNs: a real shape.
+  mock_resource "aws_iam_policy" {
+    defaults = {
+      arn = "arn:aws:iam::123456789012:policy/mock"
+    }
+  }
 }
 
 variables {

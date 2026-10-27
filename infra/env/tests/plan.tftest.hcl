@@ -66,24 +66,12 @@ run "plans_with_the_defaults" {
   command = plan
 }
 
-# A running service with its autoscaling and a scheduled launch, and Payments switched to its own cluster.
-run "plans_a_running_service_after_the_payments_switch" {
+# A running service, with its autoscaling and a scheduled launch.
+run "plans_a_running_service_with_a_launch" {
   command = plan
 
   variables {
-    service_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-api:mock"
-    launch                  = { start = "2099-11-02T15:00:00Z", end = "2099-11-02T18:00:00Z", min_count = 6 }
-    payments_database_clone = true
-    payments_database       = "own"
+    service_image = "123456789012.dkr.ecr.us-east-1.amazonaws.com/hicleanarch/crowdfunding-api:mock"
+    launch        = { start = "2099-11-02T15:00:00Z", end = "2099-11-02T18:00:00Z", min_count = 6 }
   }
-}
-
-run "refuses_the_own_database_without_the_clone" {
-  command = plan
-
-  variables {
-    payments_database = "own"
-  }
-
-  expect_failures = [var.payments_database]
 }

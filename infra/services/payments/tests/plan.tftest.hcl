@@ -41,6 +41,7 @@ mock_provider "aws" {
           "payments_connection_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:payments-AbCdEf",
           "payments_webhook_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:webhook-AbCdEf",
           "payments_valkey_secret_arn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:valkey-AbCdEf",
+          "monolith_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-monolith",
           "payments_queue_arn": "arn:aws:sqs:us-east-1:123456789012:hicleanarch-payments",
           "payments_queue_url": "https://sqs.us-east-1.amazonaws.com/123456789012/hicleanarch-payments",
           "payments_topic_arn": "arn:aws:sns:us-east-1:123456789012:hicleanarch-payments",

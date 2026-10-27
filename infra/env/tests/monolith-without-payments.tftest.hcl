@@ -3,8 +3,48 @@
 # name no Payments secret, no Payments topic and no payments queue, and Payments' schema is migrated on
 # Payments' own cluster by its own migrate task, never by the shared cluster's owner.
 
+# Values the AWS provider would compute. Only attributes the provider validates need a real shape;
+# every other computed value (secret ARNs among them) is a distinct generated string. Written here, not
+# in a shared .tfmock.hcl file: OpenTofu's mock_provider takes no source.
 mock_provider "aws" {
-  source = "./tests/mocks"
+  mock_data "aws_availability_zones" {
+    defaults = { names = ["us-east-1a", "us-east-1b", "us-east-1c"] }
+  }
+
+  mock_data "aws_caller_identity" {
+    defaults = { account_id = "123456789012" }
+  }
+
+  mock_data "aws_iam_policy_document" {
+    defaults = { json = "{\"Version\":\"2012-10-17\",\"Statement\":[]}" }
+  }
+
+  mock_resource "aws_sns_topic" {
+    defaults = { arn = "arn:aws:sns:us-east-1:123456789012:mock" }
+  }
+
+  mock_resource "aws_iam_role" {
+    defaults = { arn = "arn:aws:iam::123456789012:role/mock" }
+  }
+
+  mock_resource "aws_lb" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/mock/0123456789abcdef" }
+  }
+
+  mock_resource "aws_lb_listener" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:listener/app/mock/0123456789abcdef/0123456789abcdef" }
+  }
+
+  mock_resource "aws_lb_target_group" {
+    defaults = { arn = "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/mock/0123456789abcdef" }
+  }
+
+  mock_resource "aws_cognito_user_pool" {
+    defaults = {
+      id  = "us-east-1_mock"
+      arn = "arn:aws:cognito-idp:us-east-1:123456789012:userpool/us-east-1_mock"
+    }
+  }
 }
 
 # Every topic gets an ARN of its own, as in AWS, so "not the payments topic" means something.
@@ -21,6 +61,106 @@ override_resource {
 override_resource {
   target = aws_sns_topic.events["payments"]
   values = { arn = "arn:aws:sns:us-east-1:123456789012:hicleanarch-sandbox-payments" }
+}
+
+# OpenTofu's mock gives every instance of a type the same generated value, so each secret, queue and
+
+# security group the assertions tell apart gets one of its own, as in AWS.
+
+override_resource {
+  target = aws_secretsmanager_secret.connection["owner"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:connection-owner-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.connection["campaigns"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:connection-campaigns-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.connection["pledges"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:connection-pledges-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.connection["pledges_jobs"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:connection-pledges-jobs-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.connection["notifications"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:connection-notifications-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.read_connection["campaigns_read"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:read_connection-campaigns-read-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.read_connection["pledges_read"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:read_connection-pledges-read-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.valkey["api"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:valkey-api-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.valkey["gateway"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:valkey-gateway-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.valkey["payments"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:valkey-payments-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.payments_own["owner"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:payments_own-owner-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.payments_own["payments"]
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:payments_own-payments-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.webhook
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:webhook-AbCdEf" }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.monolith_service_client
+  values = { arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:monolith-service-client-AbCdEf" }
+}
+
+override_resource {
+  target = aws_sqs_queue.events["monolith"]
+  values = {
+    arn = "arn:aws:sqs:us-east-1:123456789012:hicleanarch-sandbox-monolith"
+    id  = "https://sqs.us-east-1.amazonaws.com/123456789012/hicleanarch-sandbox-monolith"
+  }
+}
+
+override_resource {
+  target = aws_sqs_queue.events["payments"]
+  values = {
+    arn = "arn:aws:sqs:us-east-1:123456789012:hicleanarch-sandbox-payments"
+    id  = "https://sqs.us-east-1.amazonaws.com/123456789012/hicleanarch-sandbox-payments"
+  }
+}
+
+override_resource {
+  target = aws_security_group.tasks
+  values = { id = "sg-00000000000000000" }
+}
+
+override_resource {
+  target = aws_security_group.payments
+  values = { id = "sg-00000000000000001" }
 }
 
 variables {
