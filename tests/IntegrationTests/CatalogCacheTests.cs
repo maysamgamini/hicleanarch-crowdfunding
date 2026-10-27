@@ -53,8 +53,12 @@ public sealed class CatalogCacheTests(Database database, Valkey valkey) : IClass
         // (lesson s3-l05), while the catalog entry stays cached.
         (await scenario.Backer(Guid.NewGuid()).PostAsJsonAsync($"/v1/campaigns/{published.Id}/pledges", Scenario.Pledge(6_000), Ct)).EnsureSuccessStatusCode();
 
+        // The page polls both: the catalog (cached) and the totals (never cached here; lesson s5-l06).
         await Scenario.Eventually(async () =>
-            (await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{published.Id}", Ct)).GetProperty("pledged_minor").GetInt64() == 6_000);
+        {
+            await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{published.Id}", Ct);
+            return (await reader.GetFromJsonAsync<JsonElement>($"/v1/campaigns/{published.Id}/totals", Ct)).GetProperty("pledged_minor").GetInt64() == 6_000;
+        });
         using var connection = await ConnectionMultiplexer.ConnectAsync(valkey.Configuration);
         Assert.True(await connection.GetDatabase().KeyExistsAsync($"campaigns:catalog:{published.Id}"));
     }

@@ -1,5 +1,4 @@
 using System.Diagnostics.Metrics;
-using System.Globalization;
 
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,10 +33,7 @@ internal static class LiveCancelDeprecation
     public static void Mark(HttpContext http, string campaignId)
     {
         var options = http.RequestServices.GetRequiredService<IOptions<LiveCancelOptions>>().Value;
-        var headers = http.Response.Headers;
-        headers["Deprecation"] = "@" + options.DeprecatedAt.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture);
-        headers["Sunset"] = options.SunsetAt.UtcDateTime.ToString("R", CultureInfo.InvariantCulture);
-        headers.Link = $"</v1/campaigns/{campaignId}/funding/cancel>; rel=\"successor-version\"";
+        Deprecations.Mark(http, options.DeprecatedAt, options.SunsetAt, $"/v1/campaigns/{campaignId}/funding/cancel");
         Calls.Add(1);
     }
 }

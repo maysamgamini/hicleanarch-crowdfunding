@@ -39,6 +39,9 @@ const creator = JSON.parse(open(__ENV.TOKENS_FILE)).creator;
 const pledgeLatency = new Trend("pledge_latency", true);
 const totalsStaleness = new Trend("totals_staleness", true);
 const totalsRead = new Counter("totals_read");
+// Totals reads CloudFront did not answer from its cache (X-Cache other than a hit): the requests that
+// reached Pledges, the origin (lesson s5-l06).
+const totalsOrigin = new Counter("totals_origin");
 const settlementSeconds = new Trend("settlement_seconds");
 const hotTierPlaced = new Counter("hot_tier_placed");
 const serverErrors = new Counter("server_errors");
@@ -171,6 +174,9 @@ export function readTotals(data) {
   recordErrors(res);
   if (res.status === 200) {
     totalsRead.add(1);
+    if (!String(res.headers["X-Cache"] || "").startsWith("Hit")) {
+      totalsOrigin.add(1, { pop: String(res.headers["X-Amz-Cf-Pop"] || "none") });
+    }
     const asOf = Date.parse(res.json("as_of"));
     totalsStaleness.add(Math.max(0, Date.now() - asOf));
   }
@@ -197,6 +203,9 @@ export function handleSummary(summary) {
     ["Pledge P99 on the hot tier", "< 200 ms", value("pledge_latency{scenario:hot_tier}", "p(99)"), "ms"],
     ["Server errors", "≤ 1 in 10,000", value("server_errors", "count") ?? 0, ""],
     ["Displayed total, P99 age", "< 5 s", value("totals_read", "count") ? value("totals_staleness", "p(99)") : null, "ms"],
+    // This runner reaches CloudFront through one edge location (X-Amz-Cf-Pop is tagged on each miss),
+    // so this is the origin rate per edge location: about one every 2 s, whatever the read rate.
+    ["Totals origin requests per edge location, every 2 s", "≈ 1", value("totals_read", "count") ? (value("totals_origin", "count") ?? 0) / (90 / 2) : null, ""],
     ["Early Bird places sold", `≤ ${HOT_PLACES}`, value("hot_tier_placed", "count") ?? 0, ""],
     ["Deadline to SETTLED", `< ${SETTLE_TARGET_S} s`, value("settlement_seconds", "max"), "s"],
   ];

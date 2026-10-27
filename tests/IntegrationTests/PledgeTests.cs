@@ -39,10 +39,10 @@ public sealed class PledgeTests(Database database) : IDisposable
         var body = await placed.Content.ReadFromJsonAsync<JsonElement>(Ct);
         Assert.Equal("ACTIVE", body.GetProperty("status").GetString());
         Assert.Equal($"/v1/pledges/{body.GetProperty("pledge_id").GetString()}", placed.Headers.Location?.ToString());
-        // The page's total is the aggregator's, a moment behind the ledger (lesson s3-l05).
+        // The page's total is the aggregator's, a moment behind the ledger (lesson s3-l05), read where the page reads it (s5-l06).
         await Scenario.Eventually(async () =>
         {
-            var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct);
+            var read = await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}/totals", Ct);
             return read.GetProperty("pledged_minor").GetInt64() == 6_000 && read.GetProperty("backers").GetInt32() == 1;
         });
         Assert.Equal(6_000L, await given.Scalar<long>("SELECT sum(delta_minor)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));

@@ -1,6 +1,9 @@
 // A launch, as a baseline: many readers of one campaign page, and backers pledging to it.
 //
-//   k6 run -e BASE_URL=http://<alb> -e CAMPAIGN_ID=cmp_... -e BACKER_TOKENS=tokens.txt tests/load/launch.js
+//   k6 run -e BASE_URL=http://<alb> -e TOTALS_URL=https://<cloudfront> -e CAMPAIGN_ID=cmp_... -e BACKER_TOKENS=tokens.txt tests/load/launch.js
+//
+// A reader loads the page as the page does (lesson s5-l06): the catalog from the API, the totals
+// from the endpoint CloudFront caches, never from the campaign reply's deprecated fields.
 //
 // BACKER_TOKENS is a file with one backer token per line (each backer may pledge once per
 // campaign). The course never runs it on AWS; its numbers there come from the learner's own run.
@@ -10,6 +13,7 @@ import { SharedArray } from 'k6/data';
 import exec from 'k6/execution';
 
 const base = __ENV.BASE_URL;
+const totalsBase = __ENV.TOTALS_URL || __ENV.BASE_URL;
 const campaign = __ENV.CAMPAIGN_ID;
 const tokens = new SharedArray('tokens', () => open(__ENV.BACKER_TOKENS).split('\n').filter((t) => t.trim() !== ''));
 
@@ -46,6 +50,8 @@ export const options = {
 export function read() {
   const res = http.get(`${base}/v1/campaigns/${campaign}`);
   check(res, { 'campaign read': (r) => r.status === 200 });
+  const totals = http.get(`${totalsBase}/v1/campaigns/${campaign}/totals`);
+  check(totals, { 'totals read': (r) => r.status === 200 });
 }
 
 export function pledge() {

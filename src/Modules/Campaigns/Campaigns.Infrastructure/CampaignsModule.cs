@@ -44,6 +44,7 @@ public static class CampaignsModule
         services.AddOptions<LiveCancelOptions>().Bind(configuration.GetSection("Campaigns:LiveCancel"))
             .Validate(o => o.SunsetAt > o.DeprecatedAt, "Campaigns:LiveCancel: the Sunset date must come after the deprecation.")
             .ValidateOnStart();
+        services.AddReplyTotalsDeprecation(configuration);
         services.AddEventHandler<FundingCancelled, RecordFundingCancelled>(CampaignsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, FollowFundingDecision>(CampaignsModuleName.Value);
         services.AddEventHandler<Payments.Contracts.CampaignSettled, FollowSettlement>(CampaignsModuleName.Value);
@@ -135,9 +136,9 @@ public static class CampaignsModule
             });
         }).RequireAuthorization(Policies.Creator);
 
-        // Anyone may read a campaign, signed in or not.
-        // Anyone may read a published campaign; a draft only its creator, signed in.
-        campaigns.MapGet("/{id}", async (string id, ClaimsPrincipal user, IDispatcher dispatcher, CancellationToken ct) =>
+        // Anyone may read a published campaign; a draft only its creator, signed in. Its totals fields are
+        // deprecated (lesson s5-l06): the page reads its totals from GET /v1/campaigns/{id}/totals, behind the CDN.
+        campaigns.MapGet("/{id}", async (string id, ClaimsPrincipal user, HttpContext http, IDispatcher dispatcher, CancellationToken ct) =>
         {
             if (!CampaignId.TryParse(id, out var campaignId))
             {
@@ -146,8 +147,14 @@ public static class CampaignsModule
 
             var caller = user.Identity?.IsAuthenticated == true ? user.UserId() : (Guid?)null;
             var result = await dispatcher.Query<GetCampaign, CampaignView>(new GetCampaign(campaignId, caller), ct);
-            return result.IsSuccess ? Results.Ok(result.Value) : result.Errors.ToProblem();
-        }).AllowAnonymous();
+            if (!result.IsSuccess)
+            {
+                return result.Errors.ToProblem();
+            }
+
+            ReplyTotalsDeprecation.Mark(http, id);
+            return Results.Ok(result.Value);
+        }).AllowAnonymous().Produces<CampaignView>();
 
         return app;
     }

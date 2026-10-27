@@ -5,7 +5,7 @@ second, and one pledge per backer token, while ECS scales the service out and in
 [k6](https://grafana.com/docs/k6/latest/) against the sandbox:
 
 ```bash
-k6 run -e BASE_URL=http://<alb dns name> -e CAMPAIGN_ID=cmp_... -e BACKER_TOKENS=tokens.txt tests/load/launch.js
+k6 run -e BASE_URL=http://<alb dns name> -e TOTALS_URL=https://<cloudfront domain> -e CAMPAIGN_ID=cmp_... -e BACKER_TOKENS=tokens.txt tests/load/launch.js
 ```
 
 It never runs in CI, and the course never runs it on AWS: its numbers on the sandbox come only from
