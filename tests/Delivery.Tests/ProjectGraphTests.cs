@@ -11,6 +11,11 @@ public class ProjectGraphTests
     private const string MonolithFilter = "Monolith.slnf";
     private const string ContractsFilter = "Contracts.slnf";
 
+    /// <summary>The tests that start or load both services (s4-l10); both pipelines run them.</summary>
+    private const string SystemFilter = "System.slnf";
+
+    private const string PaymentsClient = "src/Modules/Payments/Payments.Client/Payments.Client.csproj";
+
     /// <summary>This project reads files only; ci.yml runs it on every change.</summary>
     private const string ThisProject = "tests/Delivery.Tests/Delivery.Tests.csproj";
 
@@ -23,7 +28,7 @@ public class ProjectGraphTests
     /// <summary>The shared platform beside the BuildingBlocks: the broker adapter and the remote-call pipeline (s4-l02, s4-l03).</summary>
     private static readonly string[] Platform = ["src/Messaging/", "src/RemoteCalls/"];
 
-    public static TheoryData<string> Filters() => [PaymentsFilter, MonolithFilter, ContractsFilter];
+    public static TheoryData<string> Filters() => [PaymentsFilter, MonolithFilter, ContractsFilter, SystemFilter];
 
     [Theory]
     [MemberData(nameof(Filters))]
@@ -42,7 +47,8 @@ public class ProjectGraphTests
     [Fact]
     public void Every_project_is_built_by_a_service_pipeline()
     {
-        var built = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter)).Append(ThisProject).Append(ContractProducerTests);
+        var built = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter))
+            .Union(Repository.FilterProjects(SystemFilter)).Append(ThisProject).Append(ContractProducerTests);
 
         Assert.Empty(Repository.SolutionProjects().Except(built));
     }
@@ -71,11 +77,29 @@ public class ProjectGraphTests
     [Fact]
     public void The_monolith_reaches_no_service_host()
     {
-        // Until s4-l10 the monolith still compiles the Payments module for its in-process fallback;
-        // what it must never do is depend on a service's host. Its filter does build Payments.Host, for
-        // the integration tests that run both hosts (s4-l05); its deployables never reach it.
         var graph = Repository.Closure(["src/Host/Host.csproj", "src/Gateway/Gateway.csproj"]);
 
         Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_monolith_builds_nothing_of_payments_but_its_client()
+    {
+        // Since s4-l10: Payments' module and host are built, tested and deployed by Payments' pipeline alone.
+        var graph = Repository.Closure(Repository.FilterProjects(MonolithFilter));
+
+        Assert.DoesNotContain(graph, p => p.StartsWith("src/Services/", StringComparison.Ordinal));
+        Assert.All(graph.Where(p => p.StartsWith("src/Modules/Payments/", StringComparison.Ordinal)), p => Assert.Equal(PaymentsClient, p));
+        Assert.DoesNotContain(graph, p => p.StartsWith("tests/Payments.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Every_project_the_system_tests_build_is_built_by_a_service_pipeline()
+    {
+        // So a change to any of them runs a pipeline, and every pipeline runs the system tests.
+        var services = Repository.FilterProjects(PaymentsFilter).Union(Repository.FilterProjects(MonolithFilter));
+        string[] systemTests = ["tests/IntegrationTests/IntegrationTests.csproj", "tests/ArchitectureTests/ArchitectureTests.csproj", "tests/Contracts.ConsumerTests/Contracts.ConsumerTests.csproj"];
+
+        Assert.Empty(Repository.FilterProjects(SystemFilter).Except(services).Except(systemTests));
     }
 }

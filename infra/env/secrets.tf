@@ -14,8 +14,8 @@ locals {
     campaigns     = "campaigns_app"
     pledges       = "pledges_app"
     pledges_jobs  = "pledges_jobs" # the close and the totals aggregator: no two-second transaction limit
-    payments      = "payments_app"
     notifications = "notifications_app"
+    # No payments_app here since s4-l10: Payments' login is on its own cluster (payments-database.tf).
   }
 }
 

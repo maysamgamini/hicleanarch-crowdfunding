@@ -27,8 +27,6 @@ locals {
     { name = "ConnectionStrings__Campaigns", valueFrom = aws_secretsmanager_secret.connection["campaigns"].arn },
     { name = "ConnectionStrings__Pledges", valueFrom = aws_secretsmanager_secret.connection["pledges"].arn },
     { name = "ConnectionStrings__PledgesJobs", valueFrom = aws_secretsmanager_secret.connection["pledges_jobs"].arn },
-    { name = "ConnectionStrings__Payments", valueFrom = local.payments_connection_secret },
-    { name = "Payments__WebhookSecret", valueFrom = aws_secretsmanager_secret.webhook.arn },
     { name = "ConnectionStrings__Notifications", valueFrom = aws_secretsmanager_secret.connection["notifications"].arn },
     { name = "ConnectionStrings__CampaignsRead", valueFrom = aws_secretsmanager_secret.read_connection["campaigns_read"].arn },
     { name = "ConnectionStrings__PledgesRead", valueFrom = aws_secretsmanager_secret.read_connection["pledges_read"].arn },
@@ -53,15 +51,9 @@ locals {
       { name = "Notifications__FromAddress", value = var.notifications_from },
       { name = "Notifications__UserPoolId", value = aws_cognito_user_pool.users.id },
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
-      # 8081 serves the endpoints for other services; no target group or rule forwards to it (s4-l03).
-      { name = "ASPNETCORE_HTTP_PORTS", value = "8080;8081" },
-      # Where Payments runs (payments-split.tf), and where its command goes: this task's own internal
-      # port while Payments runs here (s4-l03), Payments' service through Service Connect once it does not (s4-l05).
-      { name = "Modules__Payments__Mode", value = local.payments_mode },
-      { name = "Modules__Payments__Calls", value = "Http" },
-      { name = "Modules__Payments__BaseAddress", value = local.payments_mode == "Remote" ? "http://payments:8081" : "http://localhost:8081" },
-      # One budget at the PSP while both hosts run Payments' code.
-      { name = "Payments__Budget__Prefix", value = local.psp_budget_prefix },
+      # Payments runs only in its own service (s4-l10): its command goes to its internal port through
+      # Service Connect. The monolith serves nothing for other services, so it listens on 8080 alone.
+      { name = "Modules__Payments__BaseAddress", value = "http://payments:8081" },
     ], local.broker_environment, local.service_identity_environment)
     # SIGTERM, then this many seconds to finish requests and give back job claims, then SIGKILL.
     stopTimeout = 30

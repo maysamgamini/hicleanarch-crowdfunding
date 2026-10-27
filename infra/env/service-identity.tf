@@ -73,12 +73,11 @@ resource "aws_iam_role_policy" "execution_service_identity" {
 locals {
   service_token_endpoint = "https://${aws_cognito_user_pool_domain.auth.domain}.auth.${var.region}.amazoncognito.com/oauth2/token"
 
-  # The api container is both sides while Payments runs in it: the caller (ServiceIdentity) and the
-  # receiver, which accepts service tokens only from the clients in Auth:ServiceClients.
+  # The api container is the caller only since s4-l10: it serves no endpoint for other services, so it
+  # lists no service client of its own (Payments' task does, infra/services/payments).
   service_identity_environment = [
     { name = "ServiceIdentity__ClientId", value = aws_cognito_user_pool_client.monolith_service.id },
     { name = "ServiceIdentity__TokenEndpoint", value = local.service_token_endpoint },
-    { name = "Auth__ServiceClients__0", value = aws_cognito_user_pool_client.monolith_service.id },
   ]
   service_identity_secrets = [
     { name = "ServiceIdentity__ClientSecret", valueFrom = aws_secretsmanager_secret.monolith_service_client.arn },

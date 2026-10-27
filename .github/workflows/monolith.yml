@@ -3,9 +3,9 @@ name: monolith
 # The monolith's pipeline, which also owns the shared layer (infra/env: network, cluster, database,
 # gateway, Valkey, Cognito, topics and queues): contract tests, then the monolith and the gateway built
 # and tested from their solution filter, then (on main) their images pushed with the deploy role and,
-# if a sandbox is up, the shared layer and the monolith deployed into it. Until s4-l10 the monolith
-# compiles src/Modules/Payments for its in-process fallback, so a change there runs this pipeline as
-# well as Payments': skipping it would leave the fallback running old code.
+# if a sandbox is up, the shared layer and the monolith deployed into it. Since s4-l10 the monolith
+# compiles nothing of src/Modules/Payments but Payments.Client (and Payments' Contracts, as a package),
+# so a change elsewhere under src/Modules/Payments runs Payments' pipeline only.
 # Path filters are not applied to tag pushes: a lesson tag runs every pipeline.
 on:
   push:
@@ -17,7 +17,7 @@ on:
       - "src/Modules/Campaigns/**"
       - "src/Modules/Pledges/**"
       - "src/Modules/Notifications/**"
-      - "src/Modules/Payments/**"
+      - "src/Modules/Payments/Payments.Client/**"
       - "src/Modules/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
@@ -27,9 +27,9 @@ on:
       - "tests/IntegrationTests/**"
       - "tests/Campaigns.UnitTests/**"
       - "tests/Gateway.Tests/**"
-      - "tests/Payments.UnitTests/**"
       - "tests/Directory.Build.props"
       - "Monolith.slnf"
+      - "System.slnf"
       - "Contracts.slnf"
       - "CrowdFunding.slnx"
       - "BuildingBlocks.slnx"
@@ -55,7 +55,6 @@ on:
       - "tests/RemoteCalls.Tests/**"
       - "tests/Contracts.ConsumerTests/**"
       - "tests/Shared/**"
-      - "src/Services/Payments.Host/**"
   pull_request:
     paths:
       - "src/Host/**"
@@ -63,7 +62,7 @@ on:
       - "src/Modules/Campaigns/**"
       - "src/Modules/Pledges/**"
       - "src/Modules/Notifications/**"
-      - "src/Modules/Payments/**"
+      - "src/Modules/Payments/Payments.Client/**"
       - "src/Modules/*/*.Contracts/**"
       - "src/BuildingBlocks/**"
       - "events/subscriptions.json"
@@ -73,9 +72,9 @@ on:
       - "tests/IntegrationTests/**"
       - "tests/Campaigns.UnitTests/**"
       - "tests/Gateway.Tests/**"
-      - "tests/Payments.UnitTests/**"
       - "tests/Directory.Build.props"
       - "Monolith.slnf"
+      - "System.slnf"
       - "Contracts.slnf"
       - "CrowdFunding.slnx"
       - "BuildingBlocks.slnx"
@@ -101,7 +100,6 @@ on:
       - "tests/RemoteCalls.Tests/**"
       - "tests/Contracts.ConsumerTests/**"
       - "tests/Shared/**"
-      - "src/Services/Payments.Host/**"
 
 # Read the code, nothing else: the default token may be read-write.
 permissions:
@@ -149,12 +147,16 @@ jobs:
       - name: The monolith builds alone, from its solution filter
         run: dotnet build Monolith.slnf
       - run: dotnet test Monolith.slnf --no-build
+      - name: The tests that run both services, built from this commit
+        # The rule tests start the monolith and Payments.Host side by side (s4-l10): whichever service
+        # changed is checked against the other at the same commit.
+        run: dotnet test System.slnf
       - name: Every model change has its migration
         # EF Core 9+ refuses to migrate a model that differs from its last migration; catch it here.
         run: |
           dotnet tool restore
           for project in src/Modules/Campaigns/Campaigns.Infrastructure src/Modules/Pledges/Pledges.Infrastructure \
-                         src/Modules/Payments/Payments.Infrastructure src/Modules/Notifications; do
+                         src/Modules/Notifications; do
             dotnet ef migrations has-pending-model-changes --project "$project" --no-build
           done
       - name: The image builds

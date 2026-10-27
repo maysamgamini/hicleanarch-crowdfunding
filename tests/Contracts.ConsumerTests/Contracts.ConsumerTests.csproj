@@ -1,9 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- The consumers' side: the modules as the host composes them, built against the published Contracts
-       packages, and those packages' recorded examples, copied from the very versions restored. -->
+  <!-- The consumers' side: the modules as the two services compose them (Payments in its own since
+       s4-l10), built against the published Contracts packages, and those packages' recorded examples,
+       copied from the very versions restored. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\Host\Host.csproj" />
+    <ProjectReference Include="..\..\src\Services\Payments.Host\Payments.Host.csproj" />
   </ItemGroup>
 
   <ItemGroup>

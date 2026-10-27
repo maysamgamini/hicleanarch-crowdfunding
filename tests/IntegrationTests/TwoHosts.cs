@@ -30,7 +30,6 @@ public sealed class TwoHosts : IDisposable
                 .ConfigurePrimaryHttpMessageHandler(() => new LinkHandler(Link, Payments.Server.CreateHandler())))
             .WithWebHostBuilder(web =>
             {
-                web.UseSetting("Modules:Payments:Mode", nameof(PaymentsMode.Remote));
                 web.UseSetting("Modules:Payments:BaseAddress", "http://payments:8081");
                 both?.Invoke(web);
             });

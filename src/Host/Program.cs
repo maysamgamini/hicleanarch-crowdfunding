@@ -15,8 +15,6 @@ using CrowdFunding.Messaging;
 using Notifications;
 
 using Payments.Client;
-using Payments.Infrastructure;
-using Payments.Infrastructure.Cutover;
 
 using Pledges.Infrastructure;
 
@@ -61,16 +59,10 @@ builder.Services.AddOpenApi();
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
 builder.Services.AddPledgesModule(builder.Configuration);
-// Payments runs here (Modules:Payments:Mode = InProcess) or in its own service (Remote, s4-l05), and its
-// command goes through the dispatcher in memory or over HTTP (Calls); either switch back is the rollback.
-var payments = PaymentsPlacement.From(builder.Configuration);
-if (payments.RunsHere)
-{
-    builder.Services.AddPaymentsModule(builder.Configuration);
-}
-
 builder.Services.AddNotificationsModule(builder.Configuration);
-builder.Services.AddPaymentsClient(payments, builder.Configuration);
+// Payments runs only in its own service (s4-l10): this program sends it StartCardSetup over HTTP and
+// exchanges events with it through the broker, and knows nothing of it but its Contracts.
+builder.Services.AddPaymentsClient(builder.Configuration);
 
 // With an Events:Broker section, the events whose consumers are routed to the broker go through SNS and SQS.
 if (builder.Configuration.GetSection("Events:Broker").Exists())
@@ -96,13 +88,6 @@ if (args.FirstOrDefault() == "replay-events")
     return;
 }
 
-// `dotnet run -- move-payments <step>` runs one step of moving Payments' tables to their own cluster, and exits.
-if (args.FirstOrDefault() == "move-payments")
-{
-    Environment.ExitCode = await app.Services.MovePayments(args.ElementAtOrDefault(1), CancellationToken.None);
-    return;
-}
-
 app.UseForwardedHeaders();
 // Behind the gateway, the client is the address the gateway decided (after the forwarded headers, when present).
 app.UseGatewayClientAddress();
@@ -114,11 +99,6 @@ app.UseAuthorization();
 app.MapHealth();
 app.MapCampaignsEndpoints();
 app.MapPledgesEndpoints();
-if (payments.RunsHere)
-{
-    app.MapPaymentsEndpoints();
-}
-
 app.MapNotificationsEndpoints();
 
 // The API's description, generated from the endpoints, for a developer's tools and the tests; not published in production.
