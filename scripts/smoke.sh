@@ -14,10 +14,12 @@ done
 test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$base/v1/campaigns" -H 'Content-Type: application/json' -d '{}')" = "401"
 
 key() { od -An -tx1 -N16 /dev/urandom | tr -d ' \n'; }
+# A campaign may run at most 60 days from its publishing: GNU date, then BSD date.
+deadline=$(date -u -d '+30 days' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v+30d +%Y-%m-%dT%H:%M:%SZ)
 
 created=$(curl -sf -X POST "$base/v1/campaigns" -H "Authorization: Bearer $token" -H "Idempotency-Key: $(key)" \
   -H 'Content-Type: application/json' \
-  -d '{"title":"Smoke test","goal_minor":100000,"currency":"USD","deadline":"2030-01-01T00:00:00Z","tiers":[{"title":"Thanks","min_pledge_minor":500,"limit":null}]}')
+  -d '{"title":"Smoke test","goal_minor":100000,"currency":"USD","deadline":"'"$deadline"'","tiers":[{"title":"Thanks","min_pledge_minor":500,"limit":null}]}')
 id=$(echo "$created" | sed -E 's/.*"campaign_id":"([^"]+)".*/\1/')
 curl -sf "$base/v1/campaigns/$id" | grep -q '"status":"DRAFT"'
 curl -sf -X POST "$base/v1/campaigns/$id/publish" -H "Authorization: Bearer $token" -H "Idempotency-Key: $(key)" >/dev/null

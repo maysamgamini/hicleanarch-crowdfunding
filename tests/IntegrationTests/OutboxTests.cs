@@ -120,7 +120,7 @@ public sealed class OutboxTests(Database database)
             title = "Harbor Lights",
             goal_minor = 5_000_000,
             currency = "USD",
-            deadline = "2030-01-01T00:00:00Z",
+            deadline = Scenario.Deadline,
             tiers = new[] { new { title = "Early Bird", min_pledge_minor = 4_900, limit = 500 } },
         }, Ct);
         var id = (await created.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("campaign_id").GetString()!;

@@ -15,6 +15,12 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    /// <summary>
+    /// The deadline every Scenario campaign has: 30 days from today, midnight UTC, inside the 60 days
+    /// a campaign may run from its publishing.
+    /// </summary>
+    public static readonly DateTimeOffset Deadline = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero).AddDays(30);
+
     public Guid CreatorId { get; } = Guid.NewGuid();
 
     public string OwnerConnection => database.Owner;
@@ -40,7 +46,7 @@ public sealed class Scenario(Database database, WebApplicationFactory<Program> h
             title = "Harbor Lights",
             goal_minor = goalMinor,
             currency = "USD",
-            deadline = "2030-01-01T00:00:00Z",
+            deadline = Deadline,
             tiers = tiers.Select(t => new { title = t.Title, min_pledge_minor = t.MinPledgeMinor, limit = t.Limit }).ToArray(),
         }, Ct);
         Assert.Equal(HttpStatusCode.Created, created.StatusCode);

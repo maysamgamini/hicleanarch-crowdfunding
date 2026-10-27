@@ -48,6 +48,23 @@ public class PublishRulesTests
         Assert.Contains(Draft(Now, EarlyBird).Publish(Now).Errors, e => e.Code == "deadline_not_in_future");
 
     [Fact]
+    public void A_deadline_exactly_60_days_after_publishing_is_accepted() =>
+        Assert.True(Draft(Now.AddDays(60), EarlyBird).Publish(Now).IsSuccess);
+
+    [Fact]
+    public void A_deadline_a_second_more_than_60_days_after_publishing_is_refused()
+    {
+        var campaign = Draft(Now.AddDays(60).AddSeconds(1), EarlyBird);
+
+        Assert.Equal("deadline_too_far", Assert.Single(campaign.Publish(Now).Errors).Code);
+        Assert.Equal(CampaignStatus.Draft, campaign.Status);
+    }
+
+    [Fact]
+    public void A_draft_may_wait_with_a_deadline_further_than_60_days() =>
+        Assert.True(Campaign.CreateDraft(Guid.NewGuid(), "Game", Money.Create(5_000_000, "USD").Value, Now.AddDays(365), [EarlyBird]).IsSuccess);
+
+    [Fact]
     public void A_campaign_without_tiers_is_refused() =>
         Assert.Contains(Draft(Now.AddDays(30)).Publish(Now).Errors, e => e.Code == "no_tiers");
 
