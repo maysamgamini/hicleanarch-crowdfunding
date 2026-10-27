@@ -1,9 +1,19 @@
+using System.Collections.Concurrent;
+using System.Data.Common;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 
+using BuildingBlocks.Infrastructure.Identity;
+
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.Extensions.DependencyInjection;
+
+using Pledges.Infrastructure.Persistence;
 
 using StackExchange.Redis;
 
@@ -58,12 +68,20 @@ public sealed class HotTierTests(Database database, Valkey valkey) : IClassFixtu
         var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));
         var backerId = Guid.NewGuid();
 
-        // Ten places are free, but the flag says otherwise: the answer comes from the flag alone.
+        // Ten places are free, but the flag says otherwise: the answer comes from the flag alone, and
+        // the request sends Pledges' database nothing, not even its idempotency key.
         await (await Valkey()).StringSetAsync(FlagKey(campaign.TierIds[0]), "1", TimeSpan.FromSeconds(30));
-        var refused = await given.Backer(backerId).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(4_900, campaign.TierIds[0]), Ct);
+        using var counted = _host.WithWebHostBuilder(web => web.ConfigureTestServices(services =>
+            services.ConfigureDbContext<PledgesDbContext>(db => db.AddInterceptors(new CommandsOfThisFlow()))));
+        counted.Server.PreserveExecutionContext = true; // the request runs in the test's flow, and sees its list
+        var sent = CommandsOfThisFlow.Start();
+        var refused = await Database.Client(counted, Database.Token(backerId, Roles.Backer))
+            .PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges", Scenario.Pledge(4_900, campaign.TierIds[0]), Ct);
+        CommandsOfThisFlow.Stop();
 
         Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
         Assert.Equal("tier_sold_out", await Reason(refused));
+        Assert.Empty(sent);
         Assert.Equal(0L, await given.Scalar<long>("SELECT (claimed + held)::bigint FROM pledges.tier_counters WHERE campaign_id = @id", campaign.CampaignId));
 
         // Without the flag, the row decides again.
@@ -98,5 +116,39 @@ public sealed class HotTierTests(Database database, Valkey valkey) : IClassFixtu
         await Task.Delay(400, Ct);
 
         Assert.Equal(HttpStatusCode.Created, (await Pledge(given, campaign)).StatusCode);
+    }
+
+    /// <summary>The SQL that Pledges' context sends from the flow that called <see cref="Start"/>; background work has its own flow.</summary>
+    private sealed class CommandsOfThisFlow : DbCommandInterceptor
+    {
+        private static readonly AsyncLocal<ConcurrentQueue<string>?> Sent = new();
+
+        public static ConcurrentQueue<string> Start() => Sent.Value = new ConcurrentQueue<string>();
+
+        public static void Stop() => Sent.Value = null;
+
+        public override InterceptionResult<DbDataReader> ReaderExecuting(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result) =>
+            base.ReaderExecuting(Seen(command), eventData, result);
+
+        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default) =>
+            base.ReaderExecutingAsync(Seen(command), eventData, result, cancellationToken);
+
+        public override InterceptionResult<int> NonQueryExecuting(DbCommand command, CommandEventData eventData, InterceptionResult<int> result) =>
+            base.NonQueryExecuting(Seen(command), eventData, result);
+
+        public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default) =>
+            base.NonQueryExecutingAsync(Seen(command), eventData, result, cancellationToken);
+
+        public override InterceptionResult<object> ScalarExecuting(DbCommand command, CommandEventData eventData, InterceptionResult<object> result) =>
+            base.ScalarExecuting(Seen(command), eventData, result);
+
+        public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<object> result, CancellationToken cancellationToken = default) =>
+            base.ScalarExecutingAsync(Seen(command), eventData, result, cancellationToken);
+
+        private static DbCommand Seen(DbCommand command)
+        {
+            Sent.Value?.Enqueue(command.CommandText);
+            return command;
+        }
     }
 }
