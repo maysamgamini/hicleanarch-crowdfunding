@@ -166,6 +166,26 @@ public sealed class CardSetupTests(Database database) : IDisposable
     }
 
     [Fact]
+    public async Task A_card_saved_after_the_hold_ran_out_does_not_activate_even_before_the_sweep()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish(5_000_000, ("Early Bird", 4_900, 10));
+        var (pledgeId, setupId, _) = await PledgeWithNewCard(given.Backer(Guid.NewGuid()), campaign);
+        // The hold has run out, and the sweeper has not been round yet: the pledge still says PENDING_SETUP.
+        await given.Execute("UPDATE pledges.pledges SET hold_expires_at = now() - interval '1 second' WHERE id = @id", pledgeId);
+
+        await Deliver(Psp.CompleteSetup(setupId));
+
+        await Scenario.Eventually(async () => await given.Scalar<long>("""
+            SELECT count(*) FROM payments.outbox o
+            JOIN pledges.inbox i ON i.event_id = o.id AND i.handler LIKE '%ActivatePledge'
+            WHERE o.type = 'PaymentMethodSaved' AND o.payload ->> 'pledgeId' = @id::text
+            """, pledgeId) == 1);
+        Assert.NotEqual("ACTIVE", await given.Scalar<string>("SELECT status FROM pledges.pledges WHERE id = @id", pledgeId));
+        Assert.Equal(0L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledge_ledger WHERE pledge_id = @id", pledgeId));
+    }
+
+    [Fact]
     public async Task A_card_saved_after_the_campaign_closed_does_not_count()
     {
         var given = new Scenario(database, _host);
