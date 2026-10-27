@@ -117,6 +117,66 @@ public sealed class NotificationTests(Database database) : IDisposable
         await Scenario.Eventually(() => Task.FromResult(SentTo(backer, "The campaign was not funded") == 1));
     }
 
+    /// <summary>Whether the backer is on the campaign's list: a live pledge of theirs, activated and neither cancelled nor released.</summary>
+    private async Task<bool> OnTheList(Guid campaignId, Guid backerId)
+    {
+        await using var owner = new Npgsql.NpgsqlConnection(database.Owner);
+        await owner.OpenAsync(Ct);
+        await using var read = new Npgsql.NpgsqlCommand("""
+            SELECT count(*) FROM notifications.campaign_pledges
+            WHERE campaign_id = @campaign AND backer_id = @backer
+              AND activated_at IS NOT NULL AND cancelled_at IS NULL AND released_at IS NULL
+            """, owner);
+        read.Parameters.AddWithValue("campaign", campaignId);
+        read.Parameters.AddWithValue("backer", backerId);
+        return (long)(await read.ExecuteScalarAsync(Ct))! > 0;
+    }
+
+    /// <summary>A backer cancels P1 and pledges again with P2: the cancel and the new activation arrive either way round.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_cancel_of_one_pledge_and_the_activation_of_the_next_keep_the_backer_whichever_comes_first(bool cancelFirst)
+    {
+        var (campaign, backer, first, second) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+        await Handle(Activated(first, campaign, backer));
+
+        if (cancelFirst)
+        {
+            await Handle(Cancelled(first, campaign, backer));
+            await Handle(Activated(second, campaign, backer));
+        }
+        else
+        {
+            await Handle(Activated(second, campaign, backer));
+            await Handle(Cancelled(first, campaign, backer));
+        }
+
+        Assert.True(await OnTheList(campaign, backer));
+    }
+
+    /// <summary>One pledge's activation and its cancel arrive either way round: the backer is off the list.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task A_pledge_activated_and_cancelled_leaves_the_list_whichever_arrives_first(bool cancelFirst)
+    {
+        var (campaign, backer, pledge) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        if (cancelFirst)
+        {
+            await Handle(Cancelled(pledge, campaign, backer));
+            await Handle(Activated(pledge, campaign, backer));
+        }
+        else
+        {
+            await Handle(Activated(pledge, campaign, backer));
+            await Handle(Cancelled(pledge, campaign, backer));
+        }
+
+        Assert.False(await OnTheList(campaign, backer));
+    }
+
     /// <summary>The activation of a pledge is retried and arrives after its cancel.</summary>
     [Fact]
     public async Task A_late_activation_does_not_bring_back_a_backer_who_cancelled()
