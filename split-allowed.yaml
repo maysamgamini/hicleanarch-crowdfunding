@@ -1,0 +1,41 @@
+# The Domain and Application changes allowed since s3-l16, read by scripts/split-diff.sh.
+#
+# The claim (s4-a02, Stage 4 design §4): after the Release 1 fixes in s3-l16, splitting a module out
+# changes hosts, Infrastructure adapters, BuildingBlocks, contracts wiring and Terraform, never a
+# module's Domain or Application code. CI diffs those layers from s3-l16, the last monolith tag, to
+# every push to main and every pull request that touches src/Modules; a change not covered here fails.
+#
+# Classes:
+#   permitted            the split needed it and no rule changed (wiring, a port a remote adapter
+#                        implements); names the ticket or lesson.
+#   boundary-correction  a module boundary drawn wrong in the monolith and corrected inside it before
+#                        the extraction; names the lesson that makes it, and the reason. These are the
+#                        places where the split forced a domain change, and the script counts them.
+#   release-1-fix        a Release 1 bug fix on the code track, a bug in one process already (Stage 4
+#                        §4); one entry per ticket, listing the files that ticket's commits changed.
+# Every commit that changes a listed file must name, in its subject, a ticket or lesson of an entry
+# that lists the file. The format is described in scripts/split-diff.sh.
+allowed:
+  # s4-l06: each module's Contracts project becomes a versioned package, so the Application projects
+  # and Notifications swap their project references to Contracts for package references. No code.
+  - class: permitted
+    id: s4-l06
+    change: modified
+    reason: Contracts as packages; the references to Contracts become package references
+    paths:
+      - src/Modules/Campaigns/Campaigns.Application/Campaigns.Application.csproj
+      - src/Modules/Payments/Payments.Application/Payments.Application.csproj
+      - src/Modules/Pledges/Pledges.Application/Pledges.Application.csproj
+      - src/Modules/Notifications/Notifications.csproj
+
+  # Release 1 fixes on the code track, one entry per ticket.
+  - class: release-1-fix
+    id: CQA-1771
+    change: modified
+    reason: the PSP port names its failure (PspUnavailableException); the adapter, not the use cases, handles HttpRequestException
+    paths:
+      - src/Modules/Payments/Payments.Application/IPaymentProvider.cs
+      - src/Modules/Payments/Payments.Application/BackerPayments.cs
+      - src/Modules/Payments/Payments.Application/Money.cs
+      - src/Modules/Payments/Payments.Application/Settlement.cs
+      - src/Modules/Payments/Payments.Application/StartCardSetup.cs

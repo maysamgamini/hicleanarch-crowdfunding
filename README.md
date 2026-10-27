@@ -61,6 +61,30 @@ docker compose --profile stack down -v        # remove it all, data included
 - `infra/env/`: the sandbox environment. Applied for a lesson or a test run, destroyed afterwards.
 - `infra/modules/`: OpenTofu modules used by `infra/env/`.
 - `scripts/replay.sh`: re-applies the lesson commits after an earlier lesson changes, and moves the tags.
+- `scripts/split-diff.sh <from> <to>`: lists every change to a module's Domain or Application code between two refs, and fails on any that `split-allowed.yaml` does not cover. CI runs it from `s3-l16`, the last monolith tag, on every push to main and every pull request that touches `src/Modules`. See [Checking the split](#checking-the-split).
+
+## Checking the split
+
+The course claims that a module can leave the monolith without changing its Domain or Application code. `scripts/split-diff.sh` checks that claim on the diff from `s3-l16`. Each changed file falls into one class:
+
+- `permitted`: the split needed the change and no rule changed, such as a project reference.
+- `boundary-correction`: a module boundary drawn wrong in the monolith, corrected inside it before the extraction. These are the only places where the split forced a domain change. The script counts them and prints each lesson and reason.
+- `release-1-fix`: a Release 1 bug fix. The bug existed in one process already.
+- `forbidden`: anything else. The check fails.
+
+Release 1 fixes keep landing after `s3-l16`. There were two ways to keep them out of the count:
+
+- Derive a new baseline from `s3-l16` plus every commit whose subject starts `fix:` and names an early CQA ticket.
+- List each fix in `split-allowed.yaml`, one entry per ticket, with the files that ticket's commits changed.
+
+The check uses the second way, because it is simpler and harder to abuse:
+
+- **A derived baseline trusts a commit message.** Any commit titled `fix: CQA-123: …` would take its Domain changes out of the check, with nobody reviewing the list. A ticket-number cut-off says nothing about whether the split drove the change.
+- **A derived baseline is fragile.** Building one means replaying those commits onto `s3-l16` apart from the rest, which breaks whenever a fix and a lesson touch the same lines.
+- **An entry is one reviewed line** that names its class, its ticket and its reason.
+- **An entry covers only its own work.** Every commit in the range that touched a listed file must name the entry's ticket or lesson in its subject. So an entry written for `CQA-210` does not cover a later Stage 4 commit to the same file.
+
+`scripts/split-diff.test.sh` tests each class and each refusal on a throwaway repository.
 
 ## Requirements
 

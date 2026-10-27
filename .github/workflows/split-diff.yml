@@ -1,0 +1,36 @@
+name: split-diff
+
+# The course's claim, checked on every change to a module: since s3-l16, the last monolith tag, the
+# splits have changed no module's Domain or Application code except what split-allowed.yaml lists,
+# each change with its class, its ticket or lesson and a reason (scripts/split-diff.sh). Work is
+# pushed to main, so the check runs on those pushes as well as on pull requests.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/Modules/**"
+      - "split-allowed.yaml"
+      - "scripts/split-diff*.sh"
+      - ".github/workflows/split-diff.yml"
+  pull_request:
+    paths:
+      - "src/Modules/**"
+      - "split-allowed.yaml"
+      - "scripts/split-diff*.sh"
+      - ".github/workflows/split-diff.yml"
+
+# Read the code, nothing else: the default token may be read-write.
+permissions:
+  contents: read
+
+jobs:
+  split-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # the whole history and its tags: the diff starts at s3-l16
+      - name: The script's own tests
+        run: scripts/split-diff.test.sh
+      - name: Domain and Application since the last monolith tag
+        run: scripts/split-diff.sh --layers s3-l16 HEAD
