@@ -17,4 +17,7 @@ public interface ICampaignRepository
 
     /// <summary>Moves the status people see from <paramref name="from"/> to <paramref name="to"/>, only if it is still there.</summary>
     Task<bool> TryMove(CampaignId id, CampaignStatus from, CampaignStatus to, CancellationToken cancellationToken);
+
+    /// <summary>Moves the status people see to <paramref name="to"/> from any of <paramref name="from"/>, in one conditional update.</summary>
+    Task<bool> TryMove(CampaignId id, IReadOnlyCollection<CampaignStatus> from, CampaignStatus to, CancellationToken cancellationToken);
 }

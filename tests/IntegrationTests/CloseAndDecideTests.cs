@@ -58,7 +58,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
     }
 
     [Fact]
-    public async Task A_campaign_short_of_its_goal_is_unsuccessful_and_charges_nobody()
+    public async Task A_campaign_short_of_its_goal_is_unsuccessful_releases_its_pledges_and_charges_nobody()
     {
         var given = new Scenario(database, _host);
         var campaign = await given.Publish(50_000);
@@ -70,7 +70,7 @@ public sealed class CloseAndDecideTests(Database database) : IDisposable
         Assert.Equal("UNSUCCESSFUL", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledges WHERE campaign_id = @id AND status = 'RELEASED'", campaign.CampaignId));
         Assert.Equal(0L, await given.Scalar<long>("SELECT count(*) FROM pledges.outbox WHERE type = 'PledgeChargeRequested' AND payload::jsonb ->> 'campaignId' = @id::text", campaign.CampaignId));
-        await Scenario.Eventually(async () => await Shown(campaign) == "UNSUCCESSFUL");
+        await Scenario.Eventually(async () => await Shown(campaign) == "RELEASED");
     }
 
     [Fact]

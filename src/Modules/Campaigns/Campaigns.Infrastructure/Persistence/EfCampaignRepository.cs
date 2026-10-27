@@ -31,4 +31,9 @@ internal sealed class EfCampaignRepository(CampaignsDbContext db) : ICampaignRep
         await db.Campaigns
             .Where(c => c.Id == id && c.Status == from)
             .ExecuteUpdateAsync(set => set.SetProperty(c => c.Status, to), cancellationToken) == 1;
+
+    public async Task<bool> TryMove(CampaignId id, IReadOnlyCollection<CampaignStatus> from, CampaignStatus to, CancellationToken cancellationToken) =>
+        await db.Campaigns
+            .Where(c => c.Id == id && from.Contains(c.Status))
+            .ExecuteUpdateAsync(set => set.SetProperty(c => c.Status, to), cancellationToken) == 1;
 }
