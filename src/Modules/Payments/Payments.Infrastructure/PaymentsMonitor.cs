@@ -11,6 +11,7 @@ namespace Payments.Infrastructure;
 /// <summary>
 /// Payments' failure mode, as a number: a charge stuck in CHARGING, its attempt IN_FLIGHT for more
 /// than 10 minutes. The resolver should have settled it; the PSP may be down, or no worker running.
+/// A payment that waits for the backer's confirmation is not stuck: it waits up to the window's end.
 /// And two rules of lesson s1-a02 as queries that must return 0: a pledge is charged at most once,
 /// and only a funded campaign's pledges are charged (a settlement job exists only after a FUNDED decision).
 /// </summary>
@@ -31,7 +32,7 @@ internal sealed partial class PaymentsMonitor(IServiceScopeFactory scopes, ILogg
         StuckCharging.Set(await db.Database.SqlQuery<int>($"""
             SELECT count(*)::int AS "Value" FROM payments.charges c
             JOIN payments.charge_attempts a ON a.pledge_id = c.pledge_id AND a.attempt_no = c.attempt_no
-            WHERE c.status = 'CHARGING' AND a.status = 'IN_FLIGHT' AND a.created_at < now() - interval '10 minutes'
+            WHERE c.status = 'CHARGING' AND a.status = 'IN_FLIGHT' AND NOT a.on_session AND a.created_at < now() - interval '10 minutes'
             """).SingleAsync(cancellationToken));
         DoubleCharges.Set(await db.Database.SqlQuery<int>($"""
             SELECT count(*)::int AS "Value" FROM (

@@ -86,7 +86,9 @@ public sealed class SettlementTests(Database database) : IDisposable
 
         Assert.Equal(1L, await Count(given, campaign, "CHARGING"));
         Assert.Equal("IN_FLIGHT", await given.Scalar<string>("SELECT a.status FROM payments.charge_attempts a JOIN payments.charges c USING (pledge_id) WHERE c.campaign_id = @id", campaign.CampaignId));
+        Assert.True(await given.Scalar<bool>("SELECT next_attempt_at > now() FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId)); // asked about after the back-off
 
+        await given.Execute("UPDATE payments.charges SET next_attempt_at = now() WHERE campaign_id = @id", campaign.CampaignId); // the back-off has passed
         await Settle(campaign);
 
         Assert.Equal(1L, await Count(given, campaign, "CHARGED"));
@@ -100,17 +102,17 @@ public sealed class SettlementTests(Database database) : IDisposable
         var (given, campaign) = await Funded(FakePaymentProvider.CardSucceeds, FakePaymentProvider.CardSucceeds);
         var before = Psp.ChargesMade;
 
-        // Worker A claimed the job, started attempt 1 of one pledge and died before calling the PSP;
+        // Worker A claimed both charges, started attempt 1 of one pledge and died before calling the PSP;
         // for the other, it called the PSP and died before recording the answer.
-        await given.Execute("UPDATE payments.settlement_jobs SET status = 'RUNNING', lease_owner = 'dead-worker', lease_until = now() + interval '1 minute' WHERE campaign_id = @id", campaign.CampaignId);
+        await given.Execute("UPDATE payments.charges SET claimed_by = 'dead-worker', claimed_until = now() + interval '1 minute' WHERE campaign_id = @id", campaign.CampaignId);
         var pledges = await PledgesOf(given, campaign);
         await StartAttemptBehindTheWorkersBack(given, pledges[0]);
         await StartAttemptBehindTheWorkersBack(given, pledges[1]);
         await Psp.Charge(new ChargeRequest($"cus_unknown", FakePaymentProvider.CardSucceeds, 6_000, "USD", BuildingBlocks.Domain.PublicId.Format("plg", pledges[1]), 1),
             $"{BuildingBlocks.Domain.PublicId.Format("plg", pledges[1])}:charge:1", Ct);
 
-        Assert.False(await Settle(campaign, "worker-b")); // A's lease still holds: B skips the job
-        await given.Execute("UPDATE payments.settlement_jobs SET lease_until = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
+        Assert.False(await Settle(campaign, "worker-b")); // A's leases still hold: B finds nothing to claim
+        await given.Execute("UPDATE payments.charges SET claimed_until = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
         Assert.True(await Settle(campaign, "worker-b"));
 
         Assert.Equal(2L, await Count(given, campaign, "CHARGED"));
@@ -208,12 +210,13 @@ public sealed class SettlementTests(Database database) : IDisposable
     }
 
     [Fact]
-    public async Task A_stopping_worker_gives_its_job_back_at_once()
+    public async Task A_stopping_worker_gives_its_charges_back_at_once()
     {
         var (given, campaign) = await Funded(FakePaymentProvider.CardSucceeds);
         var worker = _host.Services.GetRequiredService<SettlementWorker>();
+        await given.Execute("UPDATE payments.settlement_jobs SET status = 'RUNNING' WHERE campaign_id = @id", campaign.CampaignId);
         await given.Execute(
-            $"UPDATE payments.settlement_jobs SET status = 'RUNNING', lease_owner = '{worker.WorkerName}', lease_until = now() + interval '1 minute' WHERE campaign_id = @id",
+            $"UPDATE payments.charges SET claimed_by = '{worker.WorkerName}', claimed_until = now() + interval '1 minute' WHERE campaign_id = @id",
             campaign.CampaignId);
 
         await worker.Stop(Ct);
@@ -222,7 +225,6 @@ public sealed class SettlementTests(Database database) : IDisposable
         Assert.True(await Settle(campaign, "another-task")); // no wait for the lease
         Assert.Equal(1L, await Count(given, campaign, "CHARGED"));
     }
-
     private Task<HttpResponseMessage> Deliver(SignedWebhook webhook)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, "/v1/webhooks/psp") { Content = new StringContent(webhook.Body, System.Text.Encoding.UTF8, "application/json") };

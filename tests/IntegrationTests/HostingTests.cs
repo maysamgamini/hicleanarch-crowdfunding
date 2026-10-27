@@ -113,6 +113,7 @@ public sealed class HostingTests(Database database, Valkey valkey) : IClassFixtu
     [InlineData("Payments:WebhookSecret", "too-short", "WebhookSecret")]
     [InlineData("Pledges:MarkBatchSize", "0", "MarkBatchSize")]
     [InlineData("Payments:Dunning:MaxAttempts", "0", "Dunning")]
+    [InlineData("Payments:Settlement:CallsInFlight", "0", "CallsInFlight")]
     [InlineData("Outbox:MaxConcurrentDeliveries", "0", "MaxConcurrentDeliveries")]
     public void A_wrong_setting_stops_the_program_at_start_not_at_first_use(string key, string value, string named)
     {

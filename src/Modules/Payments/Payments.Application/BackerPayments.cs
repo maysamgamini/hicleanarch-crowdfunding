@@ -42,11 +42,13 @@ public sealed class UseNewCardHandler(ISettlements settlements, TimeProvider clo
 }
 
 /// <summary>
-/// Starts the next attempt as a payment the backer confirms in the browser. The attempt is recorded
-/// before the PSP is called, as every attempt is; its result arrives as the PSP's webhook, and the
-/// resolver cancels it if the window ends first.
+/// Starts the next attempt as a payment the backer confirms in the browser. The attempt is committed
+/// before the PSP is called, as every attempt is, so the endpoint runs this before its Idempotency-Key
+/// transaction and stores only the reply. Its result arrives as the PSP's webhook; nobody looks it up
+/// before the window ends, when the resolver cancels it if it is still waiting. A retry while the
+/// attempt waits sends the same key again, and the PSP answers with the same payment.
 /// </summary>
-public sealed class ConfirmPaymentHandler(ISettlements settlements, IPaymentProvider psp) : ICommandHandler<ConfirmPayment, PaymentToConfirm>
+public sealed class ConfirmPaymentHandler(ISettlements settlements, IPaymentProvider psp, DunningPolicy dunning, TimeProvider clock) : ICommandHandler<ConfirmPayment, PaymentToConfirm>
 {
     public async Task<Result<PaymentToConfirm>> Handle(ConfirmPayment command, CancellationToken cancellationToken)
     {
@@ -56,13 +58,22 @@ public sealed class ConfirmPaymentHandler(ISettlements settlements, IPaymentProv
             return Result.Failure<PaymentToConfirm>(PaymentErrors.ChargeNotFound);
         }
 
-        if (charge.Status != ChargeStatus.PaymentFailed || DunningPolicy.Classify(charge.LastDeclineCode ?? "", charge.LastAdviceCode) != DeclineKind.AuthenticationRequired)
+        int n;
+        if (charge.Status == ChargeStatus.Charging && charge.OnSession)
         {
-            return Result.Failure<PaymentToConfirm>(PaymentErrors.NotAwaitingBacker);
+            n = charge.AttemptNo;
         }
+        else if (charge.Status == ChargeStatus.PaymentFailed && DunningPolicy.Classify(charge.LastDeclineCode ?? "", charge.LastAdviceCode) == DeclineKind.AuthenticationRequired)
+        {
+            var windowEnds = (charge.PaymentFailedAt ?? clock.GetUtcNow()) + dunning.Window;
+            if (await settlements.TryStartAttempt(charge.PledgeId, charge.PledgePublicId, onSession: true, lookUpAt: windowEnds, cancellationToken) is not { } started)
+            {
+                return Result.Failure<PaymentToConfirm>(PaymentErrors.NotAwaitingBacker);
+            }
 
-        var attemptNo = await settlements.TryStartAttempt(charge.PledgeId, charge.PledgePublicId, onSession: true, cancellationToken);
-        if (attemptNo is not { } n)
+            n = started;
+        }
+        else
         {
             return Result.Failure<PaymentToConfirm>(PaymentErrors.NotAwaitingBacker);
         }

@@ -67,6 +67,14 @@ public sealed class Charge
     /// <summary>The PSP's advice on trying the latest declined attempt again, when it gave one.</summary>
     public string? LastAdviceCode { get; private set; }
 
+    /// <summary>
+    /// The settlement worker that holds the charge for its batch, until <see cref="ClaimedUntil"/>.
+    /// Workers share a campaign by claiming its charges, not its job, so no other worker takes them meanwhile.
+    /// </summary>
+    public string? ClaimedBy { get; private set; }
+
+    public DateTimeOffset? ClaimedUntil { get; private set; }
+
     public DateTimeOffset CreatedAt { get; private set; }
 
     public static Charge For(Guid pledgeId, Guid campaignId, Guid backerId, long amountMinor, string currency, string paymentMethodRef) => new()
@@ -134,18 +142,28 @@ public sealed class SettlementJob
     /// <summary>How many charges the decision asked for; the job is done when all of them have ended.</summary>
     public int ExpectedCharges { get; private set; }
 
+    /// <summary>
+    /// The job's own lease before s3-l16, when one worker held a whole campaign. No longer written;
+    /// the columns stay until no task runs the older code, then a later migration drops them.
+    /// </summary>
     public string? LeaseOwner { get; private set; }
 
     public DateTimeOffset? LeaseUntil { get; private set; }
 
-    /// <summary>When a worker last gave the job back after a batch: the job that waited longest goes next.</summary>
+    /// <summary>When a worker last took a turn at the job: the job that waited longest goes next.</summary>
     public DateTimeOffset? LastTurnAt { get; private set; }
 
     /// <summary>
-    /// No worker claims the job before this: set when a pass gives it back with nothing it can do
-    /// yet, or after the PSP failed, so a waiting campaign never keeps the workers from the next one.
+    /// No worker takes a turn before this: set when a pass ends with nothing anyone can do yet, so a
+    /// waiting campaign never keeps the workers from the next one.
     /// </summary>
     public DateTimeOffset? NotBefore { get; private set; }
+
+    /// <summary>
+    /// After the PSP could not be reached, or the circuit was open: no turn before this. Kept apart
+    /// from <see cref="NotBefore"/>, so another worker's pass ending at the same time cannot undo the pause.
+    /// </summary>
+    public DateTimeOffset? PausedUntil { get; private set; }
 
     public DateTimeOffset CreatedAt { get; private set; }
 }

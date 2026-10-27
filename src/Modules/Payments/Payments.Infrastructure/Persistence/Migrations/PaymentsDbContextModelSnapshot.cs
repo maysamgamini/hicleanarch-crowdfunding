@@ -213,6 +213,15 @@ namespace Payments.Infrastructure.Persistence.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("campaign_id");
 
+                    b.Property<string>("ClaimedBy")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("claimed_by");
+
+                    b.Property<DateTimeOffset?>("ClaimedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("claimed_until");
+
                     b.Property<DateTimeOffset>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -269,7 +278,7 @@ namespace Payments.Infrastructure.Persistence.Migrations
                     b.HasKey("PledgeId")
                         .HasName("pk_charges");
 
-                    b.HasIndex("CampaignId")
+                    b.HasIndex("CampaignId", "CreatedAt")
                         .HasDatabaseName("charges_open")
                         .HasFilter("status IN ('TO_CHARGE', 'CHARGING', 'PAYMENT_FAILED')");
 
@@ -459,6 +468,10 @@ namespace Payments.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset?>("NotBefore")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("not_before");
+
+                    b.Property<DateTimeOffset?>("PausedUntil")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("paused_until");
 
                     b.Property<string>("Status")
                         .IsRequired()

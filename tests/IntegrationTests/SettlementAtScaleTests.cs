@@ -185,7 +185,11 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
 
         psp.Unreachable(false);
         await Task.Delay(TimeSpan.FromMilliseconds(600), Ct);
-        await Send<RunSettlement, bool>(host, new RunSettlement("breaker", campaign.CampaignId));
+        // Half-open, one trial call goes through and closes the circuit; the charges it refused meanwhile go on the next turn.
+        for (var pass = 0; pass < 5 && await Charged(given, campaign) < 2; pass++)
+        {
+            Assert.True(await Send<RunSettlement, bool>(host, new RunSettlement("breaker", campaign.CampaignId)));
+        }
 
         Assert.Equal(2L, await Charged(given, campaign));
         Assert.False(host.Services.GetRequiredService<CircuitBreaker>().IsOpen);
@@ -246,5 +250,69 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
 
         Assert.Equal(given.CreatorId, await given.Scalar<Guid>("SELECT creator_id FROM payments.campaign_payees WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(HttpStatusCode.OK, (await given.Creator().GetAsync(url, Ct)).StatusCode);
+    }
+
+    /// <summary>Passes of one worker at one campaign until its job is done, as a task's worker would make them.</summary>
+    private static async Task<int> WorkUntilDone(WebApplicationFactory<Program> host, Scenario given, string worker, Guid? campaignId = null, IReadOnlyCollection<Guid>? among = null)
+    {
+        var worked = 0;
+        var until = DateTimeOffset.UtcNow.AddSeconds(90);
+        while (DateTimeOffset.UtcNow < until && await OpenOf(given, campaignId, among) > 0)
+        {
+            if (await Send<RunSettlement, bool>(host, new RunSettlement(worker, campaignId, among)))
+            {
+                worked++;
+            }
+            else
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(50), Ct);
+            }
+        }
+
+        return worked;
+    }
+
+    private static async Task<long> OpenOf(Scenario given, Guid? campaignId, IReadOnlyCollection<Guid>? among)
+    {
+        var open = 0L;
+        foreach (var id in campaignId is { } one ? [one] : among ?? [])
+        {
+            open += await given.Scalar<long>("SELECT count(*) FROM payments.settlement_jobs WHERE campaign_id = @id AND status <> 'DONE'", id);
+        }
+
+        return open;
+    }
+
+    [Fact]
+    public async Task Two_workers_share_one_campaign_and_charge_at_the_budgets_rate_not_at_one_workers_latency()
+    {
+        const int pledges = 60, perSecond = 20, inFlightPerWorker = 10;
+        var latency = TimeSpan.FromMilliseconds(500); // the loop's own figure for a PSP call
+        await using var host = Host(("Payments:Budget:ChargesPerSecond", $"{perSecond}"), ("Payments:Settlement:BatchSize", "15"),
+            ("Payments:Settlement:CallsInFlight", $"{inFlightPerWorker}"), ("Pledges:MarkBatchSize", "100"));
+        var (given, campaign) = await Funded(host, pledges);
+        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        psp.TakesToAnswer(latency);
+        var started = DateTimeOffset.UtcNow;
+
+        var both = await Task.WhenAll(
+            Task.Run(() => WorkUntilDone(host, given, "share-1", campaign.CampaignId), Ct),
+            Task.Run(() => WorkUntilDone(host, given, "share-2", campaign.CampaignId), Ct));
+
+        Assert.Equal((long)pledges, await Charged(given, campaign));
+        var charges = psp.Calls.Where(c => c.Call == "charge" && c.At >= started).Select(c => c.At).Order().ToList();
+        Assert.Equal(pledges, charges.Count); // each pledge once, whichever worker had it
+        Assert.All(both, worked => Assert.True(worked > 0));
+        // Both workers had calls in flight at the same campaign at once: more than one worker's own cap.
+        Assert.True(psp.MostInFlight > inFlightPerWorker, $"at most {psp.MostInFlight} in flight");
+        // The budget holds: a full bucket's second's worth, then its rate.
+        Assert.All(charges, at => Assert.InRange(charges.Count(c => c >= at && c < at.AddSeconds(1)), 1, 2 * perSecond));
+        // Beyond the full bucket's second's worth, the charges came at the bucket's rate. One worker
+        // charging one call at a time would manage 1 / 0.5 s = 2 a second, whatever the budget allows.
+        var elapsed = (charges[^1] - charges[0]).TotalSeconds;
+        var rate = (pledges - perSecond) / elapsed;
+        TestContext.Current.TestOutputHelper?.WriteLine(
+            $"charged={pledges} elapsed={elapsed:F2}s rate={rate:F1}/s budget={perSecond}/s mostInFlight={psp.MostInFlight} passes={both[0]}+{both[1]}");
+        Assert.InRange(rate, 0.6 * perSecond, 1.2 * perSecond);
     }
 }

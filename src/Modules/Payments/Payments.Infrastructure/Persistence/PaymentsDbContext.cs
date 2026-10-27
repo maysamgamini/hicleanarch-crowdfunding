@@ -76,7 +76,9 @@ internal sealed class PaymentsDbContext(DbContextOptions<PaymentsDbContext> opti
             charge.Property(c => c.CreatedAt).HasDefaultValueSql("now()");
             charge.Property(c => c.LastDeclineCode).HasMaxLength(100);
             charge.Property(c => c.LastAdviceCode).HasMaxLength(100);
-            charge.HasIndex(c => c.CampaignId).HasFilter("status IN ('TO_CHARGE', 'CHARGING', 'PAYMENT_FAILED')").HasDatabaseName("charges_open");
+            charge.Property(c => c.ClaimedBy).HasMaxLength(100);
+            // Workers claim a campaign's open charges oldest first, in batches (lesson s3-a04).
+            charge.HasIndex(c => new { c.CampaignId, c.CreatedAt }).HasFilter("status IN ('TO_CHARGE', 'CHARGING', 'PAYMENT_FAILED')").HasDatabaseName("charges_open");
         });
 
         modelBuilder.Entity<ChargeAttempt>(attempt =>

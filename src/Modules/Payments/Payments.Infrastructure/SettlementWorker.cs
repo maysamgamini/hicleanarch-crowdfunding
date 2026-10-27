@@ -11,11 +11,12 @@ using Payments.Application;
 namespace Payments.Infrastructure;
 
 /// <summary>
-/// On every task, a worker with a name of its own claims settlement jobs one at a time. It keeps
-/// claiming while there is work; when there is none it waits for the next poll. When the task is
-/// told to stop, the worker ends its pass and gives its job back, so another task's worker carries
-/// on at once instead of waiting for the lease to run out. A task that dies without warning only
-/// makes the others wait for the lease.
+/// On every task, a worker with a name of its own takes turns at settlement jobs, one pass at a
+/// time, each pass a batch of charges with calls in flight; workers on other tasks share the same
+/// campaign by claiming other charges. It keeps going while there is work; when there is none it
+/// waits for the next poll. When the task is told to stop, the worker ends its pass and gives its
+/// charges back, so another task's worker carries on at once instead of waiting for the leases to
+/// run out. A task that dies without warning only makes the others wait for the leases.
 /// </summary>
 internal sealed partial class SettlementWorker(IServiceScopeFactory scopes, IOptions<SettlementOptions> options, ILogger<SettlementWorker> logger)
     : BackgroundService, IStopParticipant
@@ -65,7 +66,7 @@ internal sealed partial class SettlementWorker(IServiceScopeFactory scopes, IOpt
         }
     }
 
-    /// <summary>Ends the pass in progress, then gives back any job this worker still holds.</summary>
+    /// <summary>Ends the pass in progress, then gives back any charge this worker still holds.</summary>
     public async Task Stop(CancellationToken cancellationToken)
     {
         await _stopping.CancelAsync();

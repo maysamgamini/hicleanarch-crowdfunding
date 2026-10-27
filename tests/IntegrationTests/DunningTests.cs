@@ -5,6 +5,7 @@ using System.Text.Json;
 
 using BuildingBlocks.Application;
 
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 
 using Payments.Application;
@@ -163,6 +164,11 @@ public sealed class DunningTests(Database database) : IDisposable
         Assert.Equal("CHARGED", await ChargeStatus(given, campaign));
         Assert.Equal(before + 1, Psp.ChargesMade);
         await Scenario.Eventually(async () => await PledgeStatus(given, campaign) == "CHARGED");
+
+        // The job had nothing to do before the window's end; the webhook makes its next turn due now, and that turn finishes it.
+        Assert.True(await given.Scalar<bool>("SELECT not_before IS NULL OR not_before <= now() FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.True(await Send<RunSettlement, bool>(new RunSettlement("dunning", Among: [campaign.CampaignId])));
+        Assert.Equal("DONE", await given.Scalar<string>("SELECT status FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId));
     }
 
     [Fact]
@@ -171,7 +177,8 @@ public sealed class DunningTests(Database database) : IDisposable
         var (given, campaign, backerId, pledgeId) = await FailedOnce(FakePaymentProvider.CardNeedsAuthentication);
         (await given.Backer(backerId).PostAsync($"/v1/pledges/{pledgeId}/confirm-payment", null, Ct)).EnsureSuccessStatusCode();
 
-        await given.Execute("UPDATE payments.charges SET payment_failed_at = now() - interval '8 days' WHERE campaign_id = @id", campaign.CampaignId);
+        // The window ended: the payment's one look-up is due.
+        await given.Execute("UPDATE payments.charges SET payment_failed_at = now() - interval '8 days', next_attempt_at = now() - interval '1 day' WHERE campaign_id = @id", campaign.CampaignId);
         await Settle(campaign);
 
         Assert.Equal("DROPPED", await ChargeStatus(given, campaign));
@@ -189,5 +196,76 @@ public sealed class DunningTests(Database database) : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, someoneElse.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, notAsked.StatusCode);
         Assert.Equal("charge_not_awaiting_backer", (await notAsked.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
+    }
+
+    [Fact]
+    public async Task A_confirmation_waiting_for_the_backer_neither_blocks_a_due_retry_nor_is_looked_up_on_every_pass()
+    {
+        // One charge per turn, so a waiting confirmation taken first would leave the retry behind.
+        await using var host = database.StartHost().WithWebHostBuilder(web => web.UseSetting("Payments:Settlement:BatchSize", "1"));
+        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        var given = new Scenario(database, host);
+        var campaign = await given.Publish(1_000);
+        var confirming = Guid.NewGuid();
+        async Task<string> Place(Guid backer, string card) =>
+            (await (await given.Backer(backer).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges",
+                new { amount_minor = 6_000, tier_id = (string?)null, payment_method_id = card }, Ct)).Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("pledge_id").GetString()!;
+        var waitingPledge = await Place(confirming, FakePaymentProvider.CardNeedsAuthentication);
+        await Place(Guid.NewGuid(), FakePaymentProvider.CardDeclined);
+        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<CloseDueCampaigns, int>(new CloseDueCampaigns(campaign.CampaignId), Ct);
+        }
+
+        async Task Settle()
+        {
+            await using var scope = host.Services.CreateAsyncScope();
+            await scope.ServiceProvider.GetRequiredService<IDispatcher>().Send<RunSettlement, bool>(new RunSettlement("waiting", campaign.CampaignId), Ct);
+        }
+
+        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId) == 2);
+        for (var i = 0; i < 10 && await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id AND status = 'PAYMENT_FAILED'", campaign.CampaignId) < 2; i++)
+        {
+            await Settle();
+        }
+
+        (await given.Backer(confirming).PostAsync($"/v1/pledges/{waitingPledge}/confirm-payment", null, Ct)).EnsureSuccessStatusCode();
+        // The declined card's next retry is due now; the confirmation waits for the backer.
+        await given.Execute("UPDATE payments.charges SET next_attempt_at = now() - interval '1 second' WHERE campaign_id = @id AND status = 'PAYMENT_FAILED'", campaign.CampaignId);
+        var lookUps = psp.Calls.Count(c => c.Call == "lookup");
+
+        for (var i = 0; i < 5; i++)
+        {
+            await Settle();
+        }
+
+        Assert.Equal(2, await given.Scalar<int>("SELECT attempt_no FROM payments.charges WHERE campaign_id = @id AND last_decline_code = 'insufficient_funds'", campaign.CampaignId));
+        Assert.Equal(lookUps, psp.Calls.Count(c => c.Call == "lookup")); // nobody asked the PSP about the waiting payment
+        Assert.True(await given.Scalar<bool>(
+            "SELECT next_attempt_at >= payment_failed_at + interval '7 days' FROM payments.charges WHERE campaign_id = @id AND status = 'CHARGING'", campaign.CampaignId)); // looked up at the window's end
+    }
+
+    [Fact]
+    public async Task A_confirmation_is_committed_before_the_PSP_is_asked_for_the_payment()
+    {
+        var (given, campaign, backerId, pledgeId) = await FailedOnce(FakePaymentProvider.CardNeedsAuthentication);
+        Psp.TakesToAnswer(TimeSpan.FromSeconds(2));
+        try
+        {
+            var confirming = given.Backer(backerId).PostAsync($"/v1/pledges/{pledgeId}/confirm-payment", null, Ct);
+            await Scenario.Eventually(() => Task.FromResult(Psp.InFlight > 0));
+
+            // While the PSP is still answering, the attempt can already be seen by anyone else: it is committed.
+            Assert.Equal(1L, await given.Scalar<long>("""
+                SELECT count(*) FROM payments.charge_attempts a JOIN payments.charges c ON c.pledge_id = a.pledge_id AND c.attempt_no = a.attempt_no
+                WHERE c.campaign_id = @id AND c.status = 'CHARGING' AND a.status = 'IN_FLIGHT' AND a.on_session
+                """, campaign.CampaignId));
+            Assert.Equal(HttpStatusCode.OK, (await confirming).StatusCode);
+        }
+        finally
+        {
+            Psp.TakesToAnswer(TimeSpan.Zero);
+        }
     }
 }

@@ -48,35 +48,54 @@ public interface ISettlements
     Task CreateJob(Guid campaignId, int expectedCharges, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Claims one job nobody holds, or whose lease ran out: <c>FOR UPDATE SKIP LOCKED</c>, skipping jobs
-    /// whose <c>not_before</c> is still ahead, the job whose last turn was longest ago first, so
-    /// campaigns take turns. With <paramref name="campaignId"/>, only that campaign's job, whatever its
-    /// <c>not_before</c>. Null: nothing to do.
+    /// Takes a turn at one job that is not done: <c>FOR UPDATE SKIP LOCKED</c>, skipping jobs whose
+    /// <c>not_before</c> or pause is still ahead, the job whose last turn was longest ago first, so
+    /// campaigns take turns. A turn is not exclusive: several workers can be at one campaign at once,
+    /// each with charges of its own. With <paramref name="campaignId"/>, only that campaign's job,
+    /// whatever its <c>not_before</c>. Null: nothing to do.
     /// </summary>
-    Task<Guid?> Claim(string worker, TimeSpan lease, Guid? campaignId, IReadOnlyCollection<Guid>? among, CancellationToken cancellationToken);
-
-    /// <summary>Extends this worker's lease. False: the lease was lost to another worker.</summary>
-    Task<bool> Renew(Guid campaignId, string worker, TimeSpan lease, CancellationToken cancellationToken);
+    Task<Guid?> TakeTurn(Guid? campaignId, IReadOnlyCollection<Guid>? among, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Gives the job back for a later turn, if this worker still holds it, and records when its turn
-    /// ended. If none of its charges can be worked now, no worker claims it again before the earliest
-    /// retry is due, or before <paramref name="unknownBackoff"/> when it waits on an unknown attempt or
-    /// on charges still to be created; and never before <paramref name="pause"/> has passed.
+    /// Claims for this worker the next batch of the campaign's charges that need work now, at most
+    /// <paramref name="batchSize"/>, oldest first: TO_CHARGE and PAYMENT_FAILED ones whose attempt is
+    /// due, and CHARGING ones whose look-up is due. <c>FOR UPDATE SKIP LOCKED</c> and a lease on each
+    /// charge, so workers at the same campaign never get the same charge.
+    /// </summary>
+    Task<IReadOnlyList<ChargeWork>> ClaimCharges(Guid campaignId, string worker, TimeSpan lease, int batchSize, CancellationToken cancellationToken);
+
+    /// <summary>Extends this worker's lease on one charge. False: the charge was taken over by another worker.</summary>
+    Task<bool> Renew(Guid pledgeId, string worker, TimeSpan lease, CancellationToken cancellationToken);
+
+    /// <summary>Extends this worker's lease on every charge of the campaign it still holds, while a long batch waits for its turn at the budget.</summary>
+    Task RenewAll(Guid campaignId, string worker, TimeSpan lease, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Gives back the charges this worker holds for the campaign, and sets when the job is next worth
+    /// a turn: now if a charge is due, else the earliest time one is (its next attempt, its next
+    /// look-up, or the end of another worker's lease), or <paramref name="unknownBackoff"/> while charges
+    /// are still to be created. With <paramref name="pause"/>, no turn before it has passed.
     /// </summary>
     Task Release(Guid campaignId, string worker, TimeSpan unknownBackoff, TimeSpan pause, CancellationToken cancellationToken);
 
-    /// <summary>Gives back every job this worker holds, at once: the worker is stopping.</summary>
+    /// <summary>Gives back every charge this worker holds, at once: the worker is stopping.</summary>
     Task ReleaseAll(string worker, CancellationToken cancellationToken);
 
-    /// <summary>RUNNING to DONE, if this worker still holds it. False: it does not.</summary>
-    Task<bool> TryFinish(Guid campaignId, string worker, CancellationToken cancellationToken);
+    /// <summary>To DONE, once. False: another worker finished it first.</summary>
+    Task<bool> TryFinish(Guid campaignId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// The next batch of the campaign's charges that need work now, at most <paramref name="batchSize"/>:
-    /// CHARGING ones to resolve first, then TO_CHARGE ones whose time has come.
+    /// When a CHARGING charge whose outcome is not known yet is next looked up, if attempt
+    /// <paramref name="attemptNo"/> is still its latest: soon after a timeout, at the window's end
+    /// for a payment that waits for the backer.
     /// </summary>
-    Task<IReadOnlyList<ChargeWork>> Workable(Guid campaignId, int batchSize, CancellationToken cancellationToken);
+    Task LookUpAt(Guid pledgeId, int attemptNo, DateTimeOffset at, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The job's next turn is due now: an outcome arrived from outside a pass, by webhook, and may
+    /// have ended its last open charge while the job waited for that charge's look-up days ahead.
+    /// </summary>
+    Task WakeUp(Guid campaignId, CancellationToken cancellationToken);
 
     /// <summary>
     /// The campaign's settlement now, and its open charges against every settling campaign's: with
@@ -91,9 +110,11 @@ public interface ISettlements
 
     /// <summary>
     /// TO_CHARGE or PAYMENT_FAILED to CHARGING with the next attempt number, and the attempt row
-    /// IN_FLIGHT with its key. Committed before the PSP is called. Null: another worker, or the backer, has it.
+    /// IN_FLIGHT with its key, committed in a transaction of its own before the PSP is called: never
+    /// inside a caller's. Null: another worker, or the backer, has it. <paramref name="lookUpAt"/>:
+    /// when the attempt is first looked up if nothing has settled it; null, as soon as a worker's lease ends.
     /// </summary>
-    Task<int?> TryStartAttempt(Guid pledgeId, string pledgePublicId, bool onSession, CancellationToken cancellationToken);
+    Task<int?> TryStartAttempt(Guid pledgeId, string pledgePublicId, bool onSession, DateTimeOffset? lookUpAt, CancellationToken cancellationToken);
 
     /// <summary>The PSP's id for an on-session attempt, kept so its webhook and the resolver find it.</summary>
     Task RecordPayment(Guid pledgeId, int attemptNo, string pspPaymentId, CancellationToken cancellationToken);
@@ -141,10 +162,17 @@ public sealed class SettlementOptions
     /// </summary>
     public TimeSpan PspCallTimeout { get; set; } = TimeSpan.FromSeconds(20);
 
-    /// <summary>Charges one turn works through before the job goes back for the next campaign's turn.</summary>
+    /// <summary>Charges one turn claims and works through before the worker takes its next turn.</summary>
     public int BatchSize { get; set; } = 500;
 
-    /// <summary>How long a charge whose outcome is unknown waits before the PSP is asked about it again.</summary>
+    /// <summary>
+    /// The most PSP calls one worker has in flight while it works its batch. The shared budget, not
+    /// this, sets the pace: it only has to be enough for the worker's share of the rate at the PSP's
+    /// latency (lesson s3-a04: 250 a second at 0.5 s is 125 in flight across every task).
+    /// </summary>
+    public int CallsInFlight { get; set; } = 25;
+
+    /// <summary>How long a charge whose outcome is unknown waits before the PSP is asked about it again, and a job whose charges are still being created.</summary>
     public TimeSpan UnknownBackoff { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>How long a job waits after the PSP could not be reached, or the circuit was open.</summary>
@@ -275,67 +303,83 @@ public sealed class CreateSettlementJob(ISettlements settlements) : IIntegration
 }
 
 /// <summary>
-/// One pass of a settlement worker: claim a job, work a batch of its charges, finish it or give it
-/// back. With <see cref="CampaignId"/>, only that campaign's job, whenever it is due (an operator's
-/// or a test's pass). With <see cref="Among"/>, the next due job of those campaigns, in turn. True
-/// if the pass did something: worked a charge or finished the job.
+/// One pass of a settlement worker: take a turn at a job, claim a batch of its charges, work them
+/// with calls in flight, finish the job or give the charges back. With <see cref="CampaignId"/>, only
+/// that campaign's job, whenever it is due (an operator's or a test's pass). With <see cref="Among"/>,
+/// the next due job of those campaigns, in turn. True if the pass did something: worked a charge or
+/// finished the job.
 /// </summary>
 public sealed record RunSettlement(string Worker, Guid? CampaignId = null, IReadOnlyCollection<Guid>? Among = null) : ICommand<bool>;
 
 /// <summary>
-/// The orchestrator. The lease only decides who works; what is true is decided by the conditional
-/// moves and the PSP's idempotency keys. Every attempt is committed before the PSP is called. A
-/// timeout leaves it IN_FLIGHT, and the next pass asks the PSP about that same attempt before
-/// anything else: a new attempt, with a new key, is made only after the last one is known to have failed.
+/// The orchestrator. Workers share a campaign by claiming its charges, so its pace is the shared
+/// budget's, not one worker's latency: a pass keeps up to <see cref="SettlementOptions.CallsInFlight"/>
+/// calls waiting for their tokens. The leases only decide who works; what is true is decided by the
+/// conditional moves and the PSP's idempotency keys.
 /// </summary>
 public sealed class RunSettlementHandler(
     ISettlements settlements,
     IPayouts payouts,
-    IPaymentProvider psp,
     SettlementOptions options,
-    ChargeOutcomes outcomes,
-    DunningPolicy dunning,
     TimeProvider clock,
+    IServiceScopeFactory scopes,
     [FromKeyedServices(PaymentsModuleName.Value)] IOutbox outbox,
     [FromKeyedServices(PaymentsModuleName.Value)] ITransactionScope transaction) : ICommandHandler<RunSettlement, bool>
 {
     public async Task<Result<bool>> Handle(RunSettlement command, CancellationToken cancellationToken)
     {
         var settings = options;
-        var campaignId = await settlements.Claim(command.Worker, settings.Lease, command.CampaignId, command.Among, cancellationToken);
+        var campaignId = await settlements.TakeTurn(command.CampaignId, command.Among, cancellationToken);
         if (campaignId is not { } id)
         {
             return Result.Success(false);
         }
 
+        var batch = await settlements.ClaimCharges(id, command.Worker, settings.Lease, settings.BatchSize, cancellationToken);
         var worked = 0;
-        try
+        var pspFailed = 0;
+        using (var keeping = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
         {
-            foreach (var charge in await settlements.Workable(id, settings.BatchSize, cancellationToken))
+            var renewals = KeepLeases(id, command.Worker, keeping.Token);
+            try
             {
-                worked++;
-                if (!await settlements.Renew(id, command.Worker, settings.Lease, cancellationToken))
+                // A DbContext serves one operation at a time, so each charge in flight works in a scope of its own.
+                await Parallel.ForEachAsync(batch, new ParallelOptions { MaxDegreeOfParallelism = settings.CallsInFlight, CancellationToken = cancellationToken }, async (charge, ct) =>
                 {
-                    return Result.Success(true); // the lease went to another worker; it carries on from the charges' statuses
-                }
+                    if (Volatile.Read(ref pspFailed) == 1)
+                    {
+                        return; // the PSP is failing: the rest of the batch waits for the pause
+                    }
 
-                var customer = await settlements.CustomerOf(charge.BackerId, cancellationToken);
-                if (charge.Status == ChargeStatus.Charging)
-                {
-                    await Resolve(id, charge, customer, cancellationToken);
-                }
-                else
-                {
-                    await ChargeOnce(id, charge, customer, cancellationToken);
-                }
+                    await using var scope = scopes.CreateAsyncScope();
+                    try
+                    {
+                        if (await scope.ServiceProvider.GetRequiredService<SettlementStep>().Work(id, command.Worker, charge, ct))
+                        {
+                            Interlocked.Increment(ref worked);
+                        }
+                    }
+                    catch (HttpRequestException)
+                    {
+                        // The PSP cannot be reached, or the circuit is open. A charge left CHARGING is
+                        // resolved with its own key on a later turn.
+                        Volatile.Write(ref pspFailed, 1);
+                    }
+                });
+            }
+            finally
+            {
+                await keeping.CancelAsync();
+                await renewals;
             }
         }
-        catch (HttpRequestException)
+
+        if (pspFailed == 1)
         {
-            // The PSP cannot be reached, or the circuit is open: give the job back and pause. A charge
-            // left CHARGING is resolved with its own key on the next turn.
-            await settlements.Release(id, command.Worker, settings.UnknownBackoff, settings.PauseWhenPspFails, cancellationToken);
-            return Result.Success(false);
+            // Nothing got through: the job pauses. If some calls did, as a half-open circuit's one
+            // trial call does, the charges it refused wait only for the next turn.
+            await settlements.Release(id, command.Worker, settings.UnknownBackoff, worked == 0 ? settings.PauseWhenPspFails : TimeSpan.Zero, cancellationToken);
+            return Result.Success(worked > 0);
         }
 
         var counts = await settlements.Counts(id, cancellationToken);
@@ -343,7 +387,7 @@ public sealed class RunSettlementHandler(
         {
             var finished = await transaction.Run(async ct =>
             {
-                if (!await settlements.TryFinish(id, command.Worker, ct))
+                if (!await settlements.TryFinish(id, ct))
                 {
                     return Result.Success(false);
                 }
@@ -359,6 +403,63 @@ public sealed class RunSettlementHandler(
         return Result.Success(worked > 0);
     }
 
+    /// <summary>
+    /// A batch can wait longer than a lease for its tokens when many workers share the budget, so the
+    /// charges still waiting are renewed every third of a lease. Each charge is renewed again on its own
+    /// just before its call, which is what keeps a worker from calling for a charge it no longer holds.
+    /// </summary>
+    private async Task KeepLeases(Guid campaignId, string worker, CancellationToken ct)
+    {
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(options.Lease / 3, clock, ct);
+                await settlements.RenewAll(campaignId, worker, options.Lease, ct);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // the batch is done
+        }
+    }
+}
+
+/// <summary>
+/// One charge of a worker's batch. Every attempt is committed before the PSP is called. A timeout
+/// leaves it IN_FLIGHT, and a later turn asks the PSP about that same attempt before anything else:
+/// a new attempt, with a new key, is made only after the last one is known to have failed.
+/// </summary>
+public sealed class SettlementStep(
+    ISettlements settlements,
+    IPaymentProvider psp,
+    SettlementOptions options,
+    ChargeOutcomes outcomes,
+    DunningPolicy dunning,
+    TimeProvider clock,
+    [FromKeyedServices(PaymentsModuleName.Value)] ITransactionScope transaction)
+{
+    /// <summary>False: the charge was taken over by another worker, and nothing was sent for it.</summary>
+    public async Task<bool> Work(Guid campaignId, string worker, ChargeWork charge, CancellationToken ct)
+    {
+        if (!await settlements.Renew(charge.PledgeId, worker, options.Lease, ct))
+        {
+            return false; // the other worker carries on from the charge's status
+        }
+
+        var customer = await settlements.CustomerOf(charge.BackerId, ct);
+        if (charge.Status == ChargeStatus.Charging)
+        {
+            await Resolve(campaignId, charge, customer, ct);
+        }
+        else
+        {
+            await ChargeOnce(campaignId, charge, customer, ct);
+        }
+
+        return true;
+    }
+
     private async Task ChargeOnce(Guid campaignId, ChargeWork charge, string customer, CancellationToken ct)
     {
         // A decline that waits for the backer is due again only when its window ends. With no new card
@@ -370,7 +471,7 @@ public sealed class RunSettlementHandler(
             return;
         }
 
-        var attemptNo = await settlements.TryStartAttempt(charge.PledgeId, charge.PledgePublicId, onSession: false, ct);
+        var attemptNo = await settlements.TryStartAttempt(charge.PledgeId, charge.PledgePublicId, onSession: false, lookUpAt: null, ct);
         if (attemptNo is not { } n)
         {
             return;
@@ -380,7 +481,7 @@ public sealed class RunSettlementHandler(
             new ChargeRequest(customer, charge.PaymentMethodRef, charge.AmountMinor, charge.Currency, charge.PledgePublicId, n),
             Charge.KeyFor(charge.PledgePublicId, n),
             c), ct);
-        await Record(campaignId, charge, n, outcome, ct);
+        await Record(campaignId, charge, n, outcome, clock.GetUtcNow() + options.UnknownBackoff, ct);
     }
 
     private async Task Resolve(Guid campaignId, ChargeWork charge, string customer, CancellationToken ct)
@@ -388,14 +489,23 @@ public sealed class RunSettlementHandler(
         var n = charge.AttemptNo;
         var reference = new ChargeReference(charge.PspPaymentId, customer, charge.PledgePublicId, n);
         var outcome = await WithinTimeout(c => psp.LookUp(reference, c), ct);
+        var lookAgain = clock.GetUtcNow() + options.UnknownBackoff;
         if (charge.OnSession)
         {
             // A payment the backer confirms waits for the backer, until the window ends: then it is
-            // cancelled, and a backer who confirmed meanwhile is charged, never dropped.
-            var windowOver = (charge.PaymentFailedAt ?? clock.GetUtcNow()) + dunning.Window <= clock.GetUtcNow();
-            if (outcome is ChargeOutcome.Unknown { Reason: ChargeOutcome.WaitingForBacker } && windowOver)
+            // cancelled, and a backer who confirmed meanwhile is charged, never dropped. Until then
+            // its webhook settles it, and it is not looked up again before the window's end.
+            var windowEnds = (charge.PaymentFailedAt ?? clock.GetUtcNow()) + dunning.Window;
+            if (outcome is ChargeOutcome.Unknown { Reason: ChargeOutcome.WaitingForBacker })
             {
-                outcome = await WithinTimeout(c => psp.Cancel(reference, c), ct);
+                if (windowEnds <= clock.GetUtcNow())
+                {
+                    outcome = await WithinTimeout(c => psp.Cancel(reference, c), ct);
+                }
+                else
+                {
+                    lookAgain = windowEnds;
+                }
             }
             else if (outcome is ChargeOutcome.NotFound)
             {
@@ -411,7 +521,7 @@ public sealed class RunSettlementHandler(
                 c), ct);
         }
 
-        await Record(campaignId, charge, n, outcome, ct);
+        await Record(campaignId, charge, n, outcome, lookAgain, ct);
     }
 
     private async Task<ChargeOutcome> WithinTimeout(Func<CancellationToken, Task<ChargeOutcome>> call, CancellationToken ct)
@@ -424,12 +534,12 @@ public sealed class RunSettlementHandler(
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return new ChargeOutcome.Unknown("the PSP did not answer in time"); // asked about again on the next pass
+            return new ChargeOutcome.Unknown("the PSP did not answer in time"); // asked about again on a later turn
         }
     }
 
-    private Task Record(Guid campaignId, ChargeWork charge, int n, ChargeOutcome outcome, CancellationToken cancellationToken) =>
+    private Task Record(Guid campaignId, ChargeWork charge, int n, ChargeOutcome outcome, DateTimeOffset lookAgain, CancellationToken cancellationToken) =>
         outcome is ChargeOutcome.Unknown
-            ? Task.CompletedTask
+            ? settlements.LookUpAt(charge.PledgeId, n, lookAgain, cancellationToken)
             : transaction.Run(async ct => Result.Success(await outcomes.Record(charge with { CampaignId = campaignId }, n, outcome, ct)), cancellationToken);
 }

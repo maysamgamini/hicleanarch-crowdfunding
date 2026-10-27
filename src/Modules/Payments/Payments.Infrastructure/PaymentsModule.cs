@@ -80,8 +80,8 @@ public static class PaymentsModule
             return new MoneyPolicy(money.PlatformFeeBasisPoints, money.ReserveBasisPoints);
         });
         services.AddOptions<SettlementOptions>().Bind(configuration.GetSection("Payments:Settlement"))
-            .Validate(s => s.PollEvery > TimeSpan.Zero && s.BatchSize > 0 && s.PspCallTimeout > TimeSpan.Zero && s.Lease > s.PspCallTimeout,
-                "Payments:Settlement: PollEvery, BatchSize and PspCallTimeout must be positive, and the lease longer than a PSP call.")
+            .Validate(s => s.PollEvery > TimeSpan.Zero && s.BatchSize > 0 && s.CallsInFlight > 0 && s.PspCallTimeout > TimeSpan.Zero && s.Lease > s.PspCallTimeout,
+                "Payments:Settlement: PollEvery, BatchSize, CallsInFlight and PspCallTimeout must be positive, and the lease longer than a PSP call.")
             .ValidateOnStart();
         services.AddSingleton(sp => sp.GetRequiredService<IOptions<SettlementOptions>>().Value);
         services.AddSingleton<SettlementWorker>();
@@ -168,18 +168,21 @@ public static class PaymentsModule
                 return result.IsSuccess ? Result.Success(new Reply(StatusCodes.Status200OK, result.Value)) : Result.Failure<Reply>(result.Errors);
             })).RequireAuthorization(Policies.Backer).WithTags("Payments");
 
-        app.MapPost("/v1/pledges/{id}/confirm-payment", (string id, ClaimsPrincipal user, HttpContext http,
+        // The attempt is committed and the PSP called before the key's transaction opens, so no PSP
+        // call runs inside it. A retry while the payment waits gets the same payment from the PSP by
+        // the attempt's key; a retry after the first request finished gets the stored reply.
+        app.MapPost("/v1/pledges/{id}/confirm-payment", async (string id, ClaimsPrincipal user, HttpContext http,
             IDispatcher dispatcher, IdempotentRequests<PaymentsDbContext> once) =>
-            once.Run(http, user.UserId(), new { id }, async ct =>
-            {
-                if (!PublicId.TryParse("plg", id, out var pledgeId))
-                {
-                    return Result.Failure<Reply>(PaymentErrors.ChargeNotFound);
-                }
-
-                var result = await dispatcher.Send<ConfirmPayment, PaymentToConfirm>(new ConfirmPayment(pledgeId, user.UserId()), ct);
-                return result.IsSuccess ? Result.Success(new Reply(StatusCodes.Status200OK, result.Value)) : Result.Failure<Reply>(result.Errors);
-            })).RequireAuthorization(Policies.Backer).WithTags("Payments");
+        {
+            // Without a usable key nothing is started: Run answers 400 before it looks at the result.
+            var key = http.Request.Headers[IdempotentRequests<PaymentsDbContext>.Header].ToString();
+            var result = key.Length is > 0 and <= 100 && PublicId.TryParse("plg", id, out var pledgeId)
+                ? await dispatcher.Send<ConfirmPayment, PaymentToConfirm>(new ConfirmPayment(pledgeId, user.UserId()), http.RequestAborted)
+                : Result.Failure<PaymentToConfirm>(PaymentErrors.ChargeNotFound);
+            return await once.Run(http, user.UserId(), new { id }, _ => Task.FromResult(result.IsSuccess
+                ? Result.Success(new Reply(StatusCodes.Status200OK, result.Value))
+                : Result.Failure<Reply>(result.Errors)));
+        }).RequireAuthorization(Policies.Backer).WithTags("Payments");
 
         // How far a funded campaign's settlement has got, with an ETA at the PSP's rate (lesson s3-a04).
         // Only for the campaign's own creator (OWASP API1:2023); the policy only says the caller is a creator.
