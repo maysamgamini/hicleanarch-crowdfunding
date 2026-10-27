@@ -140,8 +140,8 @@ data "aws_iam_policy_document" "deploy_services" {
     actions = [
       "ecs:*", "elasticloadbalancing:*", "rds:*", "elasticache:*", "cognito-idp:*",
       "application-autoscaling:*", "cloudwatch:*", "ses:*",
-      # Stage 4: the queues between services, and the Cloud Map namespace Service Connect names them in.
-      "sqs:*", "servicediscovery:*",
+      # Stage 4: the Cloud Map namespace Service Connect names the services in.
+      "servicediscovery:*",
     ]
     resources = ["*"]
     condition {
@@ -187,6 +187,17 @@ data "aws_iam_policy_document" "deploy_services" {
     sid       = "ProjectAlarmTopics"
     actions   = ["sns:*"]
     resources = ["arn:aws:sns:${var.region}:${data.aws_caller_identity.current.account_id}:${var.project}-*"]
+  }
+  # Stage 4: the event queues and their dead-letter queues, the project's own only, as its topics.
+  statement {
+    sid       = "ProjectQueues"
+    actions   = ["sqs:*"]
+    resources = ["arn:aws:sqs:${var.region}:${data.aws_caller_identity.current.account_id}:${var.project}-*"]
+  }
+  statement {
+    sid       = "ListQueues"
+    actions   = ["sqs:ListQueues"]
+    resources = ["*"]
   }
   statement {
     sid     = "ProjectLogGroups"
@@ -246,11 +257,21 @@ data "aws_iam_policy_document" "task_boundary" {
       "xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets",
       "cloudwatch:PutMetricData",
       "ses:SendEmail", "ses:SendRawEmail", "cognito-idp:ListUsers",
-      # Events between services (Stage 4): read a queue, publish to a topic, check subscriptions.
-      "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes",
-      "sns:Publish", "sns:ListSubscriptionsByTopic", "sns:GetSubscriptionAttributes",
     ]
     resources = ["*"]
+  }
+  # Events between services (Stage 4): what infra/env's task policies grant (messaging.tf,
+  # payments-service.tf), on the project's own queues, topics and subscriptions only. A subscription's
+  # ARN is its topic's plus an id, so the topic pattern covers it. tests/boundary.tftest.hcl checks the list.
+  statement {
+    sid       = "ProjectQueues"
+    actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:ChangeMessageVisibility", "sqs:GetQueueAttributes"]
+    resources = ["arn:aws:sqs:${var.region}:${data.aws_caller_identity.current.account_id}:${var.project}-*"]
+  }
+  statement {
+    sid       = "ProjectTopics"
+    actions   = ["sns:Publish", "sns:ListSubscriptionsByTopic", "sns:GetSubscriptionAttributes"]
+    resources = ["arn:aws:sns:${var.region}:${data.aws_caller_identity.current.account_id}:${var.project}-*"]
   }
   # The project's own secrets only, so a role created under the boundary cannot read anything else.
   statement {

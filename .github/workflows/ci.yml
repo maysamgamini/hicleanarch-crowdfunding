@@ -29,12 +29,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
-      - name: fmt and validate every layer that has Terraform files
+      - name: fmt, validate and the offline tests of every layer that has Terraform files
         run: |
           terraform fmt -check -recursive infra
           for dir in infra/bootstrap infra/env infra/services/payments; do
             if ls "$dir"/*.tf >/dev/null 2>&1; then
               terraform -chdir="$dir" init -backend=false -input=false
               terraform -chdir="$dir" validate
+              # tests/*.tftest.hcl run on a mocked provider: no credentials, no AWS calls.
+              if ls "$dir"/tests/*.tftest.hcl >/dev/null 2>&1; then
+                terraform -chdir="$dir" test
+              fi
             fi
           done
