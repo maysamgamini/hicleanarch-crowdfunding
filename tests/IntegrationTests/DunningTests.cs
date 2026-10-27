@@ -268,4 +268,31 @@ public sealed class DunningTests(Database database) : IDisposable
             Psp.TakesToAnswer(TimeSpan.Zero);
         }
     }
+
+    [Fact]
+    public async Task A_new_card_for_a_charge_that_is_not_waiting_for_one_is_refused_and_changes_nothing()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish(1_000);
+        var backerId = Guid.NewGuid();
+        var placed = await given.Backer(backerId).PostAsJsonAsync($"/v1/campaigns/{campaign.Id}/pledges",
+            new { amount_minor = 6_000, tier_id = (string?)null, payment_method_id = FakePaymentProvider.CardSucceeds }, Ct);
+        var pledgeId = (await placed.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("pledge_id").GetString()!;
+        await given.Execute("UPDATE pledges.funding_windows SET deadline = now() - interval '1 second' WHERE campaign_id = @id", campaign.CampaignId);
+        await Send<CloseDueCampaigns, int>(new CloseDueCampaigns(campaign.CampaignId));
+        await Scenario.Eventually(async () => await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId) == 1);
+
+        var beforeCharging = await given.Backer(backerId).PutAsJsonAsync($"/v1/pledges/{pledgeId}/payment-method", new { payment_method_id = FakePaymentProvider.CardDeclined }, Ct);
+        await Settle(campaign);
+        var afterCharged = await given.Backer(backerId).PutAsJsonAsync($"/v1/pledges/{pledgeId}/payment-method", new { payment_method_id = FakePaymentProvider.CardDeclined }, Ct);
+
+        foreach (var refused in new[] { beforeCharging, afterCharged })
+        {
+            Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+            Assert.Equal("charge_not_awaiting_backer", (await refused.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("reason").GetString());
+        }
+
+        Assert.Equal("CHARGED", await ChargeStatus(given, campaign));
+        Assert.Equal(FakePaymentProvider.CardSucceeds, await given.Scalar<string>("SELECT payment_method_ref FROM payments.charges WHERE campaign_id = @id", campaign.CampaignId));
+    }
 }

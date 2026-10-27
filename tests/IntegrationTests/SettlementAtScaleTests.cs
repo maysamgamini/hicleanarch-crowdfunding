@@ -315,4 +315,86 @@ public sealed class SettlementAtScaleTests(Database database, Valkey valkey) : I
             $"charged={pledges} elapsed={elapsed:F2}s rate={rate:F1}/s budget={perSecond}/s mostInFlight={psp.MostInFlight} passes={both[0]}+{both[1]}");
         Assert.InRange(rate, 0.6 * perSecond, 1.2 * perSecond);
     }
+
+    [Fact]
+    public async Task Two_settlements_on_two_workers_share_one_budget()
+    {
+        await using var host = Host(("Payments:Budget:ChargesPerSecond", "4"), ("Payments:Settlement:BatchSize", "3"));
+        var (firstGiven, first) = await Funded(host, 6);
+        var (secondGiven, second) = await Funded(host, 6);
+        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        Guid[] both = [first.CampaignId, second.CampaignId];
+        var started = DateTimeOffset.UtcNow;
+
+        await Task.WhenAll(
+            Task.Run(() => WorkUntilDone(host, firstGiven, "budget-1", among: both), Ct),
+            Task.Run(() => WorkUntilDone(host, secondGiven, "budget-2", among: both), Ct));
+
+        Assert.Equal(6L, await Charged(firstGiven, first));
+        Assert.Equal(6L, await Charged(secondGiven, second));
+        var charges = psp.Calls.Where(c => c.Call == "charge" && c.At >= started).Select(c => c.At).Order().ToList();
+        Assert.Equal(12, charges.Count);
+        // Together, never more than the one bucket allows: 4 at once, then 4 a second.
+        Assert.All(charges, at => Assert.InRange(charges.Count(c => c >= at && c < at.AddSeconds(1)), 1, 8));
+        Assert.True(charges[^1] - charges[0] >= TimeSpan.FromSeconds(1.4)); // (12 - 4) / 4 seconds, less the scheduler's jitter
+    }
+
+    [Fact]
+    public async Task After_the_PSP_fails_no_worker_takes_the_job_again_before_the_pause()
+    {
+        await using var host = Host(("Payments:Settlement:PauseWhenPspFails", "01:00:00"));
+        var (given, campaign) = await Funded(host, 2);
+        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        Guid[] only = [campaign.CampaignId];
+        psp.Unreachable(true);
+
+        Assert.False(await Send<RunSettlement, bool>(host, new RunSettlement("pause-1", Among: only)));
+        psp.Unreachable(false);
+        var attempts = psp.Attempts;
+
+        Assert.False(await Send<RunSettlement, bool>(host, new RunSettlement("pause-2", Among: only))); // the PSP is back, but the pause holds
+        Assert.Equal(attempts, psp.Attempts);
+        Assert.Equal(0L, await Charged(given, campaign));
+        Assert.True(await given.Scalar<bool>("SELECT paused_until > now() + interval '59 minutes' FROM payments.settlement_jobs WHERE campaign_id = @id", campaign.CampaignId));
+    }
+
+    [Fact]
+    public async Task The_eta_counts_every_settling_campaigns_turns_up_to_its_own_charges()
+    {
+        await using var host = Host(("Payments:Budget:ChargesPerSecond", "2"));
+        var (bigGiven, big) = await Funded(host, 4);
+        var (smallGiven, small) = await Funded(host, 2);
+
+        static async Task<int> Eta(Scenario given, Scenario.Published campaign) =>
+            (await given.Creator().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}/settlement", Ct)).GetProperty("eta_seconds").GetInt32();
+
+        var bigEta = await Eta(bigGiven, big);
+        var smallEta = await Eta(smallGiven, small);
+
+        // Turns in rotation at 2 a second: the small one is done when the big one has had 2 of its
+        // charges as well, (2 + 2) / 2; the big one after all 6, 6 / 2. Other tests' settlements add to both.
+        Assert.True(smallEta >= 2, $"small {smallEta}");
+        Assert.True(bigEta >= 3, $"big {bigEta}");
+        Assert.True(smallEta < bigEta, $"small {smallEta}, big {bigEta}"); // the big one's charges beyond the small one's count only for the big one
+    }
+
+    [Fact]
+    public async Task A_worker_whose_charges_were_taken_over_makes_no_further_PSP_call_for_them()
+    {
+        await using var host = Host(("Payments:Settlement:BatchSize", "3"), ("Payments:Settlement:CallsInFlight", "1"));
+        var (given, campaign) = await Funded(host, 3);
+        var psp = host.Services.GetRequiredService<FakePaymentProvider>();
+        psp.TakesToAnswer(TimeSpan.FromSeconds(1));
+        var before = psp.Calls.Count(c => c.Call == "charge");
+
+        var pass = Task.Run(() => Send<RunSettlement, bool>(host, new RunSettlement("slow", campaign.CampaignId)), Ct);
+        await Scenario.Eventually(() => Task.FromResult(psp.InFlight == 1));
+        // Its first call is in progress; another worker takes over the two charges it has not reached.
+        await given.Execute("UPDATE payments.charges SET claimed_by = 'other', claimed_until = now() + interval '1 minute' WHERE campaign_id = @id AND status = 'TO_CHARGE'", campaign.CampaignId);
+        await pass;
+
+        Assert.Equal(before + 1, psp.Calls.Count(c => c.Call == "charge"));
+        Assert.Equal(1L, await Charged(given, campaign));
+        Assert.Equal(2L, await given.Scalar<long>("SELECT count(*) FROM payments.charges WHERE campaign_id = @id AND status = 'TO_CHARGE' AND claimed_by = 'other'", campaign.CampaignId));
+    }
 }
