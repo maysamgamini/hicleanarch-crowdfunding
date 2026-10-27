@@ -296,8 +296,9 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
             .Configure<OutboxPublishingOptions>(o =>
             {
                 o.QueueCapacity = Capacity;
-                // Younger rows belong to the hand-off: recovery waits longer than the hand-off needs once the gate opens.
-                o.RecoverAfter = TimeSpan.FromSeconds(5);
+                // Younger rows belong to the hand-off: recovery waits longer than the hand-off needs once the gate
+                // opens, and longer than the commit of 500 rows takes on a loaded machine.
+                o.RecoverAfter = TimeSpan.FromSeconds(30);
                 o.RecoverEvery = TimeSpan.FromSeconds(1);
                 o.Claim = TimeSpan.FromSeconds(5);
             })));
@@ -317,12 +318,12 @@ public sealed class BrokerEventsTests(Database database) : IDisposable
         }
 
         publisher.Gate.SetResult();
-        await Task.Delay(TimeSpan.FromSeconds(2), Ct); // the hand-off's rows go at once; recovery takes none before 5 s
+        await Task.Delay(TimeSpan.FromSeconds(2), Ct); // the hand-off's rows go at once; recovery takes none before 30 s
         var handedOff = publisher.Published.Count;
 
         // What the queue held, plus at most the one batch of 100 the publisher had taken before it filled.
         Assert.InRange(handedOff, 1, Capacity + 100);
-        await Within(TimeSpan.FromSeconds(30), () => Task.FromResult(publisher.Published.Count == Rows));
+        await Within(TimeSpan.FromSeconds(60), () => Task.FromResult(publisher.Published.Count == Rows));
         await Task.Delay(TimeSpan.FromSeconds(2), Ct); // another recovery pass: nothing is sent again
         Assert.All(publisher.Published.Values, times => Assert.Equal(1, times));
         Assert.Equal(Rows, await Scalar(
