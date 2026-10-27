@@ -25,7 +25,8 @@ public sealed record PledgePlaced(string PledgeId, string Status);
 /// <summary>
 /// One transaction, opened by the request's idempotency key: the fence and the snapshot on the
 /// funding window, the pledge, its ledger entry and its event. Each step is a rule's port, checked
-/// in the order the API promises; any refusal rolls all of it back.
+/// in the order the API promises (lesson s1-a03: closed, amount, already backing, sold out); any
+/// refusal rolls all of it back.
 /// </summary>
 public sealed class PlacePledgeHandler(
     IFundingWindows windows,
@@ -56,11 +57,6 @@ public sealed class PlacePledgeHandler(
             if (tier is null || tier.CampaignId != command.CampaignId)
             {
                 return Result.Failure<PledgePlaced>(PledgeErrors.UnknownTier);
-            }
-
-            if (tier.LooksSoldOut)
-            {
-                return Result.Failure<PledgePlaced>(PledgeErrors.TierSoldOut);
             }
         }
 

@@ -136,8 +136,16 @@ public sealed class ChangeAndCancelTests(Database database) : IDisposable
         var backer = given.Backer(Guid.NewGuid());
         var pledge = await Place(backer, campaign, 6_000);
 
-        await Task.WhenAll(Enumerable.Range(1, 10).Select(i => Change(backer, pledge, 6_000 + (i * 100))));
+        var amounts = Enumerable.Range(1, 10).Select(i => 6_000L + (i * 100)).ToArray();
+        var responses = await Task.WhenAll(amounts.Select(a => Change(backer, pledge, a)));
 
+        // Each change waited for the one before on the pledge's row lock, then applied in full.
+        Assert.All(responses, r => Assert.Equal(HttpStatusCode.OK, r.StatusCode));
+        var pledgeId = Guid.ParseExact(pledge["/v1/pledges/plg_".Length..], "N");
+        Assert.Equal(10L, await given.Scalar<long>("SELECT count(*) FROM pledges.pledge_ledger WHERE pledge_id = @id AND kind = 'CHANGE'", pledgeId));
+        var final = await given.Scalar<long>("SELECT amount_minor FROM pledges.pledges WHERE id = @id", pledgeId);
+        Assert.Contains(final, amounts);
+        Assert.Equal(final, await given.Scalar<long>("SELECT sum(delta_minor)::bigint FROM pledges.pledge_ledger WHERE pledge_id = @id", pledgeId));
         await AssertTotalIsTheLedger(given, campaign.CampaignId);
     }
 }

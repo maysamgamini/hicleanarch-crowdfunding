@@ -10,7 +10,7 @@ public static class PledgesApplication
 {
     public static IServiceCollection AddPledgesApplication(this IServiceCollection services) =>
         services
-            .AddScoped<ICommandHandler<CancelFunding, FundingCancelled>, CancelFundingHandler>()
+            .AddScoped<ICommandHandler<CancelFunding, CancelFundingAccepted>, CancelFundingHandler>()
             .AddScoped<ICommandHandler<PlacePledge, PledgePlaced>, PlacePledgeHandler>()
             .AddScoped<ICommandHandler<ChangePledge, PledgeView>, ChangePledgeHandler>()
             .AddScoped<ICommandHandler<CancelPledge, PledgeView>, CancelPledgeHandler>()

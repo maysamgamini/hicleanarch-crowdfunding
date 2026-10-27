@@ -148,10 +148,24 @@ public sealed class PledgeTests(Database database) : IDisposable
         var ct = Ct;
         await using var pledges = new NpgsqlConnection(database.Pledges);
         await pledges.OpenAsync(ct);
-        await using var update = new NpgsqlCommand("UPDATE pledges.pledge_ledger SET delta_minor = 1", pledges);
 
-        var refused = await Assert.ThrowsAsync<PostgresException>(() => update.ExecuteNonQueryAsync(ct));
-        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, refused.SqlState);
+        // Adding is allowed; the test rolls its own entry back.
+        await using (var transaction = await pledges.BeginTransactionAsync(ct))
+        {
+            await using var insert = new NpgsqlCommand($"""
+                INSERT INTO pledges.pledge_ledger (campaign_id, pledge_id, cause_id, delta_minor, kind)
+                VALUES ('{Guid.NewGuid()}', '{Guid.NewGuid()}', 'test:{Guid.NewGuid():N}', 100, 'ACTIVATE')
+                """, pledges, transaction);
+            Assert.Equal(1, await insert.ExecuteNonQueryAsync(ct));
+            await transaction.RollbackAsync(ct);
+        }
+
+        foreach (var sql in new[] { "UPDATE pledges.pledge_ledger SET delta_minor = 1", "DELETE FROM pledges.pledge_ledger", "TRUNCATE pledges.pledge_ledger" })
+        {
+            await using var change = new NpgsqlCommand(sql, pledges);
+            var refused = await Assert.ThrowsAsync<PostgresException>(() => change.ExecuteNonQueryAsync(ct));
+            Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, refused.SqlState);
+        }
     }
 
     [Fact]

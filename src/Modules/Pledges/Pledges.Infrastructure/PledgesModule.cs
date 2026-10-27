@@ -42,6 +42,8 @@ public static class PledgesModule
         services.AddPublishedEvent<PledgeActivated>();
         services.AddPublishedEvent<PledgeChanged>();
         services.AddPublishedEvent<PledgeCancelled>();
+        services.AddPublishedEvent<FundingCancelled>();
+        services.AddKeyedScoped<ITransactionScope>(PledgesModuleName.Value, (sp, _) => new ModuleTransaction<PledgesDbContext>(sp.GetRequiredService<PledgesDbContext>()));
         services.AddSingleton<IModuleMigrator, PledgesMigrator>();
         services.AddSingleton(new ModuleDatabase(PledgesModuleName.Value, PledgesDbContext.Schema, connectionString));
         services.AddScoped<EfPledges>();

@@ -21,12 +21,9 @@ public sealed partial class DatabaseMigrator(
             var module = databases.Single(d => d.Module == migrator.Module);
             await PrepareRoleAndSchema(ownerConnectionString, module, cancellationToken);
             await migrator.Migrate(ownerConnectionString, cancellationToken);
-            await GrantTables(ownerConnectionString, module, cancellationToken);
-            var afterGrants = migrator.AfterGrants(Quote(module.Role));
-            if (afterGrants.Length > 0)
-            {
-                await Execute(ownerConnectionString, afterGrants, cancellationToken);
-            }
+            // The grants and the module's own revokes commit together, so the role never holds, even
+            // for a moment, a right the module takes away (such as changing its ledger).
+            await Execute(ownerConnectionString, GrantTables(module) + migrator.AfterGrants(Quote(module.Role)), cancellationToken);
 
             LogMigrated(logger, module.Module, module.Schema);
         }
@@ -52,22 +49,25 @@ public sealed partial class DatabaseMigrator(
             """, ct);
     }
 
-    private static Task GrantTables(string owner, ModuleDatabase module, CancellationToken ct)
+    private static string GrantTables(ModuleDatabase module)
     {
         var role = Quote(module.Role);
         var schema = Quote(module.Schema);
-        return Execute(owner, $"""
+        return $"""
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {schema} TO {role};
             GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {role};
-            """, ct);
+
+            """;
     }
 
     private static async Task Execute(string connectionString, string sql, CancellationToken ct)
     {
         await using var connection = new NpgsqlConnection(connectionString);
         await connection.OpenAsync(ct);
-        await using var command = new NpgsqlCommand(sql, connection);
+        await using var transaction = await connection.BeginTransactionAsync(ct);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         await command.ExecuteNonQueryAsync(ct);
+        await transaction.CommitAsync(ct);
     }
 
     private static string Quote(string identifier) => "\"" + identifier.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";

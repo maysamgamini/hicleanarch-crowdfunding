@@ -64,6 +64,28 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         Assert.Equal("CANCELLED", read.GetProperty("status").GetString());
     }
 
+    /// <summary>
+    /// Pledges accepted the cancel, but the request failed before Campaigns recorded it. Pledges'
+    /// FundingCancelled event reaches Campaigns anyway, and the catalog follows.
+    /// </summary>
+    [Fact]
+    public async Task An_accepted_cancel_reaches_the_catalog_even_if_the_request_failed_after()
+    {
+        var given = new Scenario(database, _host);
+        var campaign = await given.Publish();
+
+        await using (var scope = _host.Services.CreateAsyncScope())
+        {
+            var dispatcher = scope.ServiceProvider.GetRequiredService<BuildingBlocks.Application.IDispatcher>();
+            var accepted = await dispatcher.Send<Pledges.Contracts.CancelFunding, Pledges.Contracts.CancelFundingAccepted>(
+                new Pledges.Contracts.CancelFunding(campaign.CampaignId), Ct);
+            Assert.True(accepted.IsSuccess);
+        }
+
+        await Scenario.Eventually(async () =>
+            (await _host.CreateClient().GetFromJsonAsync<JsonElement>($"/v1/campaigns/{campaign.Id}", Ct)).GetProperty("status").GetString() == "CANCELLED");
+    }
+
     [Fact]
     public async Task A_cancel_after_the_campaign_has_ended_is_refused_and_changes_nothing()
     {

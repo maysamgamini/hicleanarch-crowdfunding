@@ -27,3 +27,13 @@ public interface IValidator<in TRequest>
 {
     IEnumerable<Error> Validate(TRequest request);
 }
+
+/// <summary>
+/// One transaction of one module, for a handler that is not already inside one (a command from
+/// another module, a job). Inside an open transaction of the same module it simply joins it.
+/// Each module registers its own, keyed by the module's name.
+/// </summary>
+public interface ITransactionScope
+{
+    Task<Result<T>> Run<T>(Func<CancellationToken, Task<Result<T>>> work, CancellationToken cancellationToken);
+}

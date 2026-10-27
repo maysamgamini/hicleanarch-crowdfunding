@@ -19,6 +19,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
+using Pledges.Contracts;
+
 namespace Campaigns.Infrastructure;
 
 /// <summary>
@@ -38,6 +40,7 @@ public static class CampaignsModule
         services.AddModuleEvents<CampaignsDbContext>(CampaignsModuleName.Value);
         services.AddPublishedEvent<CampaignPublished>();
         services.AddPublishedEvent<CampaignCancelled>();
+        services.AddEventHandler<FundingCancelled, RecordFundingCancelled>(CampaignsModuleName.Value);
         services.AddSingleton<IModuleMigrator, CampaignsMigrator>();
         services.AddSingleton(new ModuleDatabase("Campaigns", CampaignsDbContext.Schema, connectionString));
         return services
@@ -87,20 +90,29 @@ public static class CampaignsModule
                     : Result.Failure<Reply>(result.Errors);
             })).RequireAuthorization(Policies.Creator);
 
-        campaigns.MapPost("/{id}/cancel", (string id, ClaimsPrincipal user, HttpContext http,
+        // Pledges is asked first, outside Campaigns' transaction; only an accepted cancel is recorded.
+        campaigns.MapPost("/{id}/cancel", async (string id, ClaimsPrincipal user, HttpContext http,
             IDispatcher dispatcher, IdempotentRequests<CampaignsDbContext> once) =>
-            once.Run(http, user.UserId(), new { id }, async ct =>
+        {
+            if (!CampaignId.TryParse(id, out var campaignId))
             {
-                if (!CampaignId.TryParse(id, out var campaignId))
-                {
-                    return Result.Failure<Reply>(CampaignErrors.NotFound);
-                }
+                return new[] { CampaignErrors.NotFound }.ToProblem();
+            }
 
+            var asked = await dispatcher.Send<AskToCancelFunding, CampaignStatus>(new AskToCancelFunding(campaignId, user.UserId()), http.RequestAborted);
+            if (!asked.IsSuccess)
+            {
+                return asked.Errors.ToProblem();
+            }
+
+            return await once.Run(http, user.UserId(), new { id }, async ct =>
+            {
                 var result = await dispatcher.Send<CancelCampaign, CampaignStatus>(new CancelCampaign(campaignId, user.UserId()), ct);
                 return result.IsSuccess
                     ? Result.Success(new Reply(StatusCodes.Status200OK, new { campaign_id = id, status = "CANCELLED" }))
                     : Result.Failure<Reply>(result.Errors);
-            })).RequireAuthorization(Policies.Creator);
+            });
+        }).RequireAuthorization(Policies.Creator);
 
         // Anyone may read a campaign, signed in or not.
         campaigns.MapGet("/{id}", async (string id, IDispatcher dispatcher, CancellationToken ct) =>
