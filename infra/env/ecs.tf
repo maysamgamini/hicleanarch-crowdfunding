@@ -7,6 +7,13 @@ resource "aws_cloudwatch_log_group" "api" {
   retention_in_days = 1
 }
 
+# The collector's built-in ECS configuration sends metrics to this group. Terraform creates it, so
+# destroy removes it; the task role may write to it but not create groups of its own.
+resource "aws_cloudwatch_log_group" "collector_metrics" {
+  name              = "/aws/ecs/application/metrics"
+  retention_in_days = 1
+}
+
 locals {
   # The running program gets only the modules' connection strings; the owner's goes to the
   # migration task alone.
@@ -75,7 +82,8 @@ resource "aws_ecs_task_definition" "api" {
   }
 }
 
-# The same image, run once per deploy with the argument `migrate`, before the service updates.
+# The same image, run once per deploy with the argument `migrate`. The sandbox workflow creates this
+# task first, runs it, and only then lets the service take the new image.
 resource "aws_ecs_task_definition" "migrate" {
   family                   = "${var.project}-migrate"
   requires_compatibilities = ["FARGATE"]
@@ -125,6 +133,6 @@ resource "aws_ecs_service" "api" {
     rollback = true
   }
 
-  # The migration task runs first (see the sandbox workflow); the service waits for the listener.
+  # The workflow applies everything else, including this service's new image, only after `migrate`.
   depends_on = [aws_lb_listener.http]
 }

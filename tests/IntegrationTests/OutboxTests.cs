@@ -116,7 +116,7 @@ public sealed class OutboxTests(Database database)
     }
 
     [Fact]
-    public async Task Publishing_a_campaign_reaches_a_handler_after_the_commit()
+    public async Task Publishing_a_campaign_reaches_a_handler()
     {
         await using var host = Host();
         var creator = Database.Client(host, Database.Token(Roles.Creator));
@@ -137,7 +137,7 @@ public sealed class OutboxTests(Database database)
     }
 
     [Fact]
-    public async Task An_event_rolled_back_with_its_change_is_neither_stored_nor_sent()
+    public async Task An_event_rolled_back_is_neither_stored_nor_sent()
     {
         await using var host = Host();
         var ping = new Ping(Guid.NewGuid(), DateTimeOffset.UtcNow);
@@ -147,6 +147,23 @@ public sealed class OutboxTests(Database database)
 
         Assert.False(await Exists(ping.EventId));
         Assert.False(Handled.ContainsKey(ping.EventId));
+    }
+
+    [Fact]
+    public async Task An_event_reaches_no_handler_before_its_transaction_commits()
+    {
+        await using var host = Host();
+        var ping = new Ping(Guid.NewGuid(), DateTimeOffset.UtcNow);
+        await using var scope = host.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<CampaignsDbContext>();
+        await using var transaction = await db.Database.BeginTransactionAsync(Ct);
+        await scope.ServiceProvider.GetOutbox(CampaignsModuleName.Value).Add(ping, Ct);
+
+        await Task.Delay(300, Ct);
+        Assert.False(Handled.ContainsKey(ping.EventId));
+
+        await transaction.CommitAsync(Ct);
+        await Eventually(() => Task.FromResult(Handled.ContainsKey(ping.EventId)));
     }
 
     [Fact]
@@ -185,6 +202,16 @@ public sealed class OutboxTests(Database database)
 
         await Eventually(async () => await DeliveredAt(ping.EventId) is not null);
         Assert.Equal(1, Handled[ping.EventId]);
+        Assert.Equal(2L, await Attempts(ping.EventId)); // each of the two failures was counted
+    }
+
+    private async Task<long> Attempts(Guid eventId)
+    {
+        await using var owner = new NpgsqlConnection(database.Owner);
+        await owner.OpenAsync(Ct);
+        await using var read = new NpgsqlCommand("SELECT attempts FROM campaigns.outbox WHERE id = @id", owner);
+        read.Parameters.AddWithValue("id", eventId);
+        return Convert.ToInt64(await read.ExecuteScalarAsync(Ct), System.Globalization.CultureInfo.InvariantCulture);
     }
 
     [Fact]

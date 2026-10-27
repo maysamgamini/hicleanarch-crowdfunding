@@ -1,1 +1,1 @@
-Long-lived AWS resources, applied once and kept: the Terraform state bucket, the ECR repository and the CodeArtifact repository.
+Long-lived AWS resources, applied once and kept: the Terraform state bucket, the ECR repository and the CodeArtifact repository. It also holds the GitHub OIDC provider, the deploy role, and the task boundary: the most any role the environment creates may do.

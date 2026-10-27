@@ -34,7 +34,7 @@ public static class CampaignsModule
             ?? throw new InvalidOperationException("ConnectionStrings:Campaigns is not set.");
         services.AddDbContext<CampaignsDbContext>((sp, db) => CampaignsDbOptions
             .Configure((DbContextOptionsBuilder<CampaignsDbContext>)db, connectionString)
-            .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor>()));
+            .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor<CampaignsDbContext>>()));
         services.AddModuleEvents<CampaignsDbContext>(CampaignsModuleName.Value);
         services.AddPublishedEvent<CampaignPublished>();
         services.AddPublishedEvent<CampaignCancelled>();
@@ -43,7 +43,10 @@ public static class CampaignsModule
         return services
             .AddCampaignsApplication()
             .AddScoped<ICampaignRepository, EfCampaignRepository>()
-            .AddScoped<IdempotentRequests<CampaignsDbContext>>();
+            .AddScoped<IdempotentRequests<CampaignsDbContext>>()
+            .AddSingleton<IdempotencyKeyPurge<CampaignsDbContext>>()
+            .AddSingleton<IIdempotencyKeyPurge>(sp => sp.GetRequiredService<IdempotencyKeyPurge<CampaignsDbContext>>())
+            .AddHostedService(sp => sp.GetRequiredService<IdempotencyKeyPurge<CampaignsDbContext>>());
     }
 
     public static IEndpointRouteBuilder MapCampaignsEndpoints(this IEndpointRouteBuilder app)

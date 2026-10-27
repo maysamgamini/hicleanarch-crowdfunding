@@ -46,6 +46,18 @@ public sealed class AuthorizationTests(Database database) : IDisposable
             (await CreateDraft(LocalTokens.Issue("another-key-that-is-long-enough-0123456789", Database.ClientId, Guid.NewGuid(), Roles.Creator))).StatusCode);
 
     [Fact]
+    public async Task An_expired_token_is_401() =>
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await CreateDraft(LocalTokens.Issue(Database.SigningKey, Database.ClientId, Guid.NewGuid(), "access",
+                DateTime.UtcNow.AddMinutes(-10), Roles.Creator))).StatusCode);
+
+    [Fact]
+    public async Task An_id_token_is_401() =>
+        Assert.Equal(HttpStatusCode.Unauthorized,
+            (await CreateDraft(LocalTokens.Issue(Database.SigningKey, Database.ClientId, Guid.NewGuid(), "id",
+                DateTime.UtcNow.AddHours(1), Roles.Creator))).StatusCode);
+
+    [Fact]
     public async Task The_draft_records_the_creator_from_the_token()
     {
         var creator = Guid.NewGuid();

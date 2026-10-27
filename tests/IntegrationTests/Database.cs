@@ -88,4 +88,23 @@ public sealed class Database : IAsyncLifetime
             .UseSetting("ConnectionStrings:Pledges", Pledges)
             .UseSetting("Auth:ClientId", ClientId)
             .UseSetting("Auth:LocalSigningKey", SigningKey));
+
+    /// <summary>How many rows of a table have the given value in a column, read as the owner.</summary>
+    public async Task<long> Count(string table, string column, string value)
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(Owner);
+        await connection.OpenAsync();
+        await using var command = new Npgsql.NpgsqlCommand($"SELECT count(*) FROM {table} WHERE {column} = @value", connection);
+        command.Parameters.AddWithValue("value", value);
+        return (long)(await command.ExecuteScalarAsync())!;
+    }
+
+    /// <summary>Runs SQL as the owner, for tests that must set up what the API cannot.</summary>
+    public async Task Execute(string sql)
+    {
+        await using var connection = new Npgsql.NpgsqlConnection(Owner);
+        await connection.OpenAsync();
+        await using var command = new Npgsql.NpgsqlCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
+    }
 }

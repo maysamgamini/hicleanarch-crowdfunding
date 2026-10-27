@@ -42,12 +42,14 @@ public static class Authentication
             {
                 jwt.Authority = authority;
                 validation.ValidIssuer = authority;
+                validation.ValidAlgorithms = ["RS256"];
             }
             else
             {
                 var key = auth["LocalSigningKey"] ?? throw new InvalidOperationException("Set Auth:Authority, or Auth:LocalSigningKey for local tokens.");
                 validation.ValidIssuer = LocalTokens.Issuer;
                 validation.IssuerSigningKey = LocalTokens.SigningKey(key);
+                validation.ValidAlgorithms = ["HS256"];
             }
 
             // Cognito's access tokens name the app client in client_id and carry no aud claim.

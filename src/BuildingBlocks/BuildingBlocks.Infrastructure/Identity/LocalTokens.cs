@@ -19,16 +19,22 @@ public static class LocalTokens
             : throw new InvalidOperationException("Auth:LocalSigningKey must be at least 32 bytes.");
 
     public static string Issue(string signingKey, string clientId, Guid userId, params string[] groups) =>
+        Issue(signingKey, clientId, userId, "access", DateTime.UtcNow.AddHours(1), groups);
+
+    /// <summary>Any kind of token, valid until any time: tests use it for ID tokens and expired ones.</summary>
+    public static string Issue(string signingKey, string clientId, Guid userId, string tokenUse, DateTime expires, params string[] groups) =>
         new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
         {
             Issuer = Issuer,
-            Expires = DateTime.UtcNow.AddHours(1),
+            IssuedAt = expires.AddHours(-1),
+            NotBefore = expires.AddHours(-1),
+            Expires = expires,
             SigningCredentials = new SigningCredentials(SigningKey(signingKey), SecurityAlgorithms.HmacSha256),
             Claims = new Dictionary<string, object>
             {
                 ["sub"] = userId.ToString(),
                 ["client_id"] = clientId,
-                ["token_use"] = "access",
+                ["token_use"] = tokenUse,
                 ["cognito:groups"] = groups,
             },
         });

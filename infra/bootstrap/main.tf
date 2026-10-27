@@ -99,25 +99,90 @@ resource "aws_iam_role" "deploy" {
   assume_role_policy = data.aws_iam_policy_document.github_assume.json
 }
 
-# The sandbox creates most kinds of resources, so the role gets PowerUserAccess, plus IAM
-# rights limited to the project's own roles (the environment creates its task roles).
+# The sandbox creates most kinds of resources, so the role gets PowerUserAccess, which grants
+# no IAM rights. The IAM rights below let it create only the project's own task roles, and only
+# with the task boundary attached, so no role it creates can do more than a task needs.
 resource "aws_iam_role_policy_attachment" "deploy_power_user" {
   role       = aws_iam_role.deploy.name
   policy_arn = "arn:aws:iam::aws:policy/PowerUserAccess"
 }
 
-data "aws_iam_policy_document" "deploy_iam" {
+# The most any task role may do, whatever policies are attached to it.
+data "aws_iam_policy_document" "task_boundary" {
   statement {
     actions = [
-      "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole", "iam:UntagRole",
-      "iam:UpdateAssumeRolePolicy", "iam:PassRole", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
-      "iam:ListInstanceProfilesForRole", "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy",
-      "iam:AttachRolePolicy", "iam:DetachRolePolicy",
+      "ecr:GetAuthorizationToken", "ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage",
+      "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams",
+      "xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets",
+      "cloudwatch:PutMetricData",
+      "secretsmanager:GetSecretValue",
+      "ses:SendEmail", "ses:SendRawEmail",
+      "elasticache:Connect",
     ]
-    resources = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-*"]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_policy" "task_boundary" {
+  name   = "${var.project}-task-boundary"
+  policy = data.aws_iam_policy_document.task_boundary.json
+}
+
+locals {
+  project_roles = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/${var.project}-*"
+}
+
+data "aws_iam_policy_document" "deploy_iam" {
+  # Reading, tagging and deleting the project's roles.
+  statement {
+    actions = [
+      "iam:GetRole", "iam:DeleteRole", "iam:TagRole", "iam:UntagRole", "iam:UpdateAssumeRolePolicy",
+      "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole", "iam:GetRolePolicy",
+    ]
+    resources = [local.project_roles]
+  }
+  # Creating a role, or changing its policies, only while the task boundary is on it.
+  statement {
+    actions   = ["iam:CreateRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:DetachRolePolicy", "iam:PutRolePermissionsBoundary"]
+    resources = [local.project_roles]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PermissionsBoundary"
+      values   = [aws_iam_policy.task_boundary.arn]
+    }
+  }
+  # Attaching a managed policy: the boundary must be on the role, and the policy must be the ECS one.
+  statement {
+    actions   = ["iam:AttachRolePolicy"]
+    resources = [local.project_roles]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PermissionsBoundary"
+      values   = [aws_iam_policy.task_boundary.arn]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "iam:PolicyARN"
+      values   = ["arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"]
+    }
+  }
+  # The project's roles may be handed to ECS tasks, and to nothing else.
+  statement {
+    actions   = ["iam:PassRole"]
+    resources = [local.project_roles]
+    condition {
+      test     = "StringEquals"
+      variable = "iam:PassedToService"
+      values   = ["ecs-tasks.amazonaws.com"]
+    }
   }
   statement {
     actions   = ["iam:CreateServiceLinkedRole"]
+    resources = ["*"]
+  }
+  statement {
+    effect    = "Deny"
+    actions   = ["iam:DeleteRolePermissionsBoundary"]
     resources = ["*"]
   }
 }

@@ -9,9 +9,11 @@ data "aws_iam_policy_document" "ecs_tasks_assume" {
 }
 
 # Used by ECS itself: pull the image, write logs, read the connection strings into the container.
+# Both roles carry the bootstrap layer's boundary: the deploy role may create them only with it.
 resource "aws_iam_role" "execution" {
-  name               = "${var.project}-sandbox-execution"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+  name                 = "${var.project}-sandbox-execution"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_assume.json
+  permissions_boundary = local.task_boundary
 }
 
 resource "aws_iam_role_policy_attachment" "execution" {
@@ -33,8 +35,15 @@ resource "aws_iam_role_policy" "execution_secrets" {
 
 # Used by the running containers: the collector sends traces to X-Ray and metrics to CloudWatch.
 resource "aws_iam_role" "task" {
-  name               = "${var.project}-sandbox-task"
-  assume_role_policy = data.aws_iam_policy_document.ecs_tasks_assume.json
+  name                 = "${var.project}-sandbox-task"
+  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_assume.json
+  permissions_boundary = local.task_boundary
+}
+
+data "aws_caller_identity" "current" {}
+
+locals {
+  task_boundary = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/${var.project}-task-boundary"
 }
 
 data "aws_iam_policy_document" "telemetry" {
@@ -46,7 +55,6 @@ data "aws_iam_policy_document" "telemetry" {
       "xray:GetSamplingTargets",
       "cloudwatch:PutMetricData",
       "logs:CreateLogStream",
-      "logs:CreateLogGroup",
       "logs:PutLogEvents",
       "logs:DescribeLogStreams",
     ]

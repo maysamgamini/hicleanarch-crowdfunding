@@ -36,7 +36,7 @@ public static class PledgesModule
             ?? throw new InvalidOperationException("ConnectionStrings:Pledges is not set.");
         services.AddDbContext<PledgesDbContext>((sp, db) => PledgesDbOptions
             .Configure((DbContextOptionsBuilder<PledgesDbContext>)db, connectionString)
-            .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor>()));
+            .AddInterceptors(sp.GetRequiredService<OutboxCommitInterceptor<PledgesDbContext>>()));
         services.AddModuleEvents<PledgesDbContext>(PledgesModuleName.Value);
         services.AddEventHandler<CampaignPublished, OpenFundingWindow>(PledgesModuleName.Value);
         services.AddPublishedEvent<PledgeActivated>();

@@ -25,10 +25,10 @@ public static class EventRegistration
     public static IServiceCollection AddModuleEvents<TContext>(this IServiceCollection services, string module)
         where TContext : DbContext
     {
-        services.TryAddScoped<PendingEvents>();
-        services.TryAddScoped<OutboxCommitInterceptor>();
+        services.TryAddScoped<PendingEvents<TContext>>();
+        services.TryAddScoped<OutboxCommitInterceptor<TContext>>();
         services.AddKeyedScoped<IOutbox>(module, (sp, _) =>
-            new EfOutbox<TContext>(sp.GetRequiredService<TContext>(), sp.GetRequiredService<PendingEvents>(), module));
+            new EfOutbox<TContext>(sp.GetRequiredService<TContext>(), sp.GetRequiredService<PendingEvents<TContext>>(), module));
         services.AddSingleton<IModuleEvents>(sp => new ModuleEvents<TContext>(module, sp.GetRequiredService<IServiceScopeFactory>()));
         return services;
     }

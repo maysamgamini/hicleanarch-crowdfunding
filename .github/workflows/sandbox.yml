@@ -48,13 +48,21 @@ jobs:
           docker push "$image"
           echo "image=$image" >> "$GITHUB_OUTPUT"
 
-      - name: Apply the environment
+      # The database must be migrated before any task runs the new image. So the first apply creates
+      # only what the migration task needs (Terraform adds their dependencies: network, database,
+      # secrets, roles); the second applies the rest, including the service's new image.
+      - name: Apply what the migration needs
         id: apply
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
         run: |
           start=$(date +%s)
-          terraform -chdir=infra/env init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
-          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=${{ steps.image.outputs.image }}"
-          echo "Apply took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+          terraform -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
+          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE" \
+            -target=aws_ecs_cluster.main -target=aws_ecs_task_definition.migrate \
+            -target=aws_security_group.tasks -target=aws_subnet.public
+          echo "First apply took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Migrate
         run: |
@@ -67,12 +75,15 @@ jobs:
           code=$(aws ecs describe-tasks --cluster "$(out cluster)" --tasks "$task" --query 'tasks[0].containers[0].exitCode' --output text)
           test "$code" = "0"
 
-      - name: Wait for the service
+      - name: Apply the rest and roll the service onto the new image
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
         run: |
-          aws ecs update-service --cluster "$(terraform -chdir=infra/env output -raw cluster)" \
-            --service "$(terraform -chdir=infra/env output -raw service)" --force-new-deployment >/dev/null
+          start=$(date +%s)
+          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE"
           aws ecs wait services-stable --cluster "$(terraform -chdir=infra/env output -raw cluster)" \
             --services "$(terraform -chdir=infra/env output -raw service)"
+          echo "Second apply and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Sign in a test creator
         id: creator
@@ -96,13 +107,19 @@ jobs:
 
       - name: Keep it up for a while
         if: inputs.keep_minutes != '0'
-        run: sleep $(( ${{ inputs.keep_minutes }} * 60 ))
+        env:
+          KEEP_MINUTES: ${{ inputs.keep_minutes }}
+        run: |
+          case "$KEEP_MINUTES" in (*[!0-9]*|'') echo "keep_minutes must be a whole number" >&2; exit 1;; esac
+          sleep $(( KEEP_MINUTES * 60 ))
 
       - name: Destroy
         if: always()
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
         run: |
           start=$(date +%s)
-          terraform -chdir=infra/env init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          terraform -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
           terraform -chdir=infra/env destroy -input=false -auto-approve
           echo "Destroy took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 

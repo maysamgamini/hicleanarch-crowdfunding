@@ -4,6 +4,8 @@ using System.Text.Json;
 
 using BuildingBlocks.Infrastructure.Identity;
 
+using Microsoft.Extensions.DependencyInjection;
+
 namespace IntegrationTests;
 
 /// <summary>Publishing, and the idempotency key every change carries.</summary>
@@ -101,13 +103,15 @@ public sealed class PublishTests(Database database) : IDisposable
     public async Task The_same_key_twice_gets_the_same_reply_and_one_campaign()
     {
         var key = Guid.NewGuid().ToString();
-        var first = await Creator().SendAsync(Post("/v1/campaigns", Draft(), key), Ct);
-        var second = await Creator().SendAsync(Post("/v1/campaigns", Draft(), key), Ct);
+        var title = $"Once {key}";
+        var first = await Creator().SendAsync(Post("/v1/campaigns", Draft(title), key), Ct);
+        var second = await Creator().SendAsync(Post("/v1/campaigns", Draft(title), key), Ct);
 
         Assert.Equal(HttpStatusCode.Created, second.StatusCode);
         Assert.Equal(await first.Content.ReadAsStringAsync(Ct), await second.Content.ReadAsStringAsync(Ct));
         Assert.Equal("true", second.Headers.GetValues("Idempotent-Replayed").Single());
         Assert.False(first.Headers.Contains("Idempotent-Replayed"));
+        Assert.Equal(1, await database.Count("campaigns.campaigns", "title", title));
     }
 
     [Fact]
@@ -123,17 +127,20 @@ public sealed class PublishTests(Database database) : IDisposable
     }
 
     [Fact]
-    public async Task The_same_key_sent_at_once_from_two_connections_creates_one_campaign()
+    public async Task Five_requests_sent_together_with_one_key_create_one_campaign()
     {
+        // Whether they overlap is up to the scheduler; whichever way they interleave, one campaign results.
         var key = Guid.NewGuid().ToString();
+        var title = $"Together {key}";
         var replies = await Task.WhenAll(Enumerable.Range(0, 5)
-            .Select(_ => Creator().SendAsync(Post("/v1/campaigns", Draft(), key), Ct)));
+            .Select(_ => Creator().SendAsync(Post("/v1/campaigns", Draft(title), key), Ct)));
 
         Assert.All(replies, r => Assert.Equal(HttpStatusCode.Created, r.StatusCode));
         var ids = await Task.WhenAll(replies.Select(async r =>
             (await r.Content.ReadFromJsonAsync<JsonElement>(Ct)).GetProperty("campaign_id").GetString()));
         Assert.Single(ids.Distinct());
         Assert.Equal(4, replies.Count(r => r.Headers.Contains("Idempotent-Replayed")));
+        Assert.Equal(1, await database.Count("campaigns.campaigns", "title", title));
     }
 
     [Fact]
@@ -147,5 +154,23 @@ public sealed class PublishTests(Database database) : IDisposable
 
         Assert.Equal(HttpStatusCode.UnprocessableEntity, retried.StatusCode);
         Assert.False(retried.Headers.Contains("Idempotent-Replayed"));
+    }
+
+    [Fact]
+    public async Task Keys_older_than_seven_days_are_purged()
+    {
+        var oldKey = Guid.NewGuid().ToString();
+        var newKey = Guid.NewGuid().ToString();
+        await Creator().SendAsync(Post("/v1/campaigns", Draft($"Old {oldKey}"), oldKey), Ct);
+        await Creator().SendAsync(Post("/v1/campaigns", Draft($"New {newKey}"), newKey), Ct);
+        await database.Execute($"UPDATE campaigns.idempotency_keys SET created_at = now() - interval '8 days' WHERE key = '{oldKey}'");
+
+        foreach (var purge in _host.Services.GetServices<BuildingBlocks.Infrastructure.Persistence.IIdempotencyKeyPurge>())
+        {
+            await purge.PurgeOnce(Ct);
+        }
+
+        Assert.Equal(0, await database.Count("campaigns.idempotency_keys", "key", oldKey));
+        Assert.Equal(1, await database.Count("campaigns.idempotency_keys", "key", newKey));
     }
 }

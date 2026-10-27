@@ -15,3 +15,8 @@ output "deploy_role_arn" {
   description = "Set it as the AWS_DEPLOY_ROLE_ARN variable of the GitHub repository."
   value       = aws_iam_role.deploy.arn
 }
+
+output "task_boundary_arn" {
+  description = "The permissions boundary every task role of the environment must carry."
+  value       = aws_iam_policy.task_boundary.arn
+}

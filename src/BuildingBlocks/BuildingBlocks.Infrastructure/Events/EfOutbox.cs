@@ -5,13 +5,17 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 
 namespace BuildingBlocks.Infrastructure.Events;
 
-/// <summary>The events added in this scope, handed to the bus once their transaction commits.</summary>
-public sealed class PendingEvents
+/// <summary>
+/// The events one module's context added in this scope, handed to the bus once that context's
+/// transaction commits. One per context, so one module's commit or rollback never touches another's.
+/// </summary>
+public sealed class PendingEvents<TContext>
+    where TContext : DbContext
 {
     public List<OutboxRecord> Records { get; } = [];
 }
 
-internal sealed class EfOutbox<TContext>(TContext db, PendingEvents pending, string module) : IOutbox
+internal sealed class EfOutbox<TContext>(TContext db, PendingEvents<TContext> pending, string module) : IOutbox
     where TContext : DbContext
 {
     public async Task Add(IntegrationEvent integrationEvent, CancellationToken cancellationToken)
@@ -29,7 +33,8 @@ internal sealed class EfOutbox<TContext>(TContext db, PendingEvents pending, str
 }
 
 /// <summary>Right after the commit, the events of the transaction go to the bus; after a rollback, nowhere.</summary>
-public sealed class OutboxCommitInterceptor(PendingEvents pending, EventBus bus) : DbTransactionInterceptor
+public sealed class OutboxCommitInterceptor<TContext>(PendingEvents<TContext> pending, EventBus bus) : DbTransactionInterceptor
+    where TContext : DbContext
 {
     public override Task TransactionCommittedAsync(System.Data.Common.DbTransaction transaction, TransactionEndEventData eventData, CancellationToken cancellationToken = default)
     {
