@@ -160,79 +160,8 @@ resource "aws_iam_role_policy" "execution_payments_own" {
   policy = data.aws_iam_policy_document.read_payments_own[0].json
 }
 
-# Payments' release image with `move-payments <step>`, run once per step by scripts/move-payments.sh with
-# the step as a command override, in Payments' security group. It reaches the shared cluster (as its
-# owner, to fence and prune), the pause flag in Valkey (with Payments' Valkey user), and the clone once
-# it exists. Its own execution role reads those secrets, so Payments' service never holds the owner's.
-resource "aws_iam_role" "move_payments_execution" {
-  name                 = "${var.project}-sandbox-move-payments-execution"
-  assume_role_policy   = data.aws_iam_policy_document.ecs_tasks_assume.json
-  permissions_boundary = local.task_boundary
-}
-
-resource "aws_iam_role_policy_attachment" "move_payments_execution" {
-  role       = aws_iam_role.move_payments_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-data "aws_iam_policy_document" "move_payments_secrets" {
-  statement {
-    actions = ["secretsmanager:GetSecretValue"]
-    resources = concat(
-      [aws_secretsmanager_secret.connection["owner"].arn, aws_secretsmanager_secret.connection["payments"].arn,
-      aws_secretsmanager_secret.webhook.arn, aws_secretsmanager_secret.valkey["payments"].arn],
-      [for s in aws_secretsmanager_secret.payments_own : s.arn],
-    )
-  }
-}
-
-resource "aws_iam_role_policy" "move_payments_execution_secrets" {
-  role   = aws_iam_role.move_payments_execution.id
-  policy = data.aws_iam_policy_document.move_payments_secrets.json
-}
-
-resource "aws_ecs_task_definition" "move_payments" {
-  count                    = var.payments_image == "" ? 0 : 1
-  family                   = "${var.project}-move-payments"
-  requires_compatibilities = ["FARGATE"]
-  network_mode             = "awsvpc"
-  cpu                      = 256
-  memory                   = 512
-  execution_role_arn       = aws_iam_role.move_payments_execution.arn
-  task_role_arn            = aws_iam_role.payments_task.arn
-  container_definitions = jsonencode([{
-    name      = "move-payments"
-    image     = var.payments_image
-    essential = true
-    command   = ["move-payments"]
-    environment = [
-      { name = "Auth__Authority", value = local.cognito_issuer },
-      { name = "Auth__ClientId", value = aws_cognito_user_pool_client.api.id },
-    ]
-    secrets = concat([
-      local.owner_secret,
-      { name = "ConnectionStrings__Payments", valueFrom = aws_secretsmanager_secret.connection["payments"].arn },
-      { name = "Payments__WebhookSecret", valueFrom = aws_secretsmanager_secret.webhook.arn },
-      { name = "ConnectionStrings__Valkey", valueFrom = aws_secretsmanager_secret.valkey["payments"].arn },
-      ], var.payments_database_clone ? [
-      { name = "ConnectionStrings__PaymentsOwnOwner", valueFrom = aws_secretsmanager_secret.payments_own["owner"].arn },
-      { name = "ConnectionStrings__PaymentsOwn", valueFrom = aws_secretsmanager_secret.payments_own["payments"].arn },
-    ] : [])
-    logConfiguration = {
-      logDriver = "awslogs"
-      options = {
-        awslogs-group         = aws_cloudwatch_log_group.payments.name
-        awslogs-region        = var.region
-        awslogs-stream-prefix = "move-payments"
-      }
-    }
-  }])
-
-  runtime_platform {
-    operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
-  }
-}
+# The move-payments task is Payments' own (infra/services/payments/move.tf): it runs Payments' image
+# in Payments' security group, with an execution role that reads the secrets below.
 
 output "payments_security_group" {
   description = "Payments' tasks' security group: the move-payments task runs in it."
@@ -241,10 +170,6 @@ output "payments_security_group" {
 
 output "payments_database_endpoint" {
   value = local.payments_db_host
-}
-
-output "move_payments_task_definition" {
-  value = one(aws_ecs_task_definition.move_payments[*].arn)
 }
 
 output "shared_cluster_identifier" {

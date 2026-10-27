@@ -48,9 +48,19 @@ locals {
   valkey_users = {
     api     = "on ~* &* +@all"
     gateway = "on ~gateway:* &* +@all"
-    # The PSP budget and the card-setup lane (Payments:Budget:Prefix), shared with the monolith's Payments code.
-    payments = "on ~psp:* &* +@all"
+    # Payments' own host shares the PSP budget's buckets (buckets:<Payments:Budget:Prefix>:*) with the
+    # monolith, and has its own flags (payments:*). Only the categories it uses: the connection's own
+    # commands (PING, ECHO, CLIENT SETNAME, sent while StackExchange.Redis connects), reads, writes and
+    # scripts, no channels; the buckets' script reads Valkey's clock, and TIME is in no category but
+    # @fast, so it is named alone.
+    payments = "on ~buckets:psp:* ~payments:* resetchannels -@all +@connection +@read +@write +@scripting +time"
   }
+
+  # A user limited to its own keys may not read the client's tiebreaker key or subscribe to its
+  # configuration channel, so its connection string turns both off. The monolith and the gateway keep
+  # the client's defaults.
+  valkey_restricted_users   = toset(["payments"])
+  valkey_restricted_options = ",tiebreaker=,configChannel="
 }
 
 ephemeral "random_password" "valkey" {
@@ -87,6 +97,6 @@ resource "aws_secretsmanager_secret" "valkey" {
 resource "aws_secretsmanager_secret_version" "valkey" {
   for_each                 = local.valkey_users
   secret_id                = aws_secretsmanager_secret.valkey[each.key].id
-  secret_string_wo         = "${aws_elasticache_replication_group.valkey.primary_endpoint_address}:6379,ssl=true,abortConnect=false,user=${each.key},password=${ephemeral.random_password.valkey[each.key].result}"
+  secret_string_wo         = "${aws_elasticache_replication_group.valkey.primary_endpoint_address}:6379,ssl=true,abortConnect=false,user=${each.key},password=${ephemeral.random_password.valkey[each.key].result}${contains(local.valkey_restricted_users, each.key) ? local.valkey_restricted_options : ""}"
   secret_string_wo_version = 1
 }

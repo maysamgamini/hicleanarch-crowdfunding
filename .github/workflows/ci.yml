@@ -11,44 +11,18 @@ permissions:
   contents: read
 
 jobs:
-  dotnet:
+  # The .NET build, tests and images run in each service's pipeline (monolith.yml, payments.yml), for
+  # the paths that service is built from. What runs here is cheap and checks every change: the
+  # delivery rules themselves, and every Terraform root.
+  delivery:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           global-json-file: global.json
-      - name: Pack the BuildingBlocks into the local feed the modules restore from
-        # A clean runner: the release version itself, with no stale package cache to worry about.
-        run: dotnet pack BuildingBlocks.slnx -o artifacts/packages
-      - name: Contract tests first, on the Contracts' source
-        run: dotnet test tests/Contracts.ProducerTests
-      - name: A contract change since the base carries the version it needs
-        # A pull request against its base branch; a push against the commit it follows. A new branch has no base.
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          if [ -n "$BASE" ] && [ "$BASE" != "0000000000000000000000000000000000000000" ]; then
-            scripts/check-contracts.sh "$BASE"
-          fi
-      - name: Pack the Contracts, which every module builds against
-        run: dotnet pack Contracts.slnx -o artifacts/packages
-      - run: dotnet build CrowdFunding.slnx
-      - run: dotnet test CrowdFunding.slnx --no-build
-      - name: Every model change has its migration
-        # EF Core 9+ refuses to migrate a model that differs from its last migration; catch it here.
-        run: |
-          dotnet tool restore
-          for project in src/Modules/Campaigns/Campaigns.Infrastructure src/Modules/Pledges/Pledges.Infrastructure \
-                         src/Modules/Payments/Payments.Infrastructure src/Modules/Notifications; do
-            dotnet ef migrations has-pending-model-changes --project "$project" --no-build
-          done
-      - name: The image builds
-        run: docker build -q -t crowdfunding-api:ci .
-      - name: The gateway image builds
-        run: docker build -q -f src/Gateway/Dockerfile -t crowdfunding-gateway:ci .
-      - name: The Payments service image builds
-        run: docker build -q -f src/Services/Payments.Host/Dockerfile -t crowdfunding-payments:ci .
+      - name: Solution filters, project graphs, path filters and pinned actions
+        run: dotnet test tests/Delivery.Tests
 
   terraform:
     runs-on: ubuntu-latest
@@ -58,7 +32,7 @@ jobs:
       - name: fmt and validate every layer that has Terraform files
         run: |
           terraform fmt -check -recursive infra
-          for dir in infra/bootstrap infra/env; do
+          for dir in infra/bootstrap infra/env infra/services/payments; do
             if ls "$dir"/*.tf >/dev/null 2>&1; then
               terraform -chdir="$dir" init -backend=false -input=false
               terraform -chdir="$dir" validate

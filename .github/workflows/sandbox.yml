@@ -1,7 +1,11 @@
 name: sandbox
 
 # Apply the sandbox environment, deploy the current main, smoke-test it, destroy it.
-# Needs the repository variables AWS_DEPLOY_ROLE_ARN and TF_STATE_BUCKET (outputs of infra/bootstrap).
+# Two services, each with its own image and its own deploy role, in this order: the shared layer and the
+# monolith's migration (deploy role), then Payments (Payments' role), then the monolith's rollout, then
+# the smoke test through the gateway. Destroy goes the other way: Payments first, the shared layer last.
+# Needs the repository variables AWS_DEPLOY_ROLE_ARN, AWS_PAYMENTS_DEPLOY_ROLE_ARN and TF_STATE_BUCKET
+# (outputs of infra/bootstrap).
 on:
   workflow_dispatch:
     inputs:
@@ -45,32 +49,44 @@ jobs:
       - uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
         if: inputs.load_scale != '0'
 
-      - name: Build and push the image
+      - name: Push the monolith's images
         id: image
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
         run: |
-          image="$REGISTRY/hicleanarch/crowdfunding-api:${GITHUB_SHA}"
-          docker build -t "$image" .
-          docker push "$image"
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-          gateway="$REGISTRY/hicleanarch/crowdfunding-gateway:${GITHUB_SHA}"
-          docker build -f src/Gateway/Dockerfile -t "$gateway" .
-          docker push "$gateway"
-          echo "gateway=$gateway" >> "$GITHUB_OUTPUT"
-          payments="$REGISTRY/hicleanarch/crowdfunding-payments:${GITHUB_SHA}"
-          docker build -f src/Services/Payments.Host/Dockerfile -t "$payments" .
-          docker push "$payments"
-          echo "payments=$payments" >> "$GITHUB_OUTPUT"
+          api="$REGISTRY/hicleanarch/crowdfunding-api"
+          gateway="$REGISTRY/hicleanarch/crowdfunding-gateway"
+          ./scripts/push-image.sh "$api" "$GITHUB_SHA" Dockerfile
+          ./scripts/push-image.sh "$gateway" "$GITHUB_SHA" src/Gateway/Dockerfile
+          echo "image=$api:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+          echo "gateway=$gateway:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - id: ecr-payments
+        uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+      - name: Push Payments' image, as Payments' deploy role
+        id: payments-image
+        env:
+          REGISTRY: ${{ steps.ecr-payments.outputs.registry }}
+        run: |
+          repository="$REGISTRY/hicleanarch/crowdfunding-payments"
+          ./scripts/push-image.sh "$repository" "$GITHUB_SHA" src/Services/Payments.Host/Dockerfile
+          echo "image=$repository:$GITHUB_SHA" >> "$GITHUB_OUTPUT"
 
       # The database must be migrated before any task runs the new image, without a targeted apply:
       # the first apply is complete but keeps the API service on the image it runs now (none in a new
       # environment, whose service the second apply creates); the second moves it to the release.
-      - name: Apply, with the service on its current image
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Apply the shared layer and migrate, with the API service on its current image
         env:
           IMAGE: ${{ steps.image.outputs.image }}
           GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
-          PAYMENTS_IMAGE: ${{ steps.image.outputs.payments }}
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
           LOAD_SCALE: ${{ inputs.load_scale || '0' }}
         run: |
@@ -84,33 +100,35 @@ jobs:
             echo "TF_VAR_image=$IMAGE"
             echo "TF_VAR_gateway_image=$GATEWAY_IMAGE"
             echo "TF_VAR_edge_limit_per_second=$edge_limit"
-            echo "PAYMENTS_IMAGE=$PAYMENTS_IMAGE"
           } >> "$GITHUB_ENV"
-          terraform -chdir=infra/env init -input=false -backend-config="bucket=$STATE_BUCKET"
-          current=$(terraform -chdir=infra/env output -raw service_image 2>/dev/null || true)
-          # The Payments service, like the monolith, moves to the release only after migrate.
-          current_payments=$(terraform -chdir=infra/env output -raw payments_image 2>/dev/null || true)
-          TF_VAR_image="$IMAGE" TF_VAR_gateway_image="$GATEWAY_IMAGE" TF_VAR_edge_limit_per_second="$edge_limit" \
-            terraform -chdir=infra/env apply -input=false -auto-approve -var "service_image=$current" -var "payments_image=$current_payments"
-          echo "First apply took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+          TF_VAR_edge_limit_per_second="$edge_limit" ./scripts/deploy-monolith.sh prepare "$IMAGE" "$GATEWAY_IMAGE"
+          echo "First apply and migration took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Migrate
-        run: |
-          out() { terraform -chdir=infra/env output -raw "$1"; }
-          task=$(aws ecs run-task --cluster "$(out cluster)" --launch-type FARGATE \
-            --task-definition "$(out migrate_task_definition)" \
-            --network-configuration "awsvpcConfiguration={subnets=[$(out task_subnets)],securityGroups=[$(out task_security_group)],assignPublicIp=ENABLED}" \
-            --query 'tasks[0].taskArn' --output text)
-          aws ecs wait tasks-stopped --cluster "$(out cluster)" --tasks "$task"
-          code=$(aws ecs describe-tasks --cluster "$(out cluster)" --tasks "$task" --query 'tasks[0].containers[0].exitCode' --output text)
-          test "$code" = "0"
-
-      - name: Roll the service onto the new image
+      # Payments before the monolith's rollout: the monolith calls Payments, so the server is up before
+      # its caller, and Payments' migration runs before any of its tasks takes the release.
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Deploy Payments, as Payments' deploy role
+        env:
+          IMAGE: ${{ steps.payments-image.outputs.image }}
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
         run: |
           start=$(date +%s)
-          terraform -chdir=infra/env apply -input=false -auto-approve -var "service_image=$TF_VAR_image" -var "payments_image=$PAYMENTS_IMAGE"
-          aws ecs wait services-stable --cluster "$(terraform -chdir=infra/env output -raw cluster)" \
-            --services "$(terraform -chdir=infra/env output -raw service)" "$(terraform -chdir=infra/env output -raw payments_service)"
+          ./scripts/deploy-payments.sh "$IMAGE"
+          echo "Payments' applies, migration and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Roll the monolith onto the new image
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          start=$(date +%s)
+          ./scripts/deploy-monolith.sh roll "$TF_VAR_image" "$TF_VAR_gateway_image"
           echo "Second apply and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Sign in a test creator
@@ -159,6 +177,26 @@ jobs:
           case "$KEEP_MINUTES" in (*[!0-9]*|'') echo "keep_minutes must be a whole number" >&2; exit 1;; esac
           sleep $(( KEEP_MINUTES * 60 ))
 
+      # Payments first: it runs in the shared layer's network and reads its outputs.
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        if: always()
+        with:
+          role-to-assume: ${{ vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Destroy Payments
+        if: always()
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: |
+          start=$(date +%s)
+          ./scripts/destroy-payments.sh
+          echo "Payments' destroy took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        if: always()
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
       - name: Destroy
         if: always()
         env:
@@ -174,11 +212,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_PAYMENTS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Destroy Payments if it is left up
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+        run: ./scripts/destroy-payments.sh
       - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
       - name: Destroy anything left up
         env:
           STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}

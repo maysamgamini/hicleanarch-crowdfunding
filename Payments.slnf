@@ -1,0 +1,13 @@
+{
+  "solution": {
+    "path": "CrowdFunding.slnx",
+    "projects": [
+      "src\\Messaging\\Messaging.csproj",
+      "src\\Modules\\Payments\\Payments.Application\\Payments.Application.csproj",
+      "src\\Modules\\Payments\\Payments.Domain\\Payments.Domain.csproj",
+      "src\\Modules\\Payments\\Payments.Infrastructure\\Payments.Infrastructure.csproj",
+      "src\\Services\\Payments.Host\\Payments.Host.csproj",
+      "tests\\Payments.UnitTests\\Payments.UnitTests.csproj"
+    ]
+  }
+}

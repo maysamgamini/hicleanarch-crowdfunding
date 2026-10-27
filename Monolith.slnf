@@ -1,0 +1,31 @@
+{
+  "solution": {
+    "path": "CrowdFunding.slnx",
+    "projects": [
+      "src\\Gateway\\Gateway.csproj",
+      "src\\Host\\Host.csproj",
+      "src\\Messaging\\Messaging.csproj",
+      "src\\Modules\\Campaigns\\Campaigns.Application\\Campaigns.Application.csproj",
+      "src\\Modules\\Campaigns\\Campaigns.Domain\\Campaigns.Domain.csproj",
+      "src\\Modules\\Campaigns\\Campaigns.Infrastructure\\Campaigns.Infrastructure.csproj",
+      "src\\Modules\\Notifications\\Notifications.csproj",
+      "src\\Modules\\Payments\\Payments.Application\\Payments.Application.csproj",
+      "src\\Modules\\Payments\\Payments.Client\\Payments.Client.csproj",
+      "src\\Modules\\Payments\\Payments.Domain\\Payments.Domain.csproj",
+      "src\\Modules\\Payments\\Payments.Infrastructure\\Payments.Infrastructure.csproj",
+      "src\\Modules\\Pledges\\Pledges.Application\\Pledges.Application.csproj",
+      "src\\Modules\\Pledges\\Pledges.Domain\\Pledges.Domain.csproj",
+      "src\\Modules\\Pledges\\Pledges.Infrastructure\\Pledges.Infrastructure.csproj",
+      "src\\RemoteCalls\\RemoteCalls.csproj",
+      "src\\Services\\Payments.Host\\Payments.Host.csproj",
+      "tests\\ArchitectureTests\\ArchitectureTests.csproj",
+      "tests\\Campaigns.UnitTests\\Campaigns.UnitTests.csproj",
+      "tests\\Contracts.ConsumerTests\\Contracts.ConsumerTests.csproj",
+      "tests\\Gateway.Tests\\Gateway.Tests.csproj",
+      "tests\\IntegrationTests\\IntegrationTests.csproj",
+      "tests\\Messaging.Tests\\Messaging.Tests.csproj",
+      "tests\\Payments.UnitTests\\Payments.UnitTests.csproj",
+      "tests\\RemoteCalls.Tests\\RemoteCalls.Tests.csproj"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "solution": {
+    "path": "Contracts.slnx",
+    "projects": [
+      "src\\Modules\\Campaigns\\Campaigns.Contracts\\Campaigns.Contracts.csproj",
+      "src\\Modules\\Payments\\Payments.Contracts\\Payments.Contracts.csproj",
+      "src\\Modules\\Pledges\\Pledges.Contracts\\Pledges.Contracts.csproj"
+    ]
+  }
+}

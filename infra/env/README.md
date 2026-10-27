@@ -20,8 +20,13 @@ current=$(terraform -chdir=infra/env output -raw service_image 2>/dev/null || tr
 terraform -chdir=infra/env apply -var image=<ecr url>:<tag> -var gateway_image=<gateway url>:<tag> -var service_image="$current"
 # 2. run the migration task (see .github/workflows/sandbox.yml), then 3. roll the service onto the release:
 terraform -chdir=infra/env apply -var image=<ecr url>:<tag> -var gateway_image=<gateway url>:<tag> -var service_image=<ecr url>:<tag>
+STATE_BUCKET=<state bucket> scripts/destroy-payments.sh   # first: Payments runs in this layer's network
 terraform -chdir=infra/env destroy
 ```
+
+The Payments service has its own root, `infra/services/payments`, applied after this layer and
+destroyed before it (`scripts/deploy-payments.sh`, `scripts/destroy-payments.sh`). It reads this
+layer's outputs from one document, `env/shared.json` in the state bucket (`shared-outputs.tf`).
 
 Both applies are complete plans; neither uses `-target`. The service's image is the only thing the
 first apply holds back, so the migration never runs against a half-built stack.

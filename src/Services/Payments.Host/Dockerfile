@@ -10,7 +10,7 @@ RUN dotnet pack BuildingBlocks.slnx -c Release -o artifacts/packages
 RUN dotnet pack Contracts.slnx -c Release -o artifacts/packages
 RUN dotnet publish src/Services/Payments.Host/Payments.Host.csproj -c Release -o /app
 # The CA bundle the database's certificates chain to, as in the monolith's image: the connection
-# string asks Npgsql to check the server against it (SSL Mode=VerifyFull).
+# strings ask Npgsql to check the server against it (SSL Mode=VerifyFull).
 ADD https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /rds/global-bundle.pem
 RUN chmod 644 /rds/global-bundle.pem
 

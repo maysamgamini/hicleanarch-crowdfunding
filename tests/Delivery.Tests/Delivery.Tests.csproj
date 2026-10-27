@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Reads the repository's files only (solution, filters, project files, workflows, Terraform), so it
+       references no project and runs in every pipeline in seconds. -->
+
+</Project>

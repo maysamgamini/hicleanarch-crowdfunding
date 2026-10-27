@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Smoke test against a running API: create a draft as a creator, read it back, publish it.
+# Smoke test against a running API: create a draft as a creator, read it back, publish it; then
+# reach Payments' webhook endpoint.
 # Usage: TOKEN=<creator access token> smoke.sh <base url>
 set -euo pipefail
 base="${1:?usage: TOKEN=<token> smoke.sh <base url>}"
@@ -21,4 +22,7 @@ id=$(echo "$created" | sed -E 's/.*"campaign_id":"([^"]+)".*/\1/')
 curl -sf "$base/v1/campaigns/$id" | grep -q '"status":"DRAFT"'
 curl -sf -X POST "$base/v1/campaigns/$id/publish" -H "Authorization: Bearer $token" -H "Idempotency-Key: $(key)" >/dev/null
 curl -sf "$base/v1/campaigns/$id" | grep -q '"status":"LIVE"'
+
+# Payments' webhook endpoint answers through the gateway: an unsigned call is refused by Payments itself.
+test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$base/v1/webhooks/psp" -H 'Content-Type: application/json' -d '{}')" = "400"
 echo "smoke test passed: $id"

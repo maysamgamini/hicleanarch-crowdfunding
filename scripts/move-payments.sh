@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Moves Payments' tables from the shared cluster to a clone of it (lesson s4-l07: fence, clone,
-# switch). Each step of `move-payments` runs as a one-off ECS task of the release image; Terraform
-# makes the clone and rolls Payments onto its new secret. Run it from the repository root with the
-# sandbox's AWS credentials, after a deploy, with the same TF_VAR_image, TF_VAR_gateway_image and
-# TF_VAR_service_image the deploy used and Terraform initialised against the sandbox's state. It
-# needs GNU date (a Linux runner).
+# switch). Each step of `move-payments` runs as a one-off ECS task of Payments' image (its own root,
+# infra/services/payments, s4-l09); the shared layer (infra/env) makes the clone, and Payments' root
+# rolls Payments onto its new secret. Run it from the repository root with the sandbox's AWS
+# credentials, after a deploy, with the same TF_VAR_image and TF_VAR_gateway_image the monolith's
+# deploy used, and both roots initialised against the sandbox's state. It needs GNU date (a Linux runner).
 #
 #   scripts/move-payments.sh             the whole move, to resume
 #   scripts/move-payments.sh --rehearse  the move up to the switch, then the rollback, then a check
@@ -18,7 +18,15 @@ cd "$(dirname "$0")/.."
 summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
 tf() { terraform -chdir=infra/env "$@"; }
 out() { tf output -raw "$1"; }
-apply() { tf apply -input=false -auto-approve -var "payments_database_clone=$1" -var "payments_database=$2"; }
+pay() { terraform -chdir=infra/services/payments "$@"; }
+pout() { pay output -raw "$1"; }
+# The shared layer with the clone's switches, then Payments' root, which reads the secrets the shared
+# layer publishes (its tasks' connection, the move task's clone secrets) and keeps its running image.
+apply() {
+  tf apply -input=false -auto-approve -var "service_image=$(out service_image)" -var "payments_deployed=$(out payments_deployed)" \
+    -var "payments_database_clone=$1" -var "payments_database=$2"
+  pay apply -input=false -auto-approve -var "image=$(pout service_image)" -var "service_image=$(pout service_image)"
+}
 timed() {
   local start
   start=$(date +%s)
@@ -29,8 +37,8 @@ timed() {
 last_task=""
 step() {
   last_task=$(aws ecs run-task --cluster "$(out cluster)" --launch-type FARGATE \
-    --task-definition "$(out move_payments_task_definition)" \
-    --network-configuration "awsvpcConfiguration={subnets=[$(out task_subnets)],securityGroups=[$(out payments_security_group)],assignPublicIp=ENABLED}" \
+    --task-definition "$(pout move_payments_task_definition)" \
+    --network-configuration "awsvpcConfiguration={subnets=[$(pout task_subnets)],securityGroups=[$(pout task_security_group)],assignPublicIp=ENABLED}" \
     --overrides "{\"containerOverrides\":[{\"name\":\"move-payments\",\"command\":[\"move-payments\",\"$1\"]}]}" \
     --query 'tasks[0].taskArn' --output text)
   aws ecs wait tasks-stopped --cluster "$(out cluster)" --tasks "$last_task"
@@ -56,7 +64,7 @@ wait_restorable() {
 }
 
 services_stable() {
-  aws ecs wait services-stable --cluster "$(out cluster)" --services "$(out service)"
+  aws ecs wait services-stable --cluster "$(pout cluster)" --services "$(pout service)"
 }
 
 rollback() {
