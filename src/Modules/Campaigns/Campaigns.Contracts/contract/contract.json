@@ -1,8 +1,45 @@
 {
   "package": "CrowdFunding.Campaigns.Contracts",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "events": {
     "CampaignCancelled": {
+      "version": 1,
+      "schema": {
+        "type": "object",
+        "properties": {
+          "campaignId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "creatorId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "eventId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "occurredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "campaignId",
+          "creatorId",
+          "eventId",
+          "occurredAt"
+        ]
+      }
+    },
+    "CampaignCreatorRecorded": {
       "version": 1,
       "schema": {
         "type": "object",

@@ -284,9 +284,10 @@ run "the_monolith_holds_nothing_of_notifications" {
   }
 
   assert {
-    condition = [for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e.value
-    if startswith(e.name, "Modules__Notifications")] == ["Remote"]
-    error_message = "For the previous image the first apply runs, the monolith's one Notifications setting is Mode = Remote."
+    # s5-l04 kept Mode = Remote one release, for the image before it; s5-l05 removes it.
+    condition = length([for e in jsondecode(aws_ecs_task_definition.api.container_definitions)[0].environment : e
+    if startswith(e.name, "Modules__Notifications")]) == 0
+    error_message = "The monolith has no Notifications setting left."
   }
 
   assert {

@@ -22,6 +22,12 @@
         "Notifications"
       ]
     },
+    "CampaignCreatorRecorded": {
+      "producer": "Campaigns",
+      "consumers": [
+        "Pledges"
+      ]
+    },
     "CampaignCancelled": {
       "producer": "Campaigns",
       "consumers": [

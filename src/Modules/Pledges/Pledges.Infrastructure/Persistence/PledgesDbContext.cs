@@ -44,6 +44,8 @@ internal sealed class PledgesDbContext(DbContextOptions<PledgesDbContext> option
             window.HasIndex(w => w.Deadline, "funding_windows_due").HasFilter("status IN ('LIVE', 'ENDED')").HasDatabaseName("funding_windows_due");
             // Written only by the close's SQL: when the decision was made, and the check a minute later (lesson s3-l05).
             window.Property<DateTimeOffset?>("DecidedAt");
+            // Copied from CampaignPublished, or backfilled from CampaignCreatorRecorded (lesson s5-l05).
+            window.Property<Guid?>("CreatorId");
             window.Property<DateTimeOffset?>("RecheckedAt");
             window.Property<long?>("RecheckMinor");
             window.HasIndex("DecidedAt").HasFilter("rechecked_at IS NULL").HasDatabaseName("funding_windows_to_recheck");

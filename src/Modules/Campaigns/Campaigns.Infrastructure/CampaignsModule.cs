@@ -40,6 +40,10 @@ public static class CampaignsModule
         services.AddModuleEvents<CampaignsDbContext>(CampaignsModuleName.Value);
         services.AddPublishedEvent<CampaignPublished>(CampaignsModuleName.Value);
         services.AddPublishedEvent<CampaignCancelled>(CampaignsModuleName.Value);
+        services.AddPublishedEvent<CampaignCreatorRecorded>(CampaignsModuleName.Value);
+        services.AddOptions<LiveCancelOptions>().Bind(configuration.GetSection("Campaigns:LiveCancel"))
+            .Validate(o => o.SunsetAt > o.DeprecatedAt, "Campaigns:LiveCancel: the Sunset date must come after the deprecation.")
+            .ValidateOnStart();
         services.AddEventHandler<FundingCancelled, RecordFundingCancelled>(CampaignsModuleName.Value);
         services.AddEventHandler<CampaignFundingDecided, FollowFundingDecision>(CampaignsModuleName.Value);
         services.AddEventHandler<Payments.Contracts.CampaignSettled, FollowSettlement>(CampaignsModuleName.Value);
@@ -114,6 +118,12 @@ public static class CampaignsModule
             if (!asked.IsSuccess)
             {
                 return asked.Errors.ToProblem();
+            }
+
+            // A LIVE cancel belongs to Pledges now (lesson s5-l05): this branch still works, deprecated and counted.
+            if (asked.Value == CampaignStatus.Live)
+            {
+                LiveCancelDeprecation.Mark(http, id);
             }
 
             return await once.Run(http, user.UserId(), new { id }, async ct =>

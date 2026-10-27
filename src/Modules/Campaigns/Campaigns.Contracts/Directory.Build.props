@@ -4,8 +4,8 @@
 
   <PropertyGroup>
     <!-- The one place this package's version is set. The snapshot test refuses a contract change without the bump SemVer asks for. -->
-    <Version>1.0.0</Version>
-    <Description>What the Campaigns module tells the others: a campaign was published or cancelled.</Description>
+    <Version>1.1.0</Version>
+    <Description>What the Campaigns module tells the others: a campaign was published or cancelled, and (until s5-l11) a LIVE campaign's creator.</Description>
   </PropertyGroup>
 
   <Import Project="$(MSBuildThisFileDirectory)../../ContractsPackage.props" />

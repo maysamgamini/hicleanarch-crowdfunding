@@ -23,6 +23,7 @@ using Payments.Contracts;
 using Pledges.Application;
 using Pledges.Contracts;
 using Pledges.Domain;
+using Pledges.Infrastructure.FundingCancel;
 using Pledges.Infrastructure.HotTier;
 using Pledges.Infrastructure.Persistence;
 using Pledges.Infrastructure.Sharding;
@@ -104,6 +105,7 @@ public static class PledgesModule
         services.AddSingleton<ICampaignShards>(new SingleShard(jobsConnection));
         services.AddSingleton<ILedgerSums, ShardedLedgerSums>();
         services.AddHostedService<LedgerPartitionJob>();
+        services.AddFundingCancel(configuration);
         return services
             .AddPledgesApplication()
             .AddScoped<EfFundingWindows>()
@@ -149,6 +151,8 @@ public static class PledgesModule
 
     public static IEndpointRouteBuilder MapPledgesEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapFundingCancel();
+
         // Every change carries an Idempotency-Key and runs once per key (lesson s1-a04).
         // A new card's setup is started at the PSP before the pledge's transaction opens, so no PSP
         // call ever runs while that transaction holds the funding window or a tier row. A retry of a

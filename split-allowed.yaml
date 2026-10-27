@@ -28,6 +28,17 @@ allowed:
       - src/Modules/Pledges/Pledges.Application/Pledges.Application.csproj
       - src/Modules/Notifications/Notifications.csproj
 
+  # s5-l05 (CQA-1770): the creator's LIVE cancel was Campaigns' command, but the deadline it stops is
+  # Pledges'. Drawn wrong in the monolith; corrected here before Campaigns leaves (s5-l08), so the cancel
+  # never crosses a network on a write path. The split forced this domain change.
+  - class: boundary-correction
+    id: s5-l05, CQA-1770
+    reason: the LIVE cancel moves to Pledges, which owns the deadline; Pledges stores the creator to check it
+    paths:
+      - src/Modules/Pledges/Pledges.Application/CancelFundingAsCreator.cs
+      - src/Modules/Pledges/Pledges.Application/OpenFundingWindow.cs
+      - src/Modules/Pledges/Pledges.Domain/PledgeErrors.cs
+
   # Release 1 fixes on the code track, one entry per ticket.
   - class: release-1-fix
     id: CQA-1771

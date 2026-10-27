@@ -9,6 +9,7 @@ using CrowdFunding.Messaging;
 using Payments.Client;
 
 using Pledges.Infrastructure;
+using Pledges.Infrastructure.FundingCancel;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -41,6 +42,15 @@ builder.Services.AddOpenSinks();
 builder.Services.AddServiceCommand(new ServiceCommand("open-sinks", (services, rest, ct) => OpenSinks.Run(services, rest, Console.Out, ct)));
 builder.Services.AddOpenSinksCheck("Notifications");
 
+// One-off steps of moving the LIVE cancel to Pledges (lesson s5-l05): `record-creators` publishes every
+// LIVE campaign's creator; `check-creators` exits 0 once no open funding window lacks one.
+builder.Services.AddServiceCommand(new ServiceCommand("record-creators", async (services, _, ct) =>
+{
+    await services.RecordCreators(ct);
+    return 0;
+}));
+builder.Services.AddServiceCommand(new ServiceCommand("check-creators", (services, _, ct) => services.CheckCreators(ct)));
+
 // Each module brings its own services and endpoints. The host only composes them.
 builder.Services.AddCampaignsModule(builder.Configuration);
 builder.Services.AddPledgesModule(builder.Configuration);
@@ -61,7 +71,8 @@ if (app.Environment.IsDevelopment() || app.Environment.IsEnvironment("Testing"))
 }
 
 // `migrate` prepares the database and exits, a deploy step, never part of start-up; `replay-events
-// --module Pledges --from … --to …` publishes a range of published events again; otherwise it serves.
+// --module Pledges --from … --to …` publishes a range of published events again; the other commands
+// above run likewise and exit; otherwise it serves.
 await app.RunService(args);
 
 /// <summary>Visible to the integration tests, which start the host in memory.</summary>

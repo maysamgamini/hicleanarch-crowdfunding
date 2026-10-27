@@ -19,5 +19,7 @@ public static class PledgeErrors
     public static readonly Error TierSoldOut = Error.Conflict("tier_sold_out", "This tier has no place left. Nothing was created.");
     public static readonly Error CardSetupFailed = Error.Conflict("card_setup_unavailable", "Saving a card is not possible right now; nothing was created. Try again.");
     public static readonly Error NotWaitingForCard = Error.Conflict("pledge_not_waiting_for_card", "This pledge is not waiting for a card, or its hold has ended.");
+    public static readonly Error CreatorUnknown = Error.Conflict("creator_unknown", "Pledges does not know this campaign's creator yet; try again later.");
+    public static readonly Error NotYourCampaign = Error.Forbidden("not_your_campaign", "Only the campaign's creator may do this.");
     public static readonly Error FundingNotOpen = Error.Conflict("funding_not_open", "This campaign's funding is not open yet; try again in a moment.");
 }

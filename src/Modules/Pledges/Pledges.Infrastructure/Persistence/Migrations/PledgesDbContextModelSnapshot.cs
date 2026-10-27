@@ -170,6 +170,10 @@ namespace Pledges.Infrastructure.Persistence.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("backers");
 
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("creator_id");
+
                     b.Property<string>("Currency")
                         .IsRequired()
                         .HasMaxLength(3)
