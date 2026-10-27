@@ -86,9 +86,8 @@ public sealed class DunningTests(Database database) : IDisposable
         await Scenario.Eventually(async () => await PledgeStatus(given, campaign) == "DROPPED");
         Assert.Equal("FUNDED", await given.Scalar<string>("SELECT status FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(-6_000L, await given.Scalar<long>("SELECT delta_minor FROM pledges.pledge_ledger WHERE campaign_id = @id AND kind = 'DROP'", campaign.CampaignId));
-        Assert.Equal(
-            await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId),
-            await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(0L, await given.Scalar<long>("SELECT coalesce(sum(delta_minor), 0)::bigint FROM pledges.pledge_ledger WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(6_000L, await given.Scalar<long>("SELECT final_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
     }
 
     [Fact]

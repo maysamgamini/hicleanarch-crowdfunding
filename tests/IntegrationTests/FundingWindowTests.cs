@@ -38,7 +38,7 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         var given = new Scenario(database, _host);
         var campaign = await given.Publish();
         // Something Pledges did since, which a second open must not undo.
-        await given.Execute("UPDATE pledges.funding_windows SET pledged_minor = 777 WHERE campaign_id = @id", campaign.CampaignId);
+        await given.Execute("UPDATE pledges.funding_windows SET goal_minor = 777 WHERE campaign_id = @id", campaign.CampaignId);
 
         var eventId = await given.Scalar<Guid>(
             "SELECT id FROM campaigns.outbox WHERE type = 'CampaignPublished' AND payload->>'campaignId' = @id::text", campaign.CampaignId);
@@ -46,7 +46,7 @@ public sealed class FundingWindowTests(Database database) : IDisposable
         await _host.Services.GetRequiredService<OutboxDispatcher>()
             .Deliver(new OutboxRecord(CampaignsModuleName.Value, eventId, nameof(CampaignPublished), payload), Ct);
 
-        Assert.Equal(777L, await given.Scalar<long>("SELECT pledged_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
+        Assert.Equal(777L, await given.Scalar<long>("SELECT goal_minor FROM pledges.funding_windows WHERE campaign_id = @id", campaign.CampaignId));
         Assert.Equal(1L, await given.Scalar<long>("SELECT count(*) FROM pledges.inbox WHERE event_id = @id", eventId));
     }
 

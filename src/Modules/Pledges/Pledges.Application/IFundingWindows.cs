@@ -28,17 +28,11 @@ public interface IFundingWindows
     /// <summary>
     /// The fence's pledge side: accepts only while the window is LIVE and before the deadline by the
     /// database's clock, and makes sure the close does not sum the ledger before this transaction
-    /// has either committed or ended. False: pledging has closed. Round 1's adapter adds to the
-    /// snapshot under the window's row lock, which the close waits for; Round 2's only reads the
-    /// window, and the close waits out the transactions' time limit instead (lesson s3-l05).
+    /// has either committed or ended. False: pledging has closed. Round 1 added to a snapshot under
+    /// the window's row lock, which the close waited for; Round 2 only reads the window, and the
+    /// close waits out the transactions' time limit instead (lesson s3-l05).
     /// </summary>
-    Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// A dropped pledge leaves the snapshot, in the same transaction as its DROP entry, so the snapshot
-    /// still equals the ledger. The decision and its final sum are not touched.
-    /// </summary>
-    Task TakeOutDropped(Guid campaignId, long amountMinor, CancellationToken cancellationToken);
+    Task<bool> TryAccept(Guid campaignId, CancellationToken cancellationToken);
 }
 
 public enum CancelOutcome

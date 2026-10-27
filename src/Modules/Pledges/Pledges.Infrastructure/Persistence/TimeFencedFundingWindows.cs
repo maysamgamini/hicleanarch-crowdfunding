@@ -16,7 +16,7 @@ internal sealed class TimeFencedFundingWindows(PledgesDbContext db, EfFundingWin
     // The role's transaction_timeout is only the default a session starts with: PostgreSQL lets any
     // session SET it, even to 0 (context "user"). So the read that lets a pledge in also reads the
     // limit in force, in the same statement, and refuses to go on without one the fence can rely on.
-    public async Task<bool> TryAccept(Guid campaignId, long deltaMinor, int backerDelta, CancellationToken cancellationToken)
+    public async Task<bool> TryAccept(Guid campaignId, CancellationToken cancellationToken)
     {
         var read = await db.Database.SqlQuery<FenceRead>($"""
             SELECT EXISTS (SELECT 1 FROM pledges.funding_windows
@@ -43,10 +43,6 @@ internal sealed class TimeFencedFundingWindows(PledgesDbContext db, EfFundingWin
 
     public Task<bool> IsOpen(Guid campaignId, CancellationToken cancellationToken) =>
         rowLocked.IsOpen(campaignId, cancellationToken);
-
-    // Round 2 writes no snapshot, so a dropped pledge has nothing to take out of it: its DROP entry is
-    // in the ledger, which the aggregator and the checks sum, and a decided campaign shows its final sum.
-    public Task TakeOutDropped(Guid campaignId, long amountMinor, CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 /// <summary>Whether pledging is open, and the transaction time limit in force while it was read.</summary>

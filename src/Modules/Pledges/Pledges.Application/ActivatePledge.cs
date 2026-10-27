@@ -34,7 +34,7 @@ public sealed class ActivatePledge(
         var limited = pledge.TierId is { } tierId && (await tiers.Find(tierId, cancellationToken))?.IsLimited == true;
 
         // Lesson 7's fence: the pledge counts only while pledging is open.
-        if (!await windows.TryAccept(pledge.CampaignId, pledge.AmountMinor, backerDelta: 1, cancellationToken))
+        if (!await windows.TryAccept(pledge.CampaignId, cancellationToken))
         {
             await pledges.TryExpireActivated(pledge.Id, cancellationToken);
             if (limited)
