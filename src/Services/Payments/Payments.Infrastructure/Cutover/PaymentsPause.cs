@@ -95,7 +95,8 @@ internal sealed class PausedPayments(IPaymentsPause pause) : IEndpointFilter
         context.HttpContext.Response.Headers.RetryAfter = RetryAfterSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture);
         return Results.Problem(
             statusCode: StatusCodes.Status503ServiceUnavailable,
-            title: "Payments is paused for a few minutes. Send the request again later; a change keeps its Idempotency-Key.",
+            // No duration: the move's pause is estimated at tens of minutes, and only a rehearsal times it (CQA-2113).
+            title: "Payments is paused while its data moves. Send the request again after Retry-After; a change keeps its Idempotency-Key.",
             extensions: new Dictionary<string, object?> { ["reason"] = "payments_paused" });
     }
 }
