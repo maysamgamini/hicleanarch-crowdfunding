@@ -15,9 +15,9 @@
   <ItemGroup>
     <PackageReference Include="CrowdFunding.BuildingBlocks.Infrastructure" />
     <PackageReference Include="CrowdFunding.BuildingBlocks.Application" />
-    <ProjectReference Include="..\Campaigns\Campaigns.Contracts\Campaigns.Contracts.csproj" />
-    <ProjectReference Include="..\Pledges\Pledges.Contracts\Pledges.Contracts.csproj" />
-    <ProjectReference Include="..\Payments\Payments.Contracts\Payments.Contracts.csproj" />
+    <PackageReference Include="CrowdFunding.Campaigns.Contracts" />
+    <PackageReference Include="CrowdFunding.Pledges.Contracts" />
+    <PackageReference Include="CrowdFunding.Payments.Contracts" />
   </ItemGroup>
 
 </Project>

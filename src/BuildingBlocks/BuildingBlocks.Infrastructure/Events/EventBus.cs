@@ -16,7 +16,7 @@ public sealed record OutboxRecord(string Module, Guid EventId, string Type, stri
 /// <summary>The in-process transport: committed events wait here for the dispatcher.</summary>
 public sealed class EventBus
 {
-    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    internal static readonly JsonSerializerOptions Json = ContractJson.Options;
 
     private readonly Channel<OutboxRecord> _channel = Channel.CreateUnbounded<OutboxRecord>();
 

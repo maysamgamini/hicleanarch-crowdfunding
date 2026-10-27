@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The consumers' side: the modules as the host composes them, built against the published Contracts
+       packages, and those packages' recorded examples, copied from the very versions restored. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Host\Host.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CrowdFunding.Campaigns.Contracts" GeneratePathProperty="true" />
+    <PackageReference Include="CrowdFunding.Pledges.Contracts" GeneratePathProperty="true" />
+    <PackageReference Include="CrowdFunding.Payments.Contracts" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(PkgCrowdFunding_Campaigns_Contracts)/contract/**/*.json" Link="contract/Campaigns/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(PkgCrowdFunding_Pledges_Contracts)/contract/**/*.json" Link="contract/Pledges/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(PkgCrowdFunding_Payments_Contracts)/contract/**/*.json" Link="contract/Payments/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+</Project>

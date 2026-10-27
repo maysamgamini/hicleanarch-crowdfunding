@@ -150,7 +150,7 @@ public sealed class SplitSwitchTests(Database database)
         var client = host.CreateClient();
         Assert.True(NotServed((await client.PostAsync("/v1/webhooks/psp", new StringContent("{}"), Ct)).StatusCode));
         Assert.True(NotServed((await client.GetAsync($"/v1/campaigns/cmp_{Guid.NewGuid():N}/settlement", Ct)).StatusCode));
-        Assert.True(NotServed((await client.PostAsJsonAsync(PaymentsInternalEndpoints.StartCardSetup, new { pledge_id = Guid.NewGuid(), backer_id = Guid.NewGuid() }, Ct)).StatusCode));
+        Assert.True(NotServed((await client.PostAsJsonAsync("/internal/payments/card-setups", new { pledgeId = Guid.NewGuid(), backerId = Guid.NewGuid() }, Ct)).StatusCode));
         Assert.DoesNotContain(host.Services.GetServices<BuildingBlocks.Infrastructure.Events.IModuleEvents>(), m => m.Module == PaymentsModuleName.Value);
     }
 

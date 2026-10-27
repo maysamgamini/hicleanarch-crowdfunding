@@ -1,0 +1,22 @@
+{
+  "eventId": "3a5c7e9a-1b3d-4f5a-8c7e-000000000001",
+  "occurredAt": "2026-11-02T14:05:31.512+00:00",
+  "campaignId": "0b7e5c2a-3f41-4c8e-9a6d-2f1e8b3c4d01",
+  "creatorId": "5a1d9e44-7b2c-4f10-8e3a-6c9d0b1a2e02",
+  "goalMinor": 5000000,
+  "currency": "USD",
+  "deadline": "2027-03-31T23:59:00-04:00",
+  "tiers": [
+    {
+      "tierId": "4d6f8a0c-2e4a-4c6e-9b1d-3f5a7c9e1b05",
+      "minPledgeMinor": 2500,
+      "limitQty": 200
+    },
+    {
+      "tierId": "7f9b1d3f-5a7c-4e9a-8c2e-4a6c8e0a2d06",
+      "minPledgeMinor": 10000,
+      "limitQty": null
+    }
+  ],
+  "version": 1
+}

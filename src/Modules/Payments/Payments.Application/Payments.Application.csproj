@@ -2,10 +2,10 @@
 
   <ItemGroup>
     <PackageReference Include="CrowdFunding.BuildingBlocks.Application" />
-    <ProjectReference Include="..\Payments.Contracts\Payments.Contracts.csproj" />
+    <PackageReference Include="CrowdFunding.Payments.Contracts" />
     <ProjectReference Include="..\Payments.Domain\Payments.Domain.csproj" />
-    <ProjectReference Include="..\..\Campaigns\Campaigns.Contracts\Campaigns.Contracts.csproj" />
-    <ProjectReference Include="..\..\Pledges\Pledges.Contracts\Pledges.Contracts.csproj" />
+    <PackageReference Include="CrowdFunding.Campaigns.Contracts" />
+    <PackageReference Include="CrowdFunding.Pledges.Contracts" />
   </ItemGroup>
 
 </Project>

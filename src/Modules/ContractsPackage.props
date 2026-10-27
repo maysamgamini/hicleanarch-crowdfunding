@@ -1,0 +1,27 @@
+<Project>
+  <!-- A module's Contracts are a product of their own, like the BuildingBlocks: versioned, packed and
+       published as a package, so a service built from another part of the repository, or from none of
+       it, builds against a released version. Each Contracts project sets its own <Version> first.
+       SemVer: within a major version a contract only gains optional fields and new messages. -->
+  <PropertyGroup>
+    <IsPackable>true</IsPackable>
+    <PackageId>CrowdFunding.$(MSBuildProjectName)</PackageId>
+    <Authors>hicleanarch</Authors>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/maysamgamini/hicleanarch-crowdfunding</RepositoryUrl>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
+    <!-- The contract's files are added once, below, with their place in the package. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);contract/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)ContractsPackage.md" Pack="true" PackagePath="/README.md" Visible="false" />
+    <!-- The snapshot of the contract and its recorded examples ship in the package: a consumer's tests
+         read the examples of the very version it builds against. -->
+    <None Include="contract/**/*.json" Pack="true" PackagePath="contract/" />
+  </ItemGroup>
+</Project>

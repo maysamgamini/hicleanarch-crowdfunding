@@ -1,0 +1,12 @@
+<Project>
+  <!-- Pledges.Contracts is a package of its own (see ../../ContractsPackage.props). The repository's settings come first. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <!-- The one place this package's version is set. The snapshot test refuses a contract change without the bump SemVer asks for. -->
+    <Version>1.0.0</Version>
+    <Description>What the Pledges module tells the others and accepts from them: pledges, funding decisions, charge requests, the cancel of a campaign's funding.</Description>
+  </PropertyGroup>
+
+  <Import Project="$(MSBuildThisFileDirectory)../../ContractsPackage.props" />
+</Project>

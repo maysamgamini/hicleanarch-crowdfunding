@@ -30,16 +30,6 @@ public sealed partial class SqsEventReader(
     IEnumerable<IModuleEvents> modules,
     ILogger<SqsEventReader> logger) : BackgroundService, IStopParticipant
 {
-    /// <summary>
-    /// Events read from a queue are read strictly: a missing required field or a null where none is
-    /// allowed fails the handler, and the message reaches the dead-letter queue instead of being handled with a default.
-    /// </summary>
-    public static readonly JsonSerializerOptions StrictJson = new(JsonSerializerDefaults.Web)
-    {
-        RespectRequiredConstructorParameters = true,
-        RespectNullableAnnotations = true,
-    };
-
     private static readonly ActivitySource Source = new(OutboxDispatcher.ActivitySourceName);
 
     private readonly SemaphoreSlim _handling = new(options.MaxConcurrentMessages);
@@ -166,7 +156,7 @@ public sealed partial class SqsEventReader(
         using var activity = Source.StartActivity($"receive {type}", ActivityKind.Consumer, Attribute(message, MessageAttributes.TraceParent));
         activity?.SetTag("messaging.system", "aws_sqs");
         activity?.SetTag("messaging.message.id", message.MessageId);
-        var integrationEvent = (IntegrationEvent)JsonSerializer.Deserialize(message.Body, eventType, StrictJson)!;
+        var integrationEvent = (IntegrationEvent)JsonSerializer.Deserialize(message.Body, eventType, ContractJson.Options)!;
         foreach (var handler in owed)
         {
             var target = modules.Single(m => m.Module == handler.Module);

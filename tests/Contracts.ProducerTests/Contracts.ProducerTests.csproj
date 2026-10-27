@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The producers' side: the Contracts from source, so a contract change fails here before it can be packed and published. -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Modules\Campaigns\Campaigns.Contracts\Campaigns.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Pledges\Pledges.Contracts\Pledges.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\Modules\Payments\Payments.Contracts\Payments.Contracts.csproj" />
+    <!-- The broker adapter, for the event_version attribute it puts on each message (s4-l02). -->
+    <ProjectReference Include="..\..\src\Messaging\Messaging.csproj" />
+  </ItemGroup>
+
+</Project>
