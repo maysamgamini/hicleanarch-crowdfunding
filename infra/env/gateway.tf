@@ -8,6 +8,12 @@ variable "gateway_image" {
   default     = "public.ecr.aws/docker/library/nginx:stable" # only so that destroy needs no argument
 }
 
+variable "edge_limit_per_second" {
+  description = "Requests a second one client may make through the gateway. A load test sends everything from one machine, so the sandbox workflow raises it for a load run."
+  type        = number
+  default     = 20
+}
+
 variable "gateway_count" {
   description = "How many gateway tasks run. The gateway splits its limits by this number if Valkey is down."
   type        = number
@@ -103,6 +109,8 @@ resource "aws_ecs_task_definition" "gateway" {
       { name = "ReverseProxy__Clusters__monolith__Destinations__monolith__Address", value = "http://${aws_lb.internal.dns_name}/" },
       { name = "EdgeLimits__Valkey", value = local.valkey_configuration },
       { name = "EdgeLimits__GatewayTasks", value = tostring(var.gateway_count) },
+      { name = "EdgeLimits__PerSecond", value = tostring(var.edge_limit_per_second) },
+      { name = "EdgeLimits__Burst", value = tostring(var.edge_limit_per_second * 2) },
       # X-Forwarded-For is trusted only from the load balancer, inside the VPC.
       { name = "ForwardedHeaders__KnownNetwork", value = aws_vpc.main.cidr_block },
       # A caller from CloudFront's edges is limited by the viewer's address, not the edge's.

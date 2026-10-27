@@ -8,6 +8,9 @@ on:
       keep_minutes:
         description: "Minutes to keep the environment up after the smoke test (0 = destroy at once)"
         default: "0"
+      load_scale:
+        description: "Run the Round 2 load profile at this fraction of the loop's rates, e.g. 0.02 (0 = no load test)"
+        default: "0"
   schedule:
     - cron: "17 3 * * *" # nightly: destroy anything left up
 
@@ -39,6 +42,8 @@ jobs:
           terraform_wrapper: false
       - id: ecr
         uses: aws-actions/amazon-ecr-login@v2
+      - uses: grafana/setup-k6-action@v1
+        if: inputs.load_scale != '0'
 
       - name: Build and push the image
         id: image
@@ -84,9 +89,15 @@ jobs:
         env:
           IMAGE: ${{ steps.image.outputs.image }}
           GATEWAY_IMAGE: ${{ steps.image.outputs.gateway }}
+          LOAD_SCALE: ${{ inputs.load_scale || '0' }}
         run: |
           start=$(date +%s)
-          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE" -var "gateway_image=$GATEWAY_IMAGE"
+          # A load run comes from this one runner, which the gateway would limit as a single client:
+          # the run measures the system behind the edge, so it lifts the per-client limit.
+          edge_limit=20
+          if [ "$LOAD_SCALE" != "0" ]; then edge_limit=100000; fi
+          terraform -chdir=infra/env apply -input=false -auto-approve -var "image=$IMAGE" -var "gateway_image=$GATEWAY_IMAGE" \
+            -var "edge_limit_per_second=$edge_limit"
           aws ecs wait services-stable --cluster "$(terraform -chdir=infra/env output -raw cluster)" \
             --services "$(terraform -chdir=infra/env output -raw service)"
           echo "Second apply and rollout took $(( $(date +%s) - start )) s" >> "$GITHUB_STEP_SUMMARY"
@@ -110,6 +121,24 @@ jobs:
         env:
           TOKEN: ${{ steps.creator.outputs.token }}
         run: ./scripts/smoke.sh "$(terraform -chdir=infra/env output -raw api_url)"
+
+      - name: Load test
+        if: inputs.load_scale != '0'
+        env:
+          LOAD_SCALE: ${{ inputs.load_scale }}
+        run: |
+          case "$LOAD_SCALE" in (*[!0-9.]*|'') echo "load_scale must be a number" >&2; exit 1;; esac
+          sudo apt-get install -y jq >/dev/null
+          ./scripts/load.sh "$LOAD_SCALE"
+          cat artifacts/load/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the load report
+        if: always() && inputs.load_scale != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-report
+          path: artifacts/load/
+          if-no-files-found: ignore
 
       - name: Keep it up for a while
         if: inputs.keep_minutes != '0'

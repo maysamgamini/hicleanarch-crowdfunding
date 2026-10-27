@@ -9,3 +9,22 @@ k6 run -e BASE_URL=http://<alb dns name> -e CAMPAIGN_ID=cmp_... -e BACKER_TOKENS
 ```
 
 It never runs in CI. Its results are recorded in the lessons only as measured on the sandbox.
+
+`round2.js` is the loop's Round 2 profile for [k6](https://grafana.com/docs/k6/latest/): a launch
+burst on one campaign, a hot limited tier, totals read through CloudFront, and a funded campaign
+settled at its deadline. Its thresholds are the loop's targets, so a run that misses one fails.
+
+Against the sandbox (after `terraform apply` of `infra/env`):
+
+```bash
+scripts/load.sh 0.02    # 0.02 × the loop's rates: 60 pledges a second; 1 is the full 3,000
+```
+
+The script creates the users the run needs in the sandbox's Cognito pool, runs k6, and writes
+`artifacts/load/report.md` and `report.json`: each target next to what was measured. The sandbox
+workflow runs it when started with `load_scale` above 0, and then lifts the gateway's per-client
+limit for that environment (`edge_limit_per_second`): every request of the run comes from one machine.
+
+Against a local host, give k6 the URLs and a tokens file yourself (`{"creator": "<token>",
+"backers": ["<token>", …]}`, tokens signed with the development key) and set `API_URL`,
+`TOKENS_FILE` (an absolute path), `SCALE` and `REPORT_DIR`.
