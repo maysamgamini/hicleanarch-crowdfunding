@@ -136,13 +136,7 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
             return result;
         });
 
-        if (Interlocked.Decrement(ref _loseNextReplies) >= 0)
-        {
-            return Task.FromResult<ChargeOutcome>(new ChargeOutcome.Unknown("timeout"));
-        }
-
-        Interlocked.Exchange(ref _loseNextReplies, 0);
-        return Task.FromResult(outcome);
+        return Task.FromResult(TakeLostReply() ? new ChargeOutcome.Unknown("timeout") : outcome);
     }
 
     public Task<ChargeOutcome> LookUp(ChargeReference reference, CancellationToken ct)
@@ -264,6 +258,27 @@ public sealed class FakePaymentProvider(IOptions<PaymentsOptions> options, TimeP
     {
         var body = JsonSerializer.Serialize(new { id = $"evt_{Guid.NewGuid():N}", type, data });
         return new SignedWebhook(body, WebhookSignature.Sign(options.Value.WebhookSecret, body, clock.GetUtcNow()));
+    }
+
+    /// <summary>
+    /// One of the replies <see cref="LoseNextReplies"/> asked to lose, if any are left. It only ever
+    /// counts down to zero, so concurrent charges never take more than were asked for, nor undo a new request.
+    /// </summary>
+    private bool TakeLostReply()
+    {
+        var left = Volatile.Read(ref _loseNextReplies);
+        while (left > 0)
+        {
+            var seen = Interlocked.CompareExchange(ref _loseNextReplies, left - 1, left);
+            if (seen == left)
+            {
+                return true;
+            }
+
+            left = seen;
+        }
+
+        return false;
     }
 
     private void Reach(string call)
