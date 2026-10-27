@@ -60,7 +60,20 @@ public sealed partial class OutboxDispatcher(
 
         await foreach (var record in bus.Reader.ReadAllAsync(stoppingToken))
         {
-            _ = Deliver(record, stoppingToken);
+            _ = DeliverInBackground(record, stoppingToken);
+        }
+    }
+
+    /// <summary>Nobody awaits a background delivery, so its faults are logged here; the row stays for recovery.</summary>
+    private async Task DeliverInBackground(OutboxRecord record, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Deliver(record, cancellationToken);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            LogDeliveryFailed(logger, e, record.Type, record.EventId);
         }
     }
 
@@ -85,7 +98,15 @@ public sealed partial class OutboxDispatcher(
 
         if (allHandled)
         {
-            await source.MarkDelivered(record.EventId, cancellationToken);
+            try
+            {
+                await source.MarkDelivered(record.EventId, cancellationToken);
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                // Every handler has its inbox row, so delivering this again later changes nothing.
+                LogDeliveryFailed(logger, e, record.Type, record.EventId);
+            }
         }
     }
 
@@ -103,7 +124,7 @@ public sealed partial class OutboxDispatcher(
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
-                await source.RecordFailure(record.EventId, $"{handler.Handler}: {e.Message}", cancellationToken);
+                await TryRecordFailure(source, record, $"{handler.Handler}: {e.Message}", cancellationToken);
                 if (attempt >= delays.Count)
                 {
                     LogGaveUp(logger, e, handler.Handler, record.Type, record.EventId);
@@ -112,6 +133,22 @@ public sealed partial class OutboxDispatcher(
 
                 await Task.Delay(delays[attempt], cancellationToken);
             }
+        }
+    }
+
+    /// <summary>
+    /// Records why a handler failed. When the database is the cause, this fails too; that is logged,
+    /// and the row simply stays undelivered for the next recovery.
+    /// </summary>
+    private async Task TryRecordFailure(IModuleEvents source, OutboxRecord record, string error, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await source.RecordFailure(record.EventId, error, cancellationToken);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            LogRecordFailed(logger, e, record.Type, record.EventId);
         }
     }
 
@@ -157,6 +194,12 @@ public sealed partial class OutboxDispatcher(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "{Handler} failed on {Type} {EventId} after every retry; it stays undelivered")]
     private static partial void LogGaveUp(ILogger logger, Exception exception, string handler, string type, Guid eventId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Delivering {Type} {EventId} failed; the row stays undelivered for recovery")]
+    private static partial void LogDeliveryFailed(ILogger logger, Exception exception, string type, Guid eventId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Could not record a failure for {Type} {EventId}; the row stays undelivered for recovery")]
+    private static partial void LogRecordFailed(ILogger logger, Exception exception, string type, Guid eventId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "The {Module} outbox does not exist yet; run migrate")]
     private static partial void LogNotMigrated(ILogger logger, string module);
