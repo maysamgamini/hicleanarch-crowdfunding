@@ -59,6 +59,7 @@ public static class PledgesModule
         services.AddHostedService<HoldSweeper>();
         services.AddHostedService<CloseJob>();
         services.AddHostedService<PledgesMonitor>();
+        services.AddHostedService<PledgesInvariants>();
         services.AddHostedService<TotalsCheck>();
         AddDisplayTotals(services, configuration);
         services.AddPublishedEvent<PledgeActivated>();

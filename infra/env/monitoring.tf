@@ -42,6 +42,36 @@ locals {
       threshold   = 0
       description = "Our money ledger and the PSP's report disagree for a settled campaign: its payout waits. See payments.reconciliation_differences for each movement and kind (lesson s3-l15)."
     }
+    oversold_tiers = {
+      metric      = "invariants.oversold_tiers"
+      meter       = "CrowdFunding.Operations"
+      threshold   = 0
+      description = "A limited tier has more places taken than its limit, by its counter or by its live pledges (lesson s1-a02's first rule). Find the tier with the query in PledgesInvariants."
+    }
+    charged_unfunded = {
+      metric      = "invariants.charged_unfunded"
+      meter       = "CrowdFunding.Operations"
+      threshold   = 0
+      description = "A pledge of an unsuccessful or cancelled campaign is marked for a charge or charged. Stop settlement for it and find how the mark was made."
+    }
+    ledger_after_decision = {
+      metric      = "invariants.ledger_after_decision"
+      meter       = "CrowdFunding.Operations"
+      threshold   = 0
+      description = "A ledger entry other than a drop was written after its campaign's decision: the time fence did not hold (lesson s3-l05). The campaign's outcome is suspect."
+    }
+    double_charges = {
+      metric      = "invariants.double_charges"
+      meter       = "CrowdFunding.Operations"
+      threshold   = 0
+      description = "A pledge has more than one succeeded charge attempt: refund the extra charge. The one_success_per_pledge index should make this impossible; check that it still exists."
+    }
+    charges_without_settlement = {
+      metric      = "invariants.charges_without_settlement"
+      meter       = "CrowdFunding.Operations"
+      threshold   = 0
+      description = "A charge exists for a campaign with no settlement job, so with no FUNDED decision. Stop it before it is charged."
+    }
     undelivered_events = {
       metric      = "outbox.oldest_undelivered_age"
       meter       = "CrowdFunding.Outbox"
